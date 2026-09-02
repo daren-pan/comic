@@ -1,0 +1,183 @@
+"""命令行入口。
+
+用法：
+    COMIC_DB_TYPE=mysql|sqlite python -m comic_crawler.cli run --source demo_source [--mode incremental|full] [--db comic_demo.db]
+    COMIC_DB_TYPE=mysql|sqlite python -m comic_crawler.cli transfer-images [--db comic_demo.db] [--store image_store]
+    COMIC_DB_TYPE=mysql|sqlite python -m comic_crawler.cli inspect [--db comic_demo.db] [--store image_store]
+    python -m comic_crawler.cli list          # 列出已注册的源站适配器
+    python -m comic_crawler.cli show [--db comic_demo.db]  # 展示库内数据
+
+存储切换：默认 SQLite；`COMIC_DB_TYPE=mysql` 时读写 MySQL（见 mysql_storage.py）。
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sqlite3
+import time
+
+from .adapter import create_adapter, list_adapters
+from .image_service import lazy_transfer
+from .image_store import LocalImageStore
+from .scheduler import SyncScheduler, full_sync, incremental_sync, inspect_sync
+from .storage import Storage, SQLiteStorage
+
+
+def _storage(args: argparse.Namespace) -> Storage:
+    """按环境变量 COMIC_DB_TYPE 返回 SQLite 或 MySQL 存储实现。"""
+    if os.environ.get("COMIC_DB_TYPE", "sqlite").lower() == "mysql":
+        from .mysql_storage import MySQLStorage
+
+        return MySQLStorage()
+    return SQLiteStorage(db_path=args.db)
+
+
+def _setup_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-7s %(name)s - %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    # HttpFetcher 同时支持 http(s) 与本地路径（fixture 离线联调），demo 源无需特判
+    adapter = create_adapter(args.source)
+    storage = _storage(args)
+
+    if args.mode == "full":
+        stats = full_sync(adapter, storage)
+    else:
+        stats = incremental_sync(adapter, storage)
+    print("\n==> " + stats.summary())
+    print("==> 库内数据:", storage.stats())
+    return 0
+
+
+def cmd_list(_: argparse.Namespace) -> int:
+    print("已注册的源站适配器:")
+    for name in list_adapters():
+        print(f"  - {name}")
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    if os.environ.get("COMIC_DB_TYPE", "sqlite").lower() == "mysql":
+        from .mysql_storage import MySQLStorage
+
+        storage = MySQLStorage()
+        print(f"\n库内作品（MySQL: {storage.dsn['host']}:{storage.dsn['port']}/{storage.dsn['database']}）:")
+        items, _ = storage.list_comics(page=1, page_size=1000)
+        for row in items:
+            print(
+                f"  #{row['id']} [{row['source']}] {row['title']} - {row['author']} "
+                f"({row['status']}/{row['category']}) 更新至:{row['latest_chapter_title']}"
+            )
+        return 0
+
+    conn = sqlite3.connect(args.db)
+    conn.row_factory = sqlite3.Row
+    print(f"\n库内作品（{args.db}）:")
+    for row in conn.execute(
+        "SELECT id, title, author, status, category, source, latest_chapter_title FROM comic ORDER BY id"
+    ):
+        print(
+            f"  #{row['id']} [{row['source']}] {row['title']} - {row['author']} "
+            f"({row['status']}/{row['category']}) 更新至:{row['latest_chapter_title']}"
+        )
+    conn.close()
+    return 0
+
+
+def cmd_transfer_images(args: argparse.Namespace) -> int:
+    """懒转存：把库内全部『未转存』页转存到图片存储（模拟用户阅读触发的按需转存）。"""
+    storage = _storage(args)
+    store = LocalImageStore(root=args.store)
+    stats = lazy_transfer(storage, store)
+    print("==> 懒转存:", stats)
+    print("==> 页面状态分布:", storage.count_pages_by_status())
+    return 0
+
+
+def cmd_inspect(args: argparse.Namespace) -> int:
+    """失效巡检：转存未转存页 + 校验已转存对象 + 恢复丢失。"""
+    storage = _storage(args)
+    store = LocalImageStore(root=args.store)
+    stats = inspect_sync(storage, image_store=store)
+    print("==> 失效巡检:", stats)
+    print("==> 页面状态分布:", storage.count_pages_by_status())
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    """调度守护：按配置轮询执行 增量同步 / 每日全量 / 失效巡检。"""
+    from .config import SOURCES
+
+    storage = _storage(args)
+    sources = [s for s in SOURCES if s.enabled]
+    if args.source:
+        sources = [s for s in sources if s.name == args.source]
+        if not sources:
+            print(f"未找到已启用的源站: {args.source}")
+            return 1
+
+    adapters = {s.name: create_adapter(s.name) for s in sources}
+    sched = SyncScheduler(adapters, storage, sources)
+    print(
+        f"==> 调度服务启动: {[s.name for s in sources]} | "
+        f"检查间隔 {args.interval}s | 巡检间隔 3600s | Ctrl+C 退出",
+        flush=True,
+    )
+    while True:
+        try:
+            for task in sched.tick():
+                print(f"==> 已执行: {task}", flush=True)
+        except KeyboardInterrupt:
+            print("\n==> 调度服务已停止", flush=True)
+            return 0
+        except Exception:
+            logger.exception("调度循环异常")
+        time.sleep(args.interval)
+
+
+def main() -> int:
+    _setup_logging()
+    parser = argparse.ArgumentParser(prog="comic_crawler", description="漫画聚合平台采集服务")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_run = sub.add_parser("run", help="执行一次同步")
+    p_run.add_argument("--source", default="demo_source", help="源站名（见 list）")
+    p_run.add_argument("--mode", choices=["incremental", "full"], default="incremental")
+    p_run.add_argument("--db", default="comic_demo.db", help="SQLite 库路径")
+    p_run.set_defaults(fn=cmd_run)
+
+    sub.add_parser("list", help="列出已注册适配器").set_defaults(fn=cmd_list)
+
+    p_transfer = sub.add_parser("transfer-images", help="懒转存未转存页面")
+    p_transfer.add_argument("--db", default="comic_demo.db")
+    p_transfer.add_argument("--store", default="image_store", help="图片存储目录（本地模拟 OSS）")
+    p_transfer.set_defaults(fn=cmd_transfer_images)
+
+    p_inspect = sub.add_parser("inspect", help="失效巡检（转存 + 校验 + 恢复）")
+    p_inspect.add_argument("--db", default="comic_demo.db")
+    p_inspect.add_argument("--store", default="image_store")
+    p_inspect.set_defaults(fn=cmd_inspect)
+
+    p_show = sub.add_parser("show", help="展示库内数据")
+    p_show.add_argument("--db", default="comic_demo.db")
+    p_show.set_defaults(fn=cmd_show)
+
+    p_serve = sub.add_parser("serve", help="定时调度守护（增量/全量/巡检）")
+    p_serve.add_argument("--source", default="", help="仅调度指定源站（默认全部已启用源）")
+    p_serve.add_argument("--interval", type=int, default=30, help="轮询检查间隔秒数（默认 30）")
+    p_serve.add_argument("--db", default="comic_demo.db")
+    p_serve.set_defaults(fn=cmd_serve)
+
+    args = parser.parse_args()
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

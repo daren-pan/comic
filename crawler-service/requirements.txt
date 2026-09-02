@@ -1,0 +1,3 @@
+httpx>=0.27
+parsel>=1.9
+pymysql>=1.1

@@ -1,0 +1,36 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# ---- Node ----
+node_modules/
+
+# ---- 本地数据库（数据文件不入库，异地可用 tools/sync_mysql_to_sqlite.py 或
+#       crawler-service/sql/comic_full_init.sql 一键重建） ----
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+# 例外：两个随仓库分发的离线数据文件（无 MySQL 环境直接跑发布版的关键数据）
+!crawler-service/comic_demo.db
+!comic-deploy/comic_demo.db
+
+# ---- 运行时产物 / 日志 ----
+serve_out.txt
+nohup.out
+*.log
+logs/
+
+# ---- 开发/探测残留（不随仓库分发） ----
+_zmh_probe/
+.workbuddy/
+
+# ---- 编辑器 / 系统 ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

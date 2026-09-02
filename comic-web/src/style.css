@@ -1,0 +1,98 @@
+:root {
+  --primary: #ff5a36;
+  --primary-dark: #e0451f;
+  --primary-soft: #fff0eb;
+  --accent: #ffb02e;
+  --bg: #f6f4f0;
+  --card: #ffffff;
+  --text: #26221f;
+  --text-2: #6f675f;
+  --border: #ece6df;
+  --radius: 12px;
+  --shadow: 0 2px 10px rgba(60, 40, 20, 0.07);
+  --shadow-hover: 0 8px 24px rgba(60, 40, 20, 0.13);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+a { color: inherit; text-decoration: none; }
+
+.container { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+
+.page { padding: 20px 0 48px; }
+
+/* 通用按钮 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+  background: var(--primary);
+  color: #fff;
+}
+.btn:hover { background: var(--primary-dark); transform: translateY(-1px); }
+.btn.ghost {
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn.ghost:hover { border-color: var(--primary); color: var(--primary); }
+.btn.active { background: var(--primary); color: #fff; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+/* 标签 */
+.chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+
+/* 区块标题 */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 20px;
+  font-weight: 800;
+  margin: 28px 0 14px;
+}
+.section-title::before {
+  content: '';
+  width: 5px;
+  height: 20px;
+  border-radius: 3px;
+  background: var(--primary);
+}
+
+/* 空状态 */
+.empty {
+  text-align: center;
+  color: var(--text-2);
+  padding: 60px 0;
+  font-size: 15px;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #d8d0c6; border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }

@@ -1,0 +1,74 @@
+"""CrawlerAdapter 抽象接口 —— 新增源站的唯一接入点。
+
+对应架构方案 §6.1「源站可插拔」：采集层只依赖本接口。
+接入一个新源站只需要两步：
+1. 实现一个 CrawlerAdapter 子类，覆盖三个抽象方法；
+2. 在 registry.py 中注册（或由配置自动发现）。
+
+业务层、存储层、调度层均不感知具体源站差异。
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
+from ..models import ChapterBrief, ComicBrief, ComicDetail, ComicListResult, PageInfo
+
+
+class CrawlerAdapter(ABC):
+    """漫画源站适配器接口。
+
+    属性约定：
+    - source_name: 源站唯一标识，写入 comic.source / source 表；
+    - base_url:    源站根地址（真实实现为 https 域名）；
+    - robots_allowed: 该源是否允许抓取（预检 robots.txt 的结果）。
+    """
+
+    source_name: str = ""
+    base_url: str = ""
+    robots_allowed: bool = True
+
+    def __init__(self, http: "HttpFetcher") -> None:
+        self.http = http
+
+    # ------------------------------------------------------------------
+    # 生命周期钩子（可选覆盖）
+    # ------------------------------------------------------------------
+    def pre_fetch(self) -> None:
+        """抓取前调用：可在此校验 robots.txt、初始化会话、加载 Cookie。"""
+
+    def post_fetch(self) -> None:
+        """一轮抓取结束后调用：可在此释放资源、更新源站状态。"""
+
+    # ------------------------------------------------------------------
+    # 三个核心抽象方法：任何源站都必须实现
+    # ------------------------------------------------------------------
+    @abstractmethod
+    def fetch_comic_list(self, page: int = 1) -> ComicListResult:
+        """抓取一页漫画列表。
+
+        增量轮询（只看"最近更新"）与全量扫描（逐页翻完）都通过
+        ComicListResult.has_next 驱动翻页。
+        """
+
+    @abstractmethod
+    def fetch_comic_detail(self, comic: ComicBrief) -> ComicDetail:
+        """抓取漫画详情（简介 + 章节列表）。
+
+        comic 来自 fetch_comic_list 的返回，子类用 comic.detail_url
+        或 source_comic_id 定位详情页。
+        """
+
+    @abstractmethod
+    def fetch_chapter_pages(self, detail: ComicDetail, chapter: ChapterBrief) -> list[PageInfo]:
+        """抓取章节的图片页列表。
+
+        返回按 page_no 升序的图片列表；图片地址为源站原图，
+        转存到 OSS 由图片服务（架构方案 §3.3）另行完成。
+        """
+
+    # ------------------------------------------------------------------
+    # 工具方法
+    # ------------------------------------------------------------------
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__name__} source={self.source_name} base={self.base_url}>"
