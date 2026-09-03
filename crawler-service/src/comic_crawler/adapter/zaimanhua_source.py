@@ -16,7 +16,7 @@
 
 模型映射：
 - 1 部漫画 = 站内一部作品              -> comic 表
-- 连载卷中的每个 chapter 入口 = 1 章节  -> chapter 表（只收"连载"卷最新 N 话）
+- 连载卷中的每个 chapter 入口 = 1 章节  -> chapter 表（只收"连载"卷全部话，跳过单行本卷）
 - 每张正文图 = 一页                    -> page 表（source_url 指向签名 CDN 原图）
 """
 
@@ -46,7 +46,6 @@ API_SEARCH = "/api/app/v1/search/index"  # 备用：关键词搜索（未用于�
 
 # 学习用途受控参数
 MAX_PAGE = 1            # "最近更新"最多扫描页数（每页 20 部）
-MAX_CHAPTERS = 2        # 每部仅收"连载"卷最新 N 话
 VOL_TITLE = "连载"      # 只收连载卷，跳过单行本卷（避免章节编号语义混杂）
 
 # 标准话数（整话），如 第128话 / 09章；浮点小节（第153.5话）由 chapter_order 兜底，
@@ -94,7 +93,7 @@ class ZaimanhuaAdapter(CrawlerAdapter):
         return ComicListResult(items=items, page=page, has_next=has_next)
 
     # ------------------------------------------------------------------
-    # 详情页：漫画信息 + 连载卷章节（新 -> 旧，取前 MAX_CHAPTERS 话）
+    # 详情页：漫画信息 + 连载卷章节（新 -> 旧，取连载卷全部话）
     # ------------------------------------------------------------------
     def fetch_comic_detail(self, comic: ComicBrief) -> ComicDetail:
         raw = self._api_get(API_DETAIL.format(cid=comic.source_comic_id)) or {}
@@ -104,7 +103,7 @@ class ZaimanhuaAdapter(CrawlerAdapter):
         chapters: list[ChapterBrief] = []
         vol = self._pick_serial_vol(info.get("chapters") or [])
         if vol is not None:
-            for item in vol["data"][:MAX_CHAPTERS]:
+            for item in vol["data"]:
                 # 章节唯一键取源站 chapter_order（全局有序整数，精确区分分卷小话，
                 # 如 153.5话=1680 / 153话=1670 / 151.5话=1650），避免用正则解析 "第153.5话"
                 # 误得 "5话"->5 导致排序错乱。仅当 chapter_order 缺失/非法时才回退正则解析，

@@ -22,6 +22,7 @@ from .storage import Storage
 logger = logging.getLogger(__name__)
 
 MAX_PAGES_PER_SYNC = 50  # 单轮同步最多翻页数，防止失控
+FIRST_CHAPTERS = 5       # 新漫画首采：只入库连载卷最新 N 话（含分页图）；后续增量只补新章节
 
 
 @dataclass(slots=True)
@@ -82,7 +83,13 @@ def _process_batch(adapter: CrawlerAdapter, storage: Storage, result: ComicListR
 def _upsert_detail(
     adapter: CrawlerAdapter, storage: Storage, detail: "ComicDetail", fp: str, stats: SyncStats
 ) -> None:
-    """详情 + 章节 + 页面入库（新漫画收录与已收录补章共用）。"""
+    """详情 + 章节 + 页面入库（新漫画收录与已收录补章共用）。
+
+    章节采样策略（避免每轮对全卷逐章请求，解决"太慢"）：
+    - 新漫画（库内尚无该作品章节）：只入库连载卷最新 FIRST_CHAPTERS 话（含分页图）；
+    - 已收录漫画（库内已有章节）：只入库源站里 chapter_no 大于库内最大 chapter_no 的新章节，
+      其余已同步章节仅更新元数据、不重复抓分页。
+    """
     comic_id, is_new = storage.upsert_comic(detail, fp)
     if is_new:
         stats.new_comics += 1
@@ -96,7 +103,18 @@ def _upsert_detail(
     except Exception:
         logger.exception("封面落盘流程异常 comic_id=%s", comic_id)
 
-    for idx, chapter in enumerate(detail.chapters):
+    # 库内已有章节的 chapter_no 集合（用于增量判断哪些是新章节）
+    existing_nos = {int(ch["chapter_no"]) for ch in storage.get_chapters(comic_id)}
+    existing_max_no = max(existing_nos) if existing_nos else 0
+    # detail.chapters 按源站返回（新 -> 旧）：
+    # - 新漫画（库内无章节）：只取最新 FIRST_CHAPTERS 话；
+    # - 老漫画（库内已有章节）：取所有 chapter_no 大于库内最大 chapter_no 的新章节（增量）。
+    if existing_nos:
+        sampled = [c for c in detail.chapters if c.chapter_no > existing_max_no]
+    else:
+        sampled = detail.chapters[:FIRST_CHAPTERS]
+
+    for idx, chapter in enumerate(sampled):
         chapter_id, chapter_new = storage.upsert_chapter(comic_id, chapter)
         if chapter_new:
             stats.new_chapters += 1
