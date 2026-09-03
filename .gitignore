@@ -15,6 +15,10 @@ node_modules/
 *.sqlite
 *.sqlite3
 
+# ---- 图库（采集/转存产物，可联网重新抓取，不随仓库分发） ----
+image_store/
+*/image_store/
+
 # ---- 运行时产物 / 日志 ----
 serve_out.txt
 nohup.out
