@@ -1,7 +1,8 @@
 @echo off
 rem ============================================================
 rem  Release mode (SQLite, no MySQL needed): start site on :8000
-rem  Serves comic-deploy (comic_crawler + dist + comic_demo.db)
+rem  Serves comic-deploy (comic_crawler + dist + comic_demo.db created by cli run)
+rem  NOTE: repo ships no data file - run cli run first to populate comic_demo.db
 rem ============================================================
 chcp 65001 >nul
 cd /d "%~dp0..\comic-deploy"

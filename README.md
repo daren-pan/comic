@@ -1,10 +1,10 @@
 # 漫阅 · 漫画聚合平台（comic-platform）
 
 面向演示的漫画聚合平台：**多源采集 → 指纹去重入库 → REST API → 前端同源托管** 全链路代码。
-含 MySQL / SQLite 双存储实现（`COMIC_DB_TYPE` 一行切换），图片统一为**图库内相对 key**，clone 后即可离线运行。
+含 MySQL / SQLite 双存储实现（`COMIC_DB_TYPE` 一行切换），图片统一为**图库内相对 key**。
 
-> 当前数据快照：**8 部漫画 / 31 章 / 344 页**（demo 4 部 + Pepper&Carrot 开源漫画 + 瓜子漫画 2 部 + 午夜心旋律 2 话），
-> 数据来自本机 MySQL `comic` 库（127.0.0.1:3307，root/password，Docker ruoyi-mysql 同款映射）。
+> 仓库**不携带任何数据文件**（`*.db` / `*.sqlite*` 已全局忽略）。数据需联网采集重建，或按「方案 B」导入 MySQL 后同步。
+> 参考：`cli run` 增量/全量采集（见 crawler-service/README.md），或 `python tools/sync_mysql_to_sqlite.py` 生成离线 SQLite。
 
 ## 目录结构
 
@@ -12,12 +12,11 @@
 comic/
 ├── crawler-service/          # 采集服务（Python）：适配器/调度/指纹去重/图片懒转存
 │   ├── src/comic_crawler/    #   核心包（adapter 注册源站、storage 双实现、cli）
-│   ├── sql/                  #   mysql_schema.sql（表结构）+ comic_full_init.sql（一键初始化快照）
+│   ├── sql/                  #   mysql_schema.sql（表结构，无数据快照）
 │   ├── image_store/          #   图库：covers/{id}.jpg 封面、comic/{cid}/{chid}/{page}.jpg 分页图
-│   ├── comic_demo.db         #   离线 SQLite 数据文件（与 MySQL 快照一致，随仓库分发）
 │   ├── fixtures/ tests/      #   模拟源站 HTML 与单元测试
 ├── api-service/              # FastAPI 业务服务（SQLite/MySQL 可切换，同源托管前端）
-├── comic-deploy/             # 发布包：main.py + comic_crawler + dist + comic_demo.db（免 MySQL 一键跑）
+├── comic-deploy/             # 发布包：main.py + comic_crawler + dist（数据文件/图库不随仓库分发）
 ├── comic-web/                # 前端（Vite + React，dist 已构建并随仓库分发）
 ├── tools/                    # sync_mysql_to_sqlite.py：MySQL 权威数据 → SQLite 刷新工具
 ├── scripts/                  # 一键脚本：启动/初始化/数据刷新（.bat + .sh 双份）
@@ -28,10 +27,16 @@ comic/
 
 环境要求：**Python 3.10+**（可再选配 MySQL 5.7/8 与 Node.js 18+）。
 
-### 方案 A：免 MySQL，开箱即用（推荐先跑这个）
+### 方案 A：免 MySQL，SQLite 直跑（需先采集/导入数据）
 
-仓库已带离线数据文件（`comic-deploy/comic_demo.db`、`crawler-service/comic_demo.db`）与构建好的前端产物（`comic-deploy/dist`），无需任何外部依赖服务：
+仓库**不带数据文件**。首次运行前，先跑一次采集把数据写入 SQLite，或用 MySQL 完整版同步出离线文件：
+```bash
+cd crawler-service
+PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --mode full   # 联网采集（可换 --source）
+# 采集后生成的 comic_demo.db 即可供 api-service / comic-deploy 读取
+```
 
+再启动站点（SQLite 模式）：
 ```bash
 # Windows
 python -m venv .venv && .venv\Scripts\pip install -r comic-deploy/requirements.txt
@@ -49,8 +54,8 @@ cd comic-deploy && ../.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --po
 ### 方案 B：MySQL 完整版（可跑采集同步、多机共用数据）
 
 ```bash
-# 1. 初始化数据库（幂等；注意会 DROP 目标库同名表）
-mysql -h127.0.0.1 -P3307 -uroot -ppassword --default-character-set=utf8mb4 < crawler-service/sql/comic_full_init.sql
+# 1. 初始化数据库结构（幂等；注意会 DROP 目标库同名表）
+mysql -h127.0.0.1 -P3307 -uroot -ppassword --default-character-set=utf8mb4 < crawler-service/sql/mysql_schema.sql
 # 或直接：scripts\init_mysql.bat / scripts/init_mysql.sh
 
 # 2. 以 MySQL 模式启动 API（连接参数可用 COMIC_MYSQL_* 覆盖）
@@ -72,7 +77,7 @@ PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua   # 增量同�
 PYTHONPATH=src python -m comic_crawler.cli transfer-images          # 未转存图片懒转存
 PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡检（封面自愈）
 
-# 采集写入 MySQL 后，刷新随仓库分发的 SQLite 离线文件（保持 clone 即可跑）
+# 采集写入 MySQL 后，可刷新离线 SQLite（供 api-service/comic-deploy 的 SQLite 模式读取）
 python tools/sync_mysql_to_sqlite.py
 # 或直接：scripts\sync_sqlite.bat / scripts/sync_sqlite.sh
 ```

@@ -9,7 +9,7 @@
 # 依赖（复用 crawler-service 的 Python venv）
 python -m pip install -r requirements.txt
 
-# 启动（默认 SQLite：读 ../crawler-service/comic_demo.db，可用 COMIC_DB 环境变量指定）
+# 启动（默认 SQLite：读上一级 crawler-service 下生成的 comic_demo.db，可用 COMIC_DB 环境变量指定；仓库不带数据文件，请先 cli run 采集）
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 
 # 切换 MySQL（生产存储，前端零改动；连接参数见 crawler-service/README.md「切换 MySQL」）
