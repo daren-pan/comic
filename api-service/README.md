@@ -9,7 +9,8 @@
 # 依赖（复用 crawler-service 的 Python venv）
 python -m pip install -r requirements.txt
 
-# 启动（默认 SQLite：读上一级 crawler-service 下生成的 comic_demo.db，可用 COMIC_DB 环境变量指定；仓库不带数据文件，请先 cli run 采集）
+# 前置：先构建前端（仓库不带 dist，clone 后请先 cd comic-web && npm install && npm run build）
+#       启动（默认 SQLite：读上一级 crawler-service 下生成的 comic_demo.db，可用 COMIC_DB 环境变量指定；仓库不带数据文件，请先 cli run 采集）
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 
 # 切换 MySQL（生产存储，前端零改动；连接参数见 crawler-service/README.md「切换 MySQL」）
@@ -44,7 +45,8 @@ COMIC_DB_TYPE=mysql python -m uvicorn main:app --host 127.0.0.1 --port 8000
   使用 `SQLiteStorage` 或 `MySQLStorage` 的只读查询（`list_comics/get_comic/get_chapters/get_pages`），
   与采集服务共用一套存储接口 —— `COMIC_DB_TYPE=mysql` 一行切换，API 代码零改动；
 - **同源部署**：`app.mount("/", StaticFiles(comic-web/dist))`，前端与 API 同一端口，
-  无 CORS / 代理问题；开发模式前端走 Vite proxy（见 comic-web/vite.config.ts）；
+  无 CORS / 代理问题；开发模式前端走 Vite proxy（见 comic-web/vite.config.ts）。
+  注意：`comic-web/dist` **不随仓库分发**，clone 后需先构建前端，否则 `/` 无内容；
 - **图片回退链**：已转存 OSS 文件（真实图片字节）→ 本地生成 SVG 占位图。
   接真实源站后转存文件即为真实漫画图，占位逻辑自动失效；
 - **视图计数**：内存计数器（演示版），生产换 Redis 计数器。
@@ -54,7 +56,7 @@ COMIC_DB_TYPE=mysql python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 crawler-service（采集/去重/入库）→ SQLite/MySQL → api-service（RESTful API）
                                                      ↓ 同源
-                                    comic-web（前端 dist，读 /api 真实数据）
+                                    comic-web（前端 dist，读 /api 真实数据；dist 不随仓库分发）
 ```
 
 在 `crawler-service` 目录执行 `cli run` 后，刷新前端即可看到新入库内容 ——

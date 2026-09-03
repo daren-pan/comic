@@ -97,3 +97,46 @@ def lazy_transfer(
 
     logger.info("懒转存完成: %s", stats)
     return stats
+
+
+def transfer_latest_first_page(
+    storage: Storage,
+    image_store: ImageStore,
+    comic_id: int,
+    latest_chapter_id: int,
+    downloader: Callable[[str, str], bytes] | None = None,
+) -> bool:
+    """采集入库后自动转存「最新一话的第 1 页」图片。
+
+    用于通量验证：入库时不下载全部分页图（慢、易被源站限流），只把
+    每部漫画最新一章的第 1 页转存到图库、回填 oss_url 标记已转存，
+    其余页面保持「未转存」（访问时显示占位符）。
+
+    参数:
+        latest_chapter_id: 最新一话的章节 id（DB 内 id，须先 upsert_pages 入库）
+
+    返回:
+        True 表示成功转存；False 表示无页可转 / 下载失败。
+    """
+    rows = storage.get_pages(latest_chapter_id)
+    if not rows:
+        return False
+    first = rows[0]  # get_pages 按 page_no ASC，第 1 页在最前，且带 page_id
+    page_id, page_no = int(first["page_id"]), int(first["page_no"])
+    key = build_image_key(comic_id, latest_chapter_id, page_no)
+    downloader = downloader or default_downloader
+    try:
+        data = downloader(str(first["source_url"]), key)
+        image_store.put(key, data)
+        storage.mark_page_cached(page_id, key)
+        logger.info(
+            "自动转存最新章第1页 comic_id=%s chapter_id=%s page_no=%s -> %s (%dB)",
+            comic_id, latest_chapter_id, page_no, key, len(data),
+        )
+        return True
+    except Exception as exc:
+        logger.warning(
+            "自动转存最新章第1页失败 comic_id=%s chapter_id=%s page_no=%s: %s",
+            comic_id, latest_chapter_id, page_no, exc,
+        )
+        return False

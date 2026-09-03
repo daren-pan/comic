@@ -15,6 +15,12 @@ const loading = ref(true)
 
 const chapterCount = computed(() => chapters.value.length)
 
+// 章节列表按 orderNo（源站 chapter_order）倒序：最新章节在前，符合阅读习惯。
+// 仅在此视图内反向，不改后端接口、不影响阅读器「上一话/下一话」方向。
+const sortedChapters = computed(() =>
+  [...chapters.value].sort((a, b) => b.orderNo - a.orderNo),
+)
+
 onMounted(async () => {
   const [c, chs, f] = await Promise.all([getComic(comicId), getChapters(comicId), isFavorite(comicId)])
   comic.value = c
@@ -55,7 +61,7 @@ function fmtTime(iso: string): string {
         <p class="hero-line">章节：{{ chapterCount }} 话 · 热度 {{ comic.views.toLocaleString() }} · 更新 {{ fmtTime(comic.updatedAt) }}</p>
         <p class="hero-line sources">数据来源：<em v-for="s in comic.sources" :key="s">{{ s }}</em></p>
         <div class="actions">
-          <button class="btn" @click="chapters.length && read(chapters[0])">▶ 开始阅读</button>
+          <button class="btn" @click="sortedChapters.length && read(sortedChapters[0])">▶ 开始阅读</button>
           <button class="btn ghost" :class="{ active: fav }" @click="onFav">
             {{ fav ? '★ 已收藏' : '☆ 收藏' }}
           </button>
@@ -68,7 +74,7 @@ function fmtTime(iso: string): string {
     <h2 class="section-title">章节列表（{{ chapterCount }}）</h2>
     <div class="chapters">
       <button
-        v-for="(ch, i) in chapters"
+        v-for="(ch, i) in sortedChapters"
         :key="ch.id"
         class="chapter"
         @click="read(ch)"

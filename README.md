@@ -16,8 +16,8 @@ comic/
 │   ├── image_store/          #   图库：covers/{id}.jpg 封面、comic/{cid}/{chid}/{page}.jpg 分页图
 │   ├── fixtures/ tests/      #   模拟源站 HTML 与单元测试
 ├── api-service/              # FastAPI 业务服务（SQLite/MySQL 可切换，同源托管前端）
-├── comic-deploy/             # 发布包：main.py + comic_crawler + dist（数据文件/图库不随仓库分发）
-├── comic-web/                # 前端（Vite + React，dist 已构建并随仓库分发）
+├── comic-deploy/             # 发布包：main.py + comic_crawler（数据文件/图库/dist 不随仓库分发）
+├── comic-web/                # 前端（Vite + Vue3，dist 不随仓库分发，clone 后需先 npm run build）
 ├── tools/                    # sync_mysql_to_sqlite.py：MySQL 权威数据 → SQLite 刷新工具
 ├── scripts/                  # 一键脚本：启动/初始化/数据刷新（.bat + .sh 双份）
 └── 漫画聚合网站_架构设计方案.md
@@ -26,6 +26,12 @@ comic/
 ## 快速开始（异地 clone 后）
 
 环境要求：**Python 3.10+**（可再选配 MySQL 5.7/8 与 Node.js 18+）。
+
+> ⚠️ 仓库**不携带前端构建产物**（`dist/` 已 gitignore）。首次运行前需先构建前端：
+> ```bash
+> cd comic-web && npm install && npm run build   # 产物 comic-web/dist，供 api-service/comic-deploy 同源托管
+> ```
+> 若只跑后端 API、不打开网页，可跳过此步。
 
 ### 方案 A：免 MySQL，SQLite 直跑（需先采集/导入数据）
 
@@ -63,10 +69,17 @@ COMIC_DB_TYPE=mysql python -m uvicorn main:app --host 127.0.0.1 --port 8000   # 
 # 或直接：scripts\start_mysql.bat / scripts/start_mysql.sh
 ```
 
-### （可选）重新构建前端
+### （必做）构建前端
 
-改完 `comic-web/src` 后：`cd comic-web && npm install && npm run build`，产物 `comic-web/dist`
-（base 为相对路径）供 `api-service`/`comic-deploy` 同源托管。
+前端源码在 `comic-web/src`，仓库**不带 dist**。clone 后必须先构建一次（或每次改完 `src` 后重新构建）：
+```bash
+cd comic-web && npm install && npm run build   # 产物 comic-web/dist（base 为相对路径）
+```
+构建产物 `comic-web/dist` 供 `api-service`/`comic-deploy` 同源托管；`dist` 不入库（已在 .gitignore）。
+
+### 前端本地开发（可选）
+```bash
+cd comic-web && npm run dev   # Vite dev server，需自行配置代理到 8000 后端
 
 ## 数据更新与图片转存
 

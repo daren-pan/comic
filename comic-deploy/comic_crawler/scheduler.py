@@ -96,7 +96,7 @@ def _upsert_detail(
     except Exception:
         logger.exception("封面落盘流程异常 comic_id=%s", comic_id)
 
-    for chapter in detail.chapters:
+    for idx, chapter in enumerate(detail.chapters):
         chapter_id, chapter_new = storage.upsert_chapter(comic_id, chapter)
         if chapter_new:
             stats.new_chapters += 1
@@ -104,6 +104,21 @@ def _upsert_detail(
             pages = adapter.fetch_chapter_pages(detail, chapter)
             if pages:
                 storage.upsert_pages(chapter_id, pages)
+                # 采集入库后自动转存「最新一话的第 1 页」（detail.chapters 首个为最新话）
+                # 用于通量验证：只下载最新章第1页，其余页保持未转存（占位）。
+                if idx == 0:
+                    try:
+                        from .image_service import transfer_latest_first_page
+                        from .image_store import LocalImageStore
+
+                        transfer_latest_first_page(
+                            storage, LocalImageStore(), comic_id, chapter_id
+                        )
+                    except Exception:
+                        logger.exception(
+                            "自动转存最新章第1页异常 comic_id=%s chapter_id=%s",
+                            comic_id, chapter_id,
+                        )
         except Exception:
             # 章节图片失败不阻塞整部漫画入库，仅记录并继续
             stats.failed += 1

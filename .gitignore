@@ -9,6 +9,10 @@ venv/
 # ---- Node ----
 node_modules/
 
+# ---- 前端构建产物（由 comic-web/src 经 vite build 生成，不入库，clone 后需先构建）----
+dist/
+*/dist/
+
 # ---- 本地数据库（不在仓库中分发，需联网采集或手动导入重建） ----
 *.db
 *.db-journal

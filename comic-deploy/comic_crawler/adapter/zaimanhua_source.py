@@ -8,9 +8,10 @@
   其 App 专用 JSON API **匿名即可读**，且服务端按请求头 `Platform` 判定
   下发内容：缺省/`pc` 时章节图片接口返回空页，`h5` 时正常下发；
 - 关键 API（均为 GET，需带 `_v=15` 版本参数 + `Platform: h5` 头）：
-    - 搜索:  /api/app/v1/search/index?keyword=..&source=0
-    - 详情:  /api/app/v1/comic/detail/{id}
-    - 章节图: /api/app/v1/comic/chapter/{comic_id}/{chapter_id}
+    - 最近更新列表: /api/app/v1/comic/update/list/0/{page}   # 首页"最近更新"标签
+    - 详情:        /api/app/v1/comic/detail/{id}
+    - 章节图:      /api/app/v1/comic/chapter/{comic_id}/{chapter_id}
+    - （备用）搜索: /api/app/v1/search/index?keyword=..&source=0
 - 图片域 images.zaimanhua.com/w/...，URL 自带 sign/t 防盗链签名，直接可下载。
 
 模型映射：
@@ -38,16 +39,19 @@ from .base import CrawlerAdapter
 from .registry import register
 
 BASE = "https://m.zaimanhua.com"
-API_SEARCH = "/api/app/v1/search/index"
+API_UPDATE_LIST = "/api/app/v1/comic/update/list/0/{page}"  # 首页"最近更新"标签
 API_DETAIL = "/api/app/v1/comic/detail/{cid}"
 API_CHAPTER = "/api/app/v1/comic/chapter/{cid}/{chid}"
+API_SEARCH = "/api/app/v1/search/index"  # 备用：关键词搜索（未用于默认列表）
 
 # 学习用途受控参数
-MAX_COMICS = 4          # 搜索/列表最多收录 N 部
+MAX_PAGE = 1            # "最近更新"最多扫描页数（每页 20 部）
 MAX_CHAPTERS = 2        # 每部仅收"连载"卷最新 N 话
 VOL_TITLE = "连载"      # 只收连载卷，跳过单行本卷（避免章节编号语义混杂）
 
-CN_CHAPTER_RE = re.compile(r"第\s*(\d+)\s*(话|回|章)")
+# 标准话数（整话），如 第128话 / 09章；浮点小节（第153.5话）由 chapter_order 兜底，
+# 不再试图用正则解析（否则 第153.5话 会被误读成 "5话" -> 5）。
+CN_CHAPTER_RE = re.compile(r"第?\s*(\d+)\s*(话|回|章|序)")
 CN_VOL_RE = re.compile(r"第\s*(\d+)\s*卷")
 
 UA_H5 = (
@@ -60,32 +64,34 @@ UA_H5 = (
 class ZaimanhuaAdapter(CrawlerAdapter):
     """在漫画 / 再漫画 H5（m.zaimanhua.com）适配器（学习用途 · 受控样本）。
 
-    列表语义 = 关键词搜索（source=0 全站搜索）。默认关键词在源码顶部
-    SEARCH_KEYWORDS 配置；受控参数确保单次收录量小。
+    列表语义 = 首页「最近更新」标签（/app/v1/comic/update/list/0/{page}）。
+    返回按更新时间倒序的漫画列表，每页 20 部；受控参数 MAX_PAGE 限制单次
+    扫描页数，避免一次收录过多。
     """
 
     source_name = "zaimanhua"
     base_url = BASE
     robots_allowed = True  # 学习用途：受控低频请求
 
-    SEARCH_KEYWORDS: tuple[str, ...] = ("午夜心旋律",)  # 受控：仅收录指定作品
-
     # ------------------------------------------------------------------
-    # 列表页：关键词搜索（source=0）-> 前 MAX_COMICS 部
+    # 列表页：首页「最近更新」标签 -> 前 MAX_PAGE 页
     # ------------------------------------------------------------------
     def fetch_comic_list(self, page: int = 1) -> ComicListResult:
-        if page > 1:
+        if page > MAX_PAGE:
             return ComicListResult(items=[], page=page, has_next=False)
 
-        items: list[ComicBrief] = []
-        for kw in self.SEARCH_KEYWORDS:
-            raw = self._api_get(
-                API_SEARCH,
-                params={"keyword": kw, "source": 0, "page": 1, "size": 20},
-            ) or {}
-            for row in (((raw.get("data") or {}).get("list")) or [])[:MAX_COMICS]:
-                items.append(self._row_to_brief(row))
-        return ComicListResult(items=items, page=page, has_next=False)
+        raw = self._api_get(API_UPDATE_LIST.format(page=page)) or {}
+        list_data = raw.get("data") or []
+        if isinstance(list_data, dict):  # 兜底：个别接口 data 为对象包裹
+            list_data = list_data.get("list") or []
+        items = [
+            self._row_to_brief(row)
+            for row in list_data[:20]
+            if isinstance(row, dict)
+        ]
+        # 最近更新接口无明确 has_next 标志；以本页是否满 20 部判断是否还有下一页
+        has_next = len(list_data) >= 20 and page < MAX_PAGE
+        return ComicListResult(items=items, page=page, has_next=has_next)
 
     # ------------------------------------------------------------------
     # 详情页：漫画信息 + 连载卷章节（新 -> 旧，取前 MAX_CHAPTERS 话）
@@ -99,7 +105,17 @@ class ZaimanhuaAdapter(CrawlerAdapter):
         vol = self._pick_serial_vol(info.get("chapters") or [])
         if vol is not None:
             for item in vol["data"][:MAX_CHAPTERS]:
-                no = self._chapter_no(item.get("chapter_name") or "")
+                # 章节唯一键取源站 chapter_order（全局有序整数，精确区分分卷小话，
+                # 如 153.5话=1680 / 153话=1670 / 151.5话=1650），避免用正则解析 "第153.5话"
+                # 误得 "5话"->5 导致排序错乱。仅当 chapter_order 缺失/非法时才回退正则解析，
+                # 且此时只用作一个可排序的整数（对含小数的标题取整部数，见 _chapter_no）。
+                no = item.get("chapter_order")
+                if not isinstance(no, int):
+                    no = self._chapter_no(
+                        item.get("chapter_title") or item.get("chapter_name") or ""
+                    )
+                    if no is None:
+                        no = self._chapter_no(item.get("chapter_title") or "")
                 if no is None:
                     continue
                 chapters.append(
@@ -146,8 +162,9 @@ class ZaimanhuaAdapter(CrawlerAdapter):
     # 工具
     # ------------------------------------------------------------------
     def _row_to_brief(self, row: dict[str, Any]) -> ComicBrief:
-        """搜索行 -> ComicBrief。字段见 /app/v1/search/index 响应。"""
-        cid = str(row.get("id") or row.get("comic_id") or "").strip()
+        """最近更新列表行 -> ComicBrief。字段见 /app/v1/comic/update/list/0/{page} 响应。"""
+        # 注意：update/list 响应里作品 ID 在 comic_id 字段（id 恒为 0）
+        cid = str(row.get("comic_id") or row.get("id") or "").strip()
         title = (row.get("title") or "").strip()
         return ComicBrief(
             source=self.source_name,
@@ -185,8 +202,17 @@ class ZaimanhuaAdapter(CrawlerAdapter):
 
     @staticmethod
     def _chapter_no(name: str) -> int | None:
-        """'第128话' -> 128；'第09卷'/'其他' 一律跳过（只收主线连载话数）。"""
-        m = CN_CHAPTER_RE.search(name or "")
+        """仅识别「整话」序号（第128话 -> 128；7话 -> 7）。
+
+        含小数的分卷小话（第153.5话 / 151.5话）与卷/其他（第13卷 / 番外篇）
+        一律返回 None —— 这类条目由源站 chapter_order 兜底；若 chapter_order 也缺失，
+        宁可漏收也不误存成 "5话"->5 这类错误序号。
+        """
+        text = name or ""
+        # 含小数点的标题（分卷小话）拒绝解析，避免 第153.5话 被截成 5
+        if "." in text or "．" in text:
+            return None
+        m = CN_CHAPTER_RE.search(text)
         if m:
             return int(m.group(1))
         return None

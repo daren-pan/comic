@@ -155,6 +155,35 @@ class MySQLStorage:
                 )
         return len(pages)
 
+    def update_chapter_no(self, comic_id: int, chapter_id: int, old_no: int, new_no: int) -> bool:
+        """把某章节的 chapter_no（唯一键 comic_id+chapter_no）改为 new_no。
+
+        语义迁移场景：把 chapter_no 从"话数"改为"源站 chapter_order"，用于正确排序
+        分卷小话（第153.5话）。两步法避免唯一键瞬时冲突：
+        1. 先把该行 chapter_no 临时改为与任何现有值都不冲突的临时值；
+        2. 再改为目标 new_no。
+        仅当目标值 new_no 已被本漫画其他章节占用时返回 False（调用方跳过）。
+        """
+        tmp = -(chapter_id + 1)  # 负临时值，保证不与正号 order 冲突（chapter_id 唯一）
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                # 目标是否已被同一漫画的其他章节占用（排除本行）
+                cur.execute(
+                    "SELECT id FROM chapter WHERE comic_id=%s AND chapter_no=%s AND id<>%s",
+                    (comic_id, new_no, chapter_id),
+                )
+                if cur.fetchone() is not None:
+                    return False
+                cur.execute(
+                    "UPDATE chapter SET chapter_no=%s WHERE id=%s",
+                    (tmp, chapter_id),
+                )
+                cur.execute(
+                    "UPDATE chapter SET chapter_no=%s WHERE id=%s",
+                    (new_no, chapter_id),
+                )
+        return True
+
     def log_sync(self, source: str, mode: str, stats) -> None:
         now = _now()
         with self._conn() as conn:
