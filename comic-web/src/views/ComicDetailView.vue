@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getChapter, getChapters, getComic, isFavorite, toggleFavorite, upsertHistory } from '../api'
+import { getChapter, getChapters, getComic, isFavorite, toggleFavorite, upsertHistory, isLoggedIn } from '../api'
 import type { Chapter, Comic } from '../types'
 
 const route = useRoute()
@@ -12,6 +12,7 @@ const comic = ref<Comic>()
 const chapters = ref<Chapter[]>([])
 const fav = ref(false)
 const loading = ref(true)
+const favNotice = ref(false)
 
 const chapterCount = computed(() => chapters.value.length)
 
@@ -22,7 +23,11 @@ const sortedChapters = computed(() =>
 )
 
 onMounted(async () => {
-  const [c, chs, f] = await Promise.all([getComic(comicId), getChapters(comicId), isFavorite(comicId)])
+  const [c, chs, f] = await Promise.all([
+    getComic(comicId),
+    getChapters(comicId),
+    isLoggedIn() ? isFavorite(comicId) : Promise.resolve(false),
+  ])
   comic.value = c
   chapters.value = chs
   fav.value = f
@@ -30,7 +35,17 @@ onMounted(async () => {
 })
 
 async function onFav() {
+  // 收藏需要登录；未登录引导去登录页
+  if (!isLoggedIn()) {
+    favNotice.value = true
+    return
+  }
+  favNotice.value = false
   fav.value = await toggleFavorite(comicId)
+}
+
+function gotoLogin() {
+  router.push({ path: '/login', query: { redirect: route.fullPath } })
 }
 
 async function read(chapter: Chapter) {
@@ -66,6 +81,9 @@ function fmtTime(iso: string): string {
             {{ fav ? '★ 已收藏' : '☆ 收藏' }}
           </button>
         </div>
+        <p v-if="favNotice" class="fav-notice">
+          收藏需要登录 — <a href="javascript:;" @click="gotoLogin">去登录</a>，登录后可跨设备同步收藏
+        </p>
       </div>
     </div>
 
@@ -114,6 +132,15 @@ function fmtTime(iso: string): string {
   color: var(--text-2);
 }
 .actions { display: flex; gap: 10px; margin-top: 16px; }
+.fav-notice {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--primary-dark);
+  background: var(--primary-soft);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.fav-notice a { color: var(--primary); font-weight: 700; text-decoration: underline; }
 
 .desc {
   background: #fff;

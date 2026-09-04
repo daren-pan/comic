@@ -450,6 +450,33 @@ class MySQLUserStore:
                 )
                 return [int(r["comic_id"]) for r in cur.fetchall()]
 
+    # ---- 用户账户（登录/注册） ----
+    def get_user_by_username(self, username: str) -> dict | None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM user WHERE username=%s", (username,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def create_user(self, username: str, password_hash: str, nickname: str) -> dict:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO user (username, password_hash, nickname, created_at)
+                       VALUES (%s,%s,%s,%s)""",
+                    (username, password_hash, nickname, _now()),
+                )
+                conn.commit()
+                cur.execute("SELECT * FROM user WHERE id=%s", (cur.lastrowid,))
+                return dict(cur.fetchone())
+
+    def get_user(self, user_id: str) -> dict | None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM user WHERE id=%s", (user_id,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
     def is_favorite(self, user_id: str, comic_id: int) -> bool:
         with self._conn() as conn:
             with conn.cursor() as cur:

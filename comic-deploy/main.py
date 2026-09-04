@@ -15,14 +15,17 @@ import os
 import sqlite3
 import sys
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+import bcrypt
+import jwt
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 APP_DIR = Path(__file__).resolve().parent
@@ -61,8 +64,17 @@ else:
     db = SQLiteStorage(db_path=DB_PATH)
 
 # ---------------- 用户中心存储（架构方案 §3.1 user/favorite/history 表） ----------------
-# 匿名用户模型：前端首次访问生成 userId；生产环境替换为登录态 + MySQL。
+# 匿名用户模型：前端首次访问生成 userId（仍服务于「最近阅读/历史」，无需登录）；
+# 收藏功能改为登录态：user 表 + JWT 鉴权，多端同步，密码仅存 bcrypt 哈希。
 _USER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS user (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    nickname TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS favorite (
     user_id TEXT NOT NULL,
     comic_id INTEGER NOT NULL,
@@ -104,6 +116,23 @@ class UserStore:
                 (user_id,),
             ).fetchall()
         return [r["comic_id"] for r in rows]
+
+    # ---- 用户账户（登录/注册） ----
+    def get_user_by_username(self, username: str) -> sqlite3.Row | None:
+        with self._conn() as conn:
+            return conn.execute("SELECT * FROM user WHERE username=?", (username,)).fetchone()
+
+    def create_user(self, username: str, password_hash: str, nickname: str) -> sqlite3.Row:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO user (username, password_hash, nickname, created_at) VALUES (?,?,?,?)",
+                (username, password_hash, nickname, datetime.now().isoformat(timespec="seconds")),
+            )
+            return conn.execute("SELECT * FROM user WHERE id=?", (cur.lastrowid,)).fetchone()
+
+    def get_user(self, user_id: str) -> sqlite3.Row | None:
+        with self._conn() as conn:
+            return conn.execute("SELECT * FROM user WHERE id=?", (user_id,)).fetchone()
 
     def is_favorite(self, user_id: str, comic_id: int) -> bool:
         with self._conn() as conn:
@@ -184,7 +213,7 @@ def to_comic(row: dict) -> dict:
         "views": comic_views(row["id"]),
         "updatedAt": row["sync_time"],
         "sources": [s for s in (row.get("source") or "").split(",") if s] or ["unknown"],
-        "tags": [],
+        "tags": db.get_comic_tags(row["id"]),
     }
 
 
@@ -326,10 +355,109 @@ def _ok(data, message: str = "ok") -> dict:
     return {"code": 0, "message": message, "data": data}
 
 
+# ---------------- 用户认证（JWT + bcrypt） ----------------
+# 演示用途密钥；生产环境用环境变量注入强随机值。
+_JWT_SECRET = os.environ.get("COMIC_JWT_SECRET", "comic-demo-secret-change-me")
+_JWT_ALGO = "HS256"
+_JWT_EXP_HOURS = 24 * 7  # 7 天
+_bearer = HTTPBearer(auto_error=False)
+
+
+def _hash_password(raw: str) -> str:
+    return bcrypt.hashpw(raw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _verify_password(raw: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(raw.encode("utf-8"), hashed.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+
+
+def _make_token(user_id: int, username: str) -> str:
+    now = datetime.now()
+    payload = {
+        "sub": str(user_id),
+        "username": username,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=_JWT_EXP_HOURS)).timestamp()),
+    }
+    return jwt.encode(payload, _JWT_SECRET, algorithm=_JWT_ALGO)
+
+
+def _decode_token(token: str) -> dict:
+    """解码并校验 token；无效/过期抛 401。"""
+    try:
+        payload = jwt.decode(token, _JWT_SECRET, algorithms=[_JWT_ALGO])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="invalid token")
+    return payload
+
+
+def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> dict:
+    """从 Authorization: Bearer <token> 解析当前登录用户。"""
+    if cred is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    payload = _decode_token(cred.credentials)
+    user = users.get_user(payload.get("sub", ""))
+    if not user:
+        raise HTTPException(status_code=401, detail="user not found")
+    return user
+
+
+class RegisterBody(BaseModel):
+    username: str
+    password: str
+    nickname: str = ""
+
+
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
 class HistoryPut(BaseModel):
     comicId: int
     chapterId: int
     pageNo: int = 1
+
+
+# ---------------- 用户认证端点（注册 / 登录 / 当前用户） ----------------
+def _user_out(user) -> dict:
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "nickname": user["nickname"] or user["username"],
+        "createdAt": user["created_at"],
+    }
+
+
+@app.post("/api/auth/register")
+def register(body: RegisterBody):
+    username = body.username.strip()
+    if not (3 <= len(username) <= 32):
+        raise HTTPException(status_code=400, detail="用户名长度需为 3-32 个字符")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="密码长度至少 6 位")
+    if users.get_user_by_username(username):
+        raise HTTPException(status_code=409, detail="用户名已存在")
+    user = users.create_user(username, _hash_password(body.password), body.nickname.strip())
+    return _ok({"token": _make_token(user["id"], user["username"]), "user": _user_out(user)}, "register success")
+
+
+@app.post("/api/auth/login")
+def login(body: LoginBody):
+    user = users.get_user_by_username(body.username.strip())
+    if not user or not _verify_password(body.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    return _ok({"token": _make_token(user["id"], user["username"]), "user": _user_out(user)}, "login success")
+
+
+@app.get("/api/auth/me")
+def me(user: dict = Depends(get_current_user)):
+    return _ok(_user_out(user))
 
 
 @app.get("/api/health")
@@ -375,9 +503,14 @@ def chapter_pages(chapter_id: int):
     return _ok([to_page(r, ch["comic_id"], chapter_id) for r in rows])
 
 
-# ---------------- 用户中心（收藏 / 历史，架构方案 §3.1 favorite/history 表） ----------------
+# ---------------- 用户中心 ----------------
+# 收藏：登录态（JWT）；历史/最近阅读：匿名 userId（无需登录）。
+
+
 @app.get("/api/users/{user_id}/favorites")
-def favorites(user_id: str):
+def favorites(user_id: str, user: dict = Depends(get_current_user)):
+    """收藏列表：需登录。user_id 参数保留用于路由兼容，实际以 token 身份为准。"""
+    user_id = str(user["id"])
     items = []
     for cid in users.list_favorites(user_id):
         row = db.get_comic(cid)
@@ -387,21 +520,21 @@ def favorites(user_id: str):
 
 
 @app.get("/api/users/{user_id}/favorites/{comic_id}")
-def favorite_state(user_id: str, comic_id: int):
-    return _ok({"favorited": users.is_favorite(user_id, comic_id)})
+def favorite_state(user_id: str, comic_id: int, user: dict = Depends(get_current_user)):
+    return _ok({"favorited": users.is_favorite(str(user["id"]), comic_id)})
 
 
 @app.put("/api/users/{user_id}/favorites/{comic_id}")
-def add_favorite(user_id: str, comic_id: int):
+def add_favorite(user_id: str, comic_id: int, user: dict = Depends(get_current_user)):
     if not db.get_comic(comic_id):
         raise HTTPException(status_code=404, detail="comic not found")
-    users.set_favorite(user_id, comic_id, True)
+    users.set_favorite(str(user["id"]), comic_id, True)
     return _ok({"favorited": True})
 
 
 @app.delete("/api/users/{user_id}/favorites/{comic_id}")
-def remove_favorite(user_id: str, comic_id: int):
-    users.set_favorite(user_id, comic_id, False)
+def remove_favorite(user_id: str, comic_id: int, user: dict = Depends(get_current_user)):
+    users.set_favorite(str(user["id"]), comic_id, False)
     return _ok({"favorited": False})
 
 

@@ -9,6 +9,7 @@ export const router = createRouter({
     { path: '/comic/:id', name: 'detail', component: () => import('./views/ComicDetailView.vue') },
     { path: '/reader/:comicId/:chapterId', name: 'reader', component: () => import('./views/ReaderView.vue') },
     { path: '/me', name: 'me', component: () => import('./views/MeView.vue') },
+    { path: '/login', name: 'login', component: () => import('./views/LoginView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
   scrollBehavior() {

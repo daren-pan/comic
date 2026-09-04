@@ -58,3 +58,15 @@ export interface CategoryCount {
   name: string
   count: number
 }
+
+export interface User {
+  id: number
+  username: string
+  nickname: string
+  createdAt: string
+}
+
+export interface AuthResult {
+  token: string
+  user: User
+}

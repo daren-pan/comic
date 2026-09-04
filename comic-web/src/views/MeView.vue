@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { getFavorites, getHistoryWithDetail, removeHistory } from '../api'
+import { getFavorites, getHistoryWithDetail, removeHistory, isLoggedIn } from '../api'
 import type { Comic, HistoryEntry } from '../types'
 
 const router = useRouter()
@@ -9,6 +9,7 @@ const favorites = ref<Comic[]>([])
 const history = ref<(HistoryEntry & { comic?: Comic; chapterTitle?: string })[]>([])
 const loaded = ref(false)
 const tab = ref<'history' | 'favorites'>('history')
+const logged = ref(isLoggedIn())
 
 function fmtTime(iso: string): string {
   const d = new Date(iso)
@@ -17,7 +18,10 @@ function fmtTime(iso: string): string {
 }
 
 async function refresh() {
-  const [favs, his] = await Promise.all([getFavorites(), getHistoryWithDetail()])
+  const [favs, his] = await Promise.all([
+    logged.value ? getFavorites() : Promise.resolve([]),
+    getHistoryWithDetail(),
+  ])
   favorites.value = favs
   history.value = his
   loaded.value = true
@@ -67,7 +71,11 @@ function continueRead(h: HistoryEntry) {
 
     <!-- 收藏 -->
     <div v-else>
-      <div v-if="favorites.length === 0" class="empty">还没有收藏，详情页点「收藏」即可加入书架</div>
+      <div v-if="!logged" class="fav-login">
+        <p>收藏需要登录，登录后可跨设备同步</p>
+        <button class="btn" @click="router.push('/login')">去登录</button>
+      </div>
+      <div v-else-if="favorites.length === 0" class="empty">还没有收藏，详情页点「收藏」即可加入书架</div>
       <div v-else class="fav-grid">
         <div v-for="c in favorites" :key="c.id" class="fav-item" @click="router.push(`/comic/${c.id}`)">
           <img :src="c.cover" :alt="c.title" />
@@ -116,6 +124,15 @@ function continueRead(h: HistoryEntry) {
 .btn.danger:hover { border-color: #e23; color: #e23; }
 
 .fav-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
+.fav-login {
+  text-align: center;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 48px 20px;
+  color: var(--text-2);
+}
+.fav-login p { margin: 0 0 16px; font-size: 14px; }
 .fav-item {
   background: #fff;
   border-radius: 12px;

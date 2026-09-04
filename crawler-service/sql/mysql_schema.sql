@@ -72,6 +72,16 @@ CREATE TABLE IF NOT EXISTS comic_tag (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- 用户中心（架构方案 §3.1 user/favorite/history）
+CREATE TABLE IF NOT EXISTS user (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(64) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    nickname VARCHAR(64) NOT NULL DEFAULT '',
+    avatar_url VARCHAR(512) NOT NULL DEFAULT '',
+    created_at VARCHAR(32) NOT NULL,
+    UNIQUE KEY uk_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 CREATE TABLE IF NOT EXISTS favorite (
     user_id VARCHAR(64) NOT NULL,
     comic_id INT NOT NULL,
