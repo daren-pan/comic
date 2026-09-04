@@ -369,13 +369,14 @@ function withFallback(primary: Api, fallback: Api): Api {
   for (const key of Object.keys(primary) as (keyof Api)[]) {
     const p = primary[key]
     const f = fallback[key]
-    out[key] = (async (...args: Parameters<typeof p>) => {
+    out[key] = function (this: unknown, ...args: Parameters<typeof p>) {
       try {
-        return await p(...args)
+        // 用 p.call(this, ...args) 保留 this 上下文，确保 httpApi 内部 `this.xxx()` 互相调用可访问
+        return (p as (...a: Parameters<typeof p>) => unknown).call(this, ...args)
       } catch {
-        return f(...args)
+        return (f as (...a: Parameters<typeof p>) => unknown).call(this, ...args)
       }
-    }) as typeof p
+    } as typeof p
   }
   return out
 }
