@@ -184,7 +184,7 @@ def to_comic(row: dict) -> dict:
         "views": comic_views(row["id"]),
         "updatedAt": row["sync_time"],
         "sources": [s for s in (row.get("source") or "").split(",") if s] or ["unknown"],
-        "tags": [],
+        "tags": db.get_comic_tags(row["id"]),
     }
 
 

@@ -71,6 +71,19 @@ CREATE TABLE IF NOT EXISTS sync_log (
     started_at TEXT NOT NULL,
     finished_at TEXT NOT NULL
 );
+
+-- 标签字典表：每个唯一标签一行（去重），供关联表引用
+CREATE TABLE IF NOT EXISTS tag (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+);
+-- 漫画-标签 关联表：关联 tag 字典表，不再冗余存 tag 字符串
+CREATE TABLE IF NOT EXISTS comic_tag (
+    comic_id INTEGER NOT NULL REFERENCES comic(id),
+    tag_id INTEGER NOT NULL REFERENCES tag(id),
+    PRIMARY KEY (comic_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS idx_comic_tag_tag ON comic_tag (tag_id);
 """
 
 
@@ -156,6 +169,10 @@ class Storage(ABC):
         """分类与作品数。"""
 
     @abstractmethod
+    def get_comic_tags(self, comic_id: int) -> list[str]:
+        """作品标签列表（按 comic_tag 表）。"""
+
+    @abstractmethod
     def set_comic_cover(self, comic_id: int, cover_url: str) -> None:
         """回填作品封面（图库内相对 key，如 covers/1.jpg）。"""
 
@@ -188,8 +205,50 @@ class SQLiteStorage(Storage):
             ).fetchone()
         return row["id"] if row else None
 
+    @staticmethod
+    def _tags_from(detail: ComicDetail) -> list[str]:
+        """取标签列表：优先 detail.tags；为空则用 category 拆分（兼容未填 tags 的源）。"""
+        tags = [t.strip() for t in (detail.tags or []) if t and t.strip()]
+        if not tags and detail.category:
+            # category 形如 "热血 · 冒险" / "热血 冒险" / "热血,冒险"，按分隔符拆
+            for sep in ("·", ",", "，", " ", "、", "/"):
+                if sep in detail.category:
+                    tags = [s.strip() for s in detail.category.split(sep) if s.strip()]
+                    break
+            else:
+                tags = [detail.category.strip()]
+        return tags
+
+    @staticmethod
+    def _sync_tags(conn: Any, comic_id: int, tags: list[str]) -> None:
+        """重建漫画-标签关联：先清空旧关联，再逐个标签 upsert 进 tag 字典表并写关联表。
+
+        规范化结构：tag(name) 字典表每唯一标签一行；comic_tag(comic_id, tag_id) 只存引用。
+        """
+        conn.execute("DELETE FROM comic_tag WHERE comic_id = ?", (comic_id,))
+        seen: set[str] = set()
+        for t in tags:
+            t = t.strip()
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            # upsert 标签字典表：name 唯一，已存在则取回 id
+            conn.execute(
+                "INSERT OR IGNORE INTO tag (name) VALUES (?)", (t,)
+            )
+            row = conn.execute(
+                "SELECT id FROM tag WHERE name = ?", (t,)
+            ).fetchone()
+            if not row:
+                continue
+            conn.execute(
+                "INSERT OR IGNORE INTO comic_tag (comic_id, tag_id) VALUES (?, ?)",
+                (comic_id, row["id"]),
+            )
+
     def upsert_comic(self, detail: ComicDetail, fingerprint: str) -> tuple[int, bool]:
         now = datetime.now().isoformat(timespec="seconds")
+        tags = self._tags_from(detail)
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT id FROM comic WHERE fingerprint = ?", (fingerprint,)
@@ -203,6 +262,7 @@ class SQLiteStorage(Storage):
                         detail.description, detail.latest_chapter_title, now, row["id"],
                     ),
                 )
+                self._sync_tags(conn, row["id"], tags)
                 return int(row["id"]), False
 
             # 站内唯一（同源同 ID 但指纹规则变化时兜底更新）
@@ -220,6 +280,7 @@ class SQLiteStorage(Storage):
                         detail.latest_chapter_title, now, row["id"],
                     ),
                 )
+                self._sync_tags(conn, row["id"], tags)
                 return int(row["id"]), False
 
             cur = conn.execute(
@@ -233,7 +294,9 @@ class SQLiteStorage(Storage):
                     detail.source_comic_id, detail.latest_chapter_title, now,
                 ),
             )
-            return int(cur.lastrowid), True
+            comic_id = int(cur.lastrowid)
+            self._sync_tags(conn, comic_id, tags)
+            return comic_id, True
 
     def upsert_chapter(self, comic_id: int, chapter: ChapterBrief) -> tuple[int, bool]:
         now = datetime.now().isoformat(timespec="seconds")
@@ -347,19 +410,22 @@ class SQLiteStorage(Storage):
         page: int = 1,
         page_size: int = 12,
     ) -> tuple[list[dict], int]:
-        sql = """SELECT c.*, COUNT(ch.id) AS chapter_count
-                 FROM comic c LEFT JOIN chapter ch ON ch.comic_id = c.id"""
+        sql = """SELECT c.*, COUNT(DISTINCT ch.id) AS chapter_count
+                 FROM comic c
+                 LEFT JOIN chapter ch ON ch.comic_id = c.id
+                 LEFT JOIN comic_tag ct ON ct.comic_id = c.id
+                 LEFT JOIN tag t ON t.id = ct.tag_id"""
         conds: list[str] = []
         params: list = []
         if category and category != "全部":
-            conds.append("c.category = ?")
+            conds.append("t.name = ?")
             params.append(category)
         if keyword:
             conds.append(
-                "(c.title LIKE ? OR c.author LIKE ? OR c.category LIKE ?)"
+                "(c.title LIKE ? OR c.author LIKE ? OR c.category LIKE ? OR t.name LIKE ?)"
             )
             k = f"%{keyword.strip()}%"
-            params.extend([k, k, k])
+            params.extend([k, k, k, k])
         if conds:
             sql += " WHERE " + " AND ".join(conds)
         sql += " GROUP BY c.id"
@@ -424,8 +490,21 @@ class SQLiteStorage(Storage):
         return [dict(r) for r in rows]
 
     def get_categories(self) -> list[dict]:
+        # 基于关联表 JOIN 标签字典表聚合：每个标签计为"分类"
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT category AS name, COUNT(*) AS count FROM comic GROUP BY category ORDER BY count DESC"
+                """SELECT t.name AS name, COUNT(DISTINCT ct.comic_id) AS count
+                   FROM comic_tag ct JOIN tag t ON t.id = ct.tag_id
+                   GROUP BY t.id ORDER BY count DESC"""
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_comic_tags(self, comic_id: int) -> list[str]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT t.name AS name FROM comic_tag ct
+                   JOIN tag t ON t.id = ct.tag_id
+                   WHERE ct.comic_id = ? ORDER BY t.name ASC""",
+                (comic_id,),
+            ).fetchall()
+        return [r["name"] for r in rows]

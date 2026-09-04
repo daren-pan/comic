@@ -128,6 +128,7 @@ class ZaimanhuaAdapter(CrawlerAdapter):
                     )
                 )
 
+        tags = self._tag_list(info.get("types")) or comic.tags
         return ComicDetail(
             source=self.source_name,
             source_comic_id=comic.source_comic_id,
@@ -136,6 +137,7 @@ class ZaimanhuaAdapter(CrawlerAdapter):
             cover_url=comic.cover_url,
             status=self._tag_text(info.get("status")) or comic.status,
             category=self._tag_text(info.get("types")) or comic.category,
+            tags=tags,
             description=info.get("description") or comic.title,
             latest_chapter_title=comic.latest_chapter_title,
             detail_url=f"{BASE}{API_DETAIL.format(cid=comic.source_comic_id)}",
@@ -165,6 +167,7 @@ class ZaimanhuaAdapter(CrawlerAdapter):
         # 注意：update/list 响应里作品 ID 在 comic_id 字段（id 恒为 0）
         cid = str(row.get("comic_id") or row.get("id") or "").strip()
         title = (row.get("title") or "").strip()
+        tags = self._tag_list(row.get("types"))
         return ComicBrief(
             source=self.source_name,
             source_comic_id=cid,
@@ -174,7 +177,8 @@ class ZaimanhuaAdapter(CrawlerAdapter):
             ),
             cover_url=(row.get("cover") or "").strip(),
             status=(row.get("status") or "连载").strip(),
-            category=(row.get("types") or "").strip(),
+            category=self._tag_text(row.get("types")) or "",
+            tags=tags,
             latest_chapter_title=(
                 row.get("last_update_chapter_name")
                 or row.get("last_name")
@@ -225,6 +229,21 @@ class ZaimanhuaAdapter(CrawlerAdapter):
             names = [t.get("tag_name") for t in tags if isinstance(t, dict)]
             return ", ".join(n for n in names if n)
         return ""
+
+    @staticmethod
+    def _tag_list(tags: Any) -> list[str]:
+        """[{'tag_name':'爱情'},...] -> ['爱情','校园']（去重去空）。"""
+        if isinstance(tags, str):
+            return [s.strip() for s in tags.split(",") if s.strip()]
+        if isinstance(tags, list):
+            names = [t.get("tag_name") for t in tags if isinstance(t, dict)]
+            seen: list[str] = []
+            for n in names:
+                n = (n or "").strip()
+                if n and n not in seen:
+                    seen.append(n)
+            return seen
+        return []
 
     # ------------------------------------------------------------------
     # 请求层：H5 API 需 Platform: h5 头 + _v 版本参数

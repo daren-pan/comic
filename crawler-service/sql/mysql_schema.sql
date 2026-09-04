@@ -54,6 +54,23 @@ CREATE TABLE IF NOT EXISTS sync_log (
     finished_at VARCHAR(32) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- 标签字典表：每个唯一标签一行（去重），供关联表引用
+CREATE TABLE IF NOT EXISTS tag (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    UNIQUE KEY uk_tag_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- 漫画-标签 关联表：关联 tag 字典表，不再冗余存 tag 字符串
+CREATE TABLE IF NOT EXISTS comic_tag (
+    comic_id INT NOT NULL,
+    tag_id INT NOT NULL,
+    PRIMARY KEY (comic_id, tag_id),
+    KEY idx_comic_tag_tag (tag_id),
+    CONSTRAINT fk_tag_comic FOREIGN KEY (comic_id) REFERENCES comic(id),
+    CONSTRAINT fk_tag_tag FOREIGN KEY (tag_id) REFERENCES tag(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 -- 用户中心（架构方案 §3.1 user/favorite/history）
 CREATE TABLE IF NOT EXISTS favorite (
     user_id VARCHAR(64) NOT NULL,

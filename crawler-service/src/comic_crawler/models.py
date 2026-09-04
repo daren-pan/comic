@@ -23,7 +23,8 @@ class ComicBrief:
     author: str = ""
     cover_url: str = ""
     status: str = "连载"        # 连载 / 完结
-    category: str = ""         # 题材分类，如 "热血 · 冒险"
+    category: str = ""         # 题材主分类，如 "热血"
+    tags: list[str] = field(default_factory=list)   # 标签列表，如 ["热血","冒险","校园"]（入库时展开进 comic_tag 表）
     latest_chapter_title: str = ""   # 列表页可见的"更新至第 X 话"
     detail_url: str = ""       # 详情页地址，由列表页解析得出
     fetched_at: datetime = field(default_factory=datetime.now)

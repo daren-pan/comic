@@ -112,3 +112,15 @@ VOL_TITLE = "连载"  # 只收连载卷全部话，跳过单行本卷
 - 1 部漫画（`comic_id`）→ comic 表 1 条
 - 连载卷每个 chapter 入口 → chapter 表 1 条（`chapter_no = chapter_order`）
 - 每张正文图（page_url）→ page 表 1 条（存签名 CDN 原图 URL）
+
+### 6.1 标签（题材）关联表设计（2026-09-04 规范化）
+
+原来 `comic_tag(comic_id, tag)` 直接存标签字符串（有重复）。现改为**规范化 3 表**：
+
+- `comic.category`：**不改动**，保留源站 `types` 拼出的完整串（如 `爱情, 美食`）
+- `tag(id, name)`：**标签字典表**，每个唯一标签一行（name 唯一，去重）
+- `comic_tag(comic_id, tag_id)`：**关联表**，只存引用，不再冗余存 tag 字符串
+
+查询（分类 / 搜索 / 标签列表）统一通过 `comic_tag JOIN tag` 取 `tag.name`。
+`types` 字段（`[{'tag_name':'爱情'},...]`）在适配器里拆分为 `tags` 列表，入库时经
+`_sync_tags` upsert 进 `tag` 字典表 + 写 `comic_tag` 关联表（先清后插，幂等）。
