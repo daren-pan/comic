@@ -1,8 +1,6 @@
-"""存储层 MySQL 实现：与 SQLiteStorage 接口完全一致，可无缝替换。
+"""存储层 MySQL 唯一实现（Storage 契约）。
 
-对应架构方案 §3.1/§6.1：生产环境用 MySQL，演示用 SQLite —— 本模块即
-「抽象可替换」的落地产物。API 服务 / 采集服务通过 `COMIC_DB_TYPE=mysql`
-环境变量切换，业务代码零改动。
+对应架构方案 §3.1/§6.1：生产环境用 MySQL。连接参数通过环境变量配置。
 
 连接参数（环境变量，均有默认值）：
     COMIC_MYSQL_HOST    默认 127.0.0.1
@@ -16,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Iterator
@@ -24,6 +23,7 @@ import pymysql
 from pymysql.cursors import DictCursor
 
 from .models import ChapterBrief, ComicDetail, PageInfo
+from .storage import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,8 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-class MySQLStorage:
-    """MySQL 实现。每个调用使用独立连接（线程安全），autocommit 提交。"""
+class MySQLStorage(Storage):
+    """MySQL 实现（Storage 契约）。每个调用使用独立连接（线程安全），autocommit 提交。"""
 
     def __init__(self, dsn: dict | None = None) -> None:
         self.dsn = dsn or _DSN
@@ -73,10 +73,16 @@ class MySQLStorage:
 
     @staticmethod
     def _tags_from(detail: ComicDetail) -> list[str]:
-        """取标签列表：优先 detail.tags；为空则用 category 拆分（兼容未填 tags 的源）。"""
+        """取标签列表：优先 detail.tags；为空则用 category 拆分（兼容未填 tags 的源）。
+
+        分隔符优先级（2026-09-05 修复）：斜杠 > 全角逗号 > 半角逗号 > 顿号 > 间隔号 > 空格。
+        原实现把"空格"排在斜杠前，导致「连载 / 国漫」先被空格切开，`/` 成为孤儿标签
+        （如 tag 表出现 `/`、漫画被错误关联 33 部）。
+        """
         tags = [t.strip() for t in (detail.tags or []) if t and t.strip()]
         if not tags and detail.category:
-            for sep in ("·", ",", "，", " ", "、", "/"):
+            _SEPS = ("/", "，", ",", "、", "·", " ")
+            for sep in _SEPS:
                 if sep in detail.category:
                     tags = [s.strip() for s in detail.category.split(sep) if s.strip()]
                     break
@@ -94,7 +100,8 @@ class MySQLStorage:
         seen: set[str] = set()
         for t in tags:
             t = t.strip()
-            if not t or t in seen:
+            # 防御：跳过空串、纯符号/空白片段（如 '/'、'·'）——避免孤儿标签
+            if not t or t in seen or not re.search(r"[\w\u4e00-\u9fff]", t):
                 continue
             seen.add(t)
             # upsert 标签字典表：name 唯一，已存在则取回 id
@@ -146,15 +153,16 @@ class MySQLStorage:
                     self._sync_tags(cur, row["id"], tags)
                     return int(row["id"]), False
 
+                # 首次收录：addtime 与 sync_time 均为当前时刻；后续增量只刷新 sync_time（见上方 UPDATE）
                 cur.execute(
                     """INSERT INTO comic (title, author, cover_url, status, category,
                            description, fingerprint, source, source_comic_id,
-                           latest_chapter_title, sync_time)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                           latest_chapter_title, sync_time, addtime)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (
                         detail.title, detail.author, detail.cover_url, detail.status,
                         detail.category, detail.description, fingerprint, detail.source,
-                        detail.source_comic_id, detail.latest_chapter_title, now,
+                        detail.source_comic_id, detail.latest_chapter_title, now, now,
                     ),
                 )
                 comic_id = int(cur.lastrowid)
@@ -240,6 +248,17 @@ class MySQLStorage:
                         stats.started_at, now,
                     ),
                 )
+
+    def get_last_sync_time(self, source: str) -> str | None:
+        """查该源最近一次同步完成时间（finished_at），用作增量水位；无记录返回 None。"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT finished_at FROM sync_log WHERE source=%s ORDER BY id DESC LIMIT 1",
+                    (source,),
+                )
+                row = cur.fetchone()
+        return str(row["finished_at"]) if row else None
 
     def stats(self) -> dict[str, int]:
         with self._conn() as conn:

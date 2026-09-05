@@ -44,8 +44,30 @@ GET /api/app/v1/comic/update/list/0/{page}
   - `title` / `authors` / `cover` / `types` / `status` / `islong` / `comic_py` / `alias_name`
   - `last_update_chapter_name`（最新章节名）/ `last_update_chapter_id`（最新章节ID）
   - `last_updatetime` / `last_update_volumn`
+- **`last_updatetime`（Unix 秒级时间戳）是增量窗口过滤的字段** → 适配器解析成
+  `ComicBrief.source_updated_at`（见 §3.1.1）
 - 无明确 `has_next` 标志：以「本页满 20 部 && page < MAX_PAGE」判断
 - 受控参数：`MAX_PAGE = 1`（只扫首页，避免一次收录过多）
+
+### 3.1.1 时间窗口增量（`since` 过滤）
+
+图源列表接口自带 `last_updatetime` 秒级时间戳，故再漫画**支持精确到秒的窗口过滤**：
+
+```python
+def fetch_comic_list(page=1, since=None):
+    items = [self._row_to_brief(row) for row in list_data[:20] ...]
+    # 增量窗口：只保留源站更新时间 > since 的漫画（首次 since=None 全收）
+    if since is not None:
+        items = [it for it in items
+                 if it.source_updated_at is not None and it.source_updated_at > since]
+    return ComicListResult(items=items, page=page, has_next=has_next)
+```
+
+- `since` = 上次同步完成时间（`sync_log.finished_at`，调度器通过
+  `Storage.get_last_sync_time(source)` 读取后传入），`None` = 首次/全量
+- **精确到秒**：`source_updated_at > since`（注意是严格大于，保证边界不含已同步的）
+- 实测：`since=2026-09-05 11:35:30` 后只剩 1 部《今朝摇曳依旧》，其余 19 部被正确过滤
+- 受控限制：`MAX_PAGE=1` 只扫首页最近更新 20 部（接口仅暴露最近更新榜，无当日翻页能力）
 
 ### 3.2 详情（漫画信息 + 章节卷组）
 

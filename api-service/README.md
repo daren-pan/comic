@@ -1,7 +1,7 @@
 # api-service HTTP API 服务（FastAPI）
 
 漫画聚合平台的**业务服务层**（架构方案 §4「网关 + 微服务」的落地示例）：
-读取采集服务（crawler-service）落库的数据（SQLite / MySQL 可切换），对外暴露 RESTful 接口，并**同源托管前端构建产物**。
+读取采集服务（crawler-service）落库的数据（唯一存储：MySQL），对外暴露 RESTful 接口，并**同源托管前端构建产物**。
 
 ## 运行
 
@@ -10,11 +10,9 @@
 python -m pip install -r requirements.txt
 
 # 前置：先构建前端（仓库不带 dist，clone 后请先 cd comic-web && npm install && npm run build）
-#       启动（默认 SQLite：读上一级 crawler-service 下生成的 comic_demo.db，可用 COMIC_DB 环境变量指定；仓库不带数据文件，请先 cli run 采集）
+#       本机 MySQL 需可用（默认 127.0.0.1:3307 / root / password，连接参数见 crawler-service/README.md「存储」），
+#       仓库不带数据文件，请先在 crawler-service 目录执行 cli run 采集入库
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
-
-# 切换 MySQL（生产存储，前端零改动；连接参数见 crawler-service/README.md「切换 MySQL」）
-COMIC_DB_TYPE=mysql python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 启动后：
@@ -42,8 +40,8 @@ COMIC_DB_TYPE=mysql python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ## 关键设计
 
 - **复用 Storage 抽象**：`main.py` 自动把 `crawler-service/src` 加入 `sys.path`，
-  使用 `SQLiteStorage` 或 `MySQLStorage` 的只读查询（`list_comics/get_comic/get_chapters/get_pages`），
-  与采集服务共用一套存储接口 —— `COMIC_DB_TYPE=mysql` 一行切换，API 代码零改动；
+  使用 `MySQLStorage` 的只读查询（`list_comics/get_comic/get_chapters/get_pages`），
+  与采集服务共用一套存储接口（`Storage` 抽象作为契约）；
 - **同源部署**：`app.mount("/", StaticFiles(comic-web/dist))`，前端与 API 同一端口，
   无 CORS / 代理问题；开发模式前端走 Vite proxy（见 comic-web/vite.config.ts）。
   注意：`comic-web/dist` **不随仓库分发**，clone 后需先构建前端，否则 `/` 无内容；
@@ -54,7 +52,7 @@ COMIC_DB_TYPE=mysql python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ## 数据流闭环
 
 ```
-crawler-service（采集/去重/入库）→ SQLite/MySQL → api-service（RESTful API）
+crawler-service（采集/去重/入库）→ MySQL → api-service（RESTful API）
                                                      ↓ 同源
                                     comic-web（前端 dist，读 /api 真实数据；dist 不随仓库分发）
 ```

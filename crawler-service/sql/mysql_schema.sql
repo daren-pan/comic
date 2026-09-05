@@ -1,4 +1,4 @@
--- 漫画聚合平台 MySQL 表结构（与 crawler-service SQLite 版一致，架构方案 §3.1）
+-- 漫画聚合平台 MySQL 表结构（架构方案 §3.1，项目唯一存储方案）
 -- 字符集 utf8mb4，支持中文与 emoji
 
 CREATE TABLE IF NOT EXISTS comic (
@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS comic (
     source_comic_id VARCHAR(128) NOT NULL,
     latest_chapter_title VARCHAR(255) NOT NULL DEFAULT '',
     sync_time VARCHAR(32) NOT NULL,
+    -- addtime: 首次收录时间（第一次同步写入，之后不再更新）；sync_time 为最近一次同步时间
+    addtime VARCHAR(32) NOT NULL DEFAULT '',
     UNIQUE KEY uk_fingerprint (fingerprint),
     UNIQUE KEY uk_source_comic (source, source_comic_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

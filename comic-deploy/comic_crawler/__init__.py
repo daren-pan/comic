@@ -7,7 +7,7 @@
 - adapter/   源站适配器（CrawlerAdapter 接口 + 各源实现 + 注册表）
 - http.py    抓取客户端（UA 池 / 随机延迟 / 指数退避）
 - fingerprint.py  标题归一化与跨站指纹
-- storage.py 存储抽象 + SQLite 实现（生产替换 MySQL）
+- storage.py 存储契约（Storage 抽象，唯一实现 MySQL）
 - scheduler.py    全量 / 增量调度
 - cli.py     命令行入口
 """

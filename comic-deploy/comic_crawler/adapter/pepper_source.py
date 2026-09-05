@@ -46,7 +46,7 @@ class PepperCarrotAdapter(CrawlerAdapter):
     # ------------------------------------------------------------------
     # 列表页：站点即一部漫画，返回单个 ComicBrief
     # ------------------------------------------------------------------
-    def fetch_comic_list(self, page: int = 1) -> ComicListResult:
+    def fetch_comic_list(self, page: int = 1, since: "datetime | None" = None) -> ComicListResult:  # noqa: ARG001
         if page > 1:
             return ComicListResult(items=[], page=page, has_next=False)
 

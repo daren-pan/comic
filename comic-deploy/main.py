@@ -1,6 +1,6 @@
 """漫画聚合平台 HTTP API 服务（架构方案 §4：网关 + 微服务）。
 
-- 复用采集服务（crawler-service）的 Storage 抽象读取 SQLite 库，同一套存储接口；
+- 复用采集服务（crawler-service）的 Storage 契约读取 MySQL 库（唯一存储方案）；
 - 统一响应格式 { code, message, data }（架构方案约定）；
 - 同时托管前端构建产物（comic-web/dist），同源部署，免 CORS/代理；
 - 图片端点：优先返回已转存的真实文件（OSS），缺失/占位时回退生成 SVG 占位图。
@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -38,155 +37,18 @@ if CRAWLER_SRC.is_dir() and str(CRAWLER_SRC) not in sys.path:
     sys.path.insert(0, str(CRAWLER_SRC))
 
 ROOT = APP_DIR.parent
-# 优先同目录资源（发布模式），否则回退项目结构（开发模式）
-DB_PATH = os.environ.get(
-    "COMIC_DB",
-    str(APP_DIR / "comic_demo.db") if (APP_DIR / "comic_demo.db").exists()
-    else str(ROOT / "crawler-service" / "comic_demo.db"),
-)
 DIST_DIR = APP_DIR / "dist" if (APP_DIR / "dist").is_dir() else ROOT / "comic-web" / "dist"
-
-# 存储实现可切换：COMIC_DB_TYPE=mysql 使用 MySQL（Docker ruoyi-mysql），否则 SQLite
-DB_TYPE = os.environ.get("COMIC_DB_TYPE", "sqlite").lower()
 
 app = FastAPI(title="漫阅 Comic API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )
 
-if DB_TYPE == "mysql":
-    from comic_crawler.mysql_storage import MySQLStorage, MySQLUserStore
+# 存储：固定使用 MySQL（本项目唯一存储方案），连接参数经 COMIC_MYSQL_* 环境变量配置。
+from comic_crawler.mysql_storage import MySQLStorage, MySQLUserStore
 
-    db = MySQLStorage()
-else:
-    from comic_crawler.storage import SQLiteStorage
-
-    db = SQLiteStorage(db_path=DB_PATH)
-
-# ---------------- 用户中心存储（架构方案 §3.1 user/favorite/history 表） ----------------
-# 匿名用户模型：前端首次访问生成 userId（仍服务于「最近阅读/历史」，无需登录）；
-# 收藏功能改为登录态：user 表 + JWT 鉴权，多端同步，密码仅存 bcrypt 哈希。
-_USER_SCHEMA = """
-CREATE TABLE IF NOT EXISTS user (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    nickname TEXT NOT NULL DEFAULT '',
-    avatar_url TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS favorite (
-    user_id TEXT NOT NULL,
-    comic_id INTEGER NOT NULL,
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (user_id, comic_id)
-);
-CREATE TABLE IF NOT EXISTS history (
-    user_id TEXT NOT NULL,
-    comic_id INTEGER NOT NULL,
-    chapter_id INTEGER NOT NULL,
-    page_no INTEGER NOT NULL DEFAULT 1,
-    read_at TEXT NOT NULL,
-    PRIMARY KEY (user_id, comic_id)
-);
-"""
-
-
-class UserStore:
-    def __init__(self, db_path: str):
-        self.db_path = db_path
-        with self._conn() as conn:
-            conn.executescript(_USER_SCHEMA)
-
-    @contextmanager
-    def _conn(self):
-        conn = sqlite3.connect(self.db_path)
-        try:
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL;")
-            yield conn
-            conn.commit()
-        finally:
-            conn.close()
-
-    def list_favorites(self, user_id: str) -> list[int]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT comic_id FROM favorite WHERE user_id=? ORDER BY created_at DESC",
-                (user_id,),
-            ).fetchall()
-        return [r["comic_id"] for r in rows]
-
-    # ---- 用户账户（登录/注册） ----
-    def get_user_by_username(self, username: str) -> sqlite3.Row | None:
-        with self._conn() as conn:
-            return conn.execute("SELECT * FROM user WHERE username=?", (username,)).fetchone()
-
-    def create_user(self, username: str, password_hash: str, nickname: str) -> sqlite3.Row:
-        with self._conn() as conn:
-            cur = conn.execute(
-                "INSERT INTO user (username, password_hash, nickname, created_at) VALUES (?,?,?,?)",
-                (username, password_hash, nickname, datetime.now().isoformat(timespec="seconds")),
-            )
-            return conn.execute("SELECT * FROM user WHERE id=?", (cur.lastrowid,)).fetchone()
-
-    def get_user(self, user_id: str) -> sqlite3.Row | None:
-        with self._conn() as conn:
-            return conn.execute("SELECT * FROM user WHERE id=?", (user_id,)).fetchone()
-
-    def is_favorite(self, user_id: str, comic_id: int) -> bool:
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM favorite WHERE user_id=? AND comic_id=?",
-                (user_id, comic_id),
-            ).fetchone()
-        return row is not None
-
-    def set_favorite(self, user_id: str, comic_id: int, fav: bool) -> None:
-        with self._conn() as conn:
-            if fav:
-                conn.execute(
-                    "INSERT OR IGNORE INTO favorite (user_id, comic_id, created_at) VALUES (?,?,?)",
-                    (user_id, comic_id, datetime.now().isoformat(timespec="seconds")),
-                )
-            else:
-                conn.execute(
-                    "DELETE FROM favorite WHERE user_id=? AND comic_id=?", (user_id, comic_id)
-                )
-
-    def list_history(self, user_id: str) -> list[sqlite3.Row]:
-        with self._conn() as conn:
-            return conn.execute(
-                """SELECT h.comic_id, h.chapter_id, h.page_no, h.read_at,
-                          ch.title AS chapter_title
-                   FROM history h LEFT JOIN chapter ch ON ch.id = h.chapter_id
-                   WHERE h.user_id=? ORDER BY h.read_at DESC LIMIT 50""",
-                (user_id,),
-            ).fetchall()
-
-    def upsert_history(self, user_id: str, comic_id: int, chapter_id: int, page_no: int) -> None:
-        now = datetime.now().isoformat(timespec="seconds")
-        with self._conn() as conn:
-            conn.execute(
-                """INSERT INTO history (user_id, comic_id, chapter_id, page_no, read_at)
-                   VALUES (?,?,?,?,?)
-                   ON CONFLICT(user_id, comic_id) DO UPDATE SET
-                       chapter_id=excluded.chapter_id, page_no=excluded.page_no, read_at=excluded.read_at""",
-                (user_id, comic_id, chapter_id, page_no, now),
-            )
-
-    def delete_history(self, user_id: str, comic_id: int) -> None:
-        with self._conn() as conn:
-            conn.execute("DELETE FROM history WHERE user_id=? AND comic_id=?", (user_id, comic_id))
-
-
-# 用户中心存储：MySQL 版（COMIC_DB_TYPE=mysql）或 SQLite 版（默认）
-if DB_TYPE == "mysql":
-    from comic_crawler.mysql_storage import MySQLUserStore
-
-    users = MySQLUserStore()
-else:
-    users = UserStore(db_path=DB_PATH)
+db = MySQLStorage()
+users = MySQLUserStore()
 
 # ---------------- 视图计数（内存版；生产环境落库 / Redis 计数器） ----------------
 _views: dict[int, int] = {}
@@ -303,10 +165,6 @@ def _resolve_image_root() -> Path | None:
             return p.resolve()
     candidates: list[Path] = []
     img_dir = APP_DIR / "image_store"
-    if img_dir.is_dir():
-        candidates.append(img_dir)
-    dbp = Path(DB_PATH)
-    img_dir = dbp.parent / "image_store"
     if img_dir.is_dir():
         candidates.append(img_dir)
     if CRAWLER_SRC.is_dir():

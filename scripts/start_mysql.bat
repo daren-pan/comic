@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  MySQL mode: start site on :8000 reading the comic database.
+rem  Start site on :8000 reading the MySQL comic database (唯·存储方案).
 rem  Requires: local/remote MySQL reachable (see crawler-service
 rem  README for COMIC_MYSQL_* env overrides, default 3307/root/password)
 rem ============================================================
@@ -13,6 +13,5 @@ if errorlevel 1 (
     exit /b 1
 )
 
-set COMIC_DB_TYPE=mysql
 echo Starting comic site (MySQL mode) on http://127.0.0.1:8000 ...
 python -m uvicorn main:app --host 127.0.0.1 --port 8000

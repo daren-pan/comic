@@ -16,9 +16,8 @@ crawler-service/
 │   ├── http.py                # 抓取客户端：UA 池 / 随机延迟 / 指数退避 / 代理池预留
 │   ├── fingerprint.py         # 标题归一化 + 跨站指纹（跨源去重核心）
 │   ├── models.py              # 领域模型：Comic/Chapter/Page/ListResult/SyncStats
-│   ├── storage.py             # Storage 抽象 + SQLite 实现（表结构与 MySQL 版一致）
-│   ├── mysql_storage.py       # MySQL 实现（MySQLStorage + MySQLUserStore，接口与 SQLite 版一致）
-│   ├── migrate.py             # SQLite → MySQL 数据迁移工具
+│   ├── storage.py             # Storage 抽象（存储契约，唯一实现为 MySQL）
+│   ├── mysql_storage.py       # MySQL 实现（MySQLStorage + MySQLUserStore，唯一存储方案）
 │   ├── image_store.py         # ImageStore 抽象 + 本地模拟 OSS（可替换为 OSS/COS）
 │   ├── image_service.py       # 图片懒转存（未转存 → 下载 → 上传 → 状态机更新）
 │   ├── scheduler.py           # 增量 / 全量 / 失效巡检调度
@@ -69,33 +68,30 @@ PYTHONPATH=src python -m comic_crawler.cli transfer-images
 #    - 增量间隔取 config.py SOURCES 各源 crawl_interval_seconds（默认 15~30 分钟）
 #    - 每日凌晨 3 点后每源跑一次全量；失效巡检每小时一次
 #    - --source 可只调度指定源；--interval 调整轮询检查粒度（默认 30s）
-COMIC_DB_TYPE=mysql PYTHONPATH=src python -m comic_crawler.cli serve
+PYTHONPATH=src python -m comic_crawler.cli serve
 ```
 
-## 切换 MySQL（生产存储）
+## 存储：MySQL（项目唯一方案）
 
-采集服务与 API 服务均支持 `COMIC_DB_TYPE=mysql` 环境变量切换存储实现，
-业务代码零改动（架构方案 §3.1「抽象可替换」的落地）。
+采集服务与 API 服务统一使用 MySQL 作为唯一存储实现（`MySQLStorage`），
+`Storage` 抽象作为类型契约保留（架构方案 §3.1「抽象可替换」的落地）。
 
 ```bash
 # 0. 前置：本机 MySQL 可用（默认连 127.0.0.1:3307，兼容 RuoYi-Cloud 的 docker mysql）
 #    连接参数可用环境变量覆盖：
 #    COMIC_MYSQL_HOST / COMIC_MYSQL_PORT / COMIC_MYSQL_USER / COMIC_MYSQL_PASSWORD / COMIC_MYSQL_DB
 
-# 1. 建库建表（comic 库 + 6 张表，utf8mb4）
+# 1. 建库建表（comic 库 + 9 张表，utf8mb4）
 mysql -h127.0.0.1 -P3307 -uroot -p -e "CREATE DATABASE comic DEFAULT CHARACTER SET utf8mb4;"
 mysql -h127.0.0.1 -P3307 -uroot -p comic < sql/mysql_schema.sql
 
-# 2. 迁移已有数据（从 SQLite 全量导入，保留 id 保证外键一致）
-PYTHONPATH=src python -m comic_crawler.migrate --sqlite comic_demo.db
+# 2. 采集链路直接写 MySQL（无需迁移）
+PYTHONPATH=src python -m comic_crawler.cli run --source demo_source
+PYTHONPATH=src python -m comic_crawler.cli transfer-images
+PYTHONPATH=src python -m comic_crawler.cli inspect
 
-# 3. MySQL 模式下跑采集链路（命令不变，只加环境变量）
-COMIC_DB_TYPE=mysql PYTHONPATH=src python -m comic_crawler.cli run --source demo_source
-COMIC_DB_TYPE=mysql PYTHONPATH=src python -m comic_crawler.cli transfer-images
-COMIC_DB_TYPE=mysql PYTHONPATH=src python -m comic_crawler.cli inspect
-
-# 4. API 服务切 MySQL（前端零改动）
-COMIC_DB_TYPE=mysql uvicorn main:app --port 8000   # 在 api-service 目录
+# 3. API 服务同库（前端零改动）
+uvicorn main:app --port 8000   # 在 api-service 目录
 ```
 
 ## 接入一个新源站（两步）

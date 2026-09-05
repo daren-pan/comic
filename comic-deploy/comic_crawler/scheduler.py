@@ -33,16 +33,29 @@ class SyncSession:
 
 
 def incremental_sync(adapter: CrawlerAdapter, storage: Storage, mode: str = "incremental") -> SyncStats:
-    """增量同步：列表 → 指纹去重 → 新作品抓详情+章节入库。"""
+    """增量同步：列表 → 时间窗口过滤 → 新作品抓详情+章节入库。
+
+    时间窗口：首次（无历史完成时间）采集"今天更新"全部；
+    之后采集 [上次同步完成时间, now] 窗口内更新的漫画（由适配器按源站
+    时间字段/date 参数过滤，见 CrawlerAdapter.fetch_comic_list 的 since）。
+    """
     session = SyncSession()
     stats = SyncStats(source=adapter.source_name, mode=mode, started_at=session.started_at)
-    logger.info("开始 %s 同步: %s", mode, adapter)
+    # 增量水位：该源上次同步完成时间（None=首次/无记录）
+    last_sync_raw = storage.get_last_sync_time(adapter.source_name)
+    since = None
+    if last_sync_raw and mode != "full":
+        try:
+            since = datetime.fromisoformat(last_sync_raw)
+        except ValueError:
+            since = None
+    logger.info("开始 %s 同步: %s（since=%s）", mode, adapter, since)
 
     adapter.pre_fetch()
     try:
         page = 1
         while True:
-            result = adapter.fetch_comic_list(page=page)
+            result = adapter.fetch_comic_list(page=page, since=since)
             _process_batch(adapter, storage, result, stats)
             if not result.has_next:
                 break

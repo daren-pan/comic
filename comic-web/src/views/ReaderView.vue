@@ -249,7 +249,6 @@ onBeforeUnmount(() => {
   readerEl.value?.removeEventListener('scroll', onScroll)
   if (raf) cancelAnimationFrame(raf)
   clearTimeout(hideTimer)
-  clearTimeout(tipTimer)
   clearTimeout(suppressTimer)
 })
 

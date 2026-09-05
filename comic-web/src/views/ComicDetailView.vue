@@ -50,7 +50,9 @@ function gotoLogin() {
 
 async function read(chapter: Chapter) {
   await upsertHistory({ comicId, chapterId: chapter.id, pageNo: 1 })
-  router.push(`/reader/${comicId}/${chapter.id}`)
+  // 独立跳转到新页面：在浏览器新标签页打开阅读器，详情页保留在当前标签页
+  // 路由为 hash 模式，需拼上 `#/reader/:comicId/:chapterId`
+  window.open(`${location.origin}/#/reader/${comicId}/${chapter.id}`, '_blank')
 }
 
 function fmtTime(iso: string): string {

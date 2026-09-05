@@ -54,5 +54,3 @@ SOURCES: list[SourceConfig] = [
         crawl_interval_seconds=3600,  # 学习用途受控源（H5 通道）：低频 + 受限样本
     ),
 ]
-
-DEFAULT_DB_PATH = "comic_demo.db"

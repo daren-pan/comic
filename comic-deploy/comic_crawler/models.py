@@ -28,6 +28,7 @@ class ComicBrief:
     latest_chapter_title: str = ""   # 列表页可见的"更新至第 X 话"
     detail_url: str = ""       # 详情页地址，由列表页解析得出
     fetched_at: datetime = field(default_factory=datetime.now)
+    source_updated_at: datetime | None = None   # 源站该作品最近更新时间（用于时间窗口增量过滤；无则为 None）
 
 
 @dataclass(slots=True)

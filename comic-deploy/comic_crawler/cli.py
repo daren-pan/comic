@@ -1,37 +1,32 @@
 """命令行入口。
 
 用法：
-    COMIC_DB_TYPE=mysql|sqlite python -m comic_crawler.cli run --source demo_source [--mode incremental|full] [--db comic_demo.db]
-    COMIC_DB_TYPE=mysql|sqlite python -m comic_crawler.cli transfer-images [--db comic_demo.db] [--store image_store]
-    COMIC_DB_TYPE=mysql|sqlite python -m comic_crawler.cli inspect [--db comic_demo.db] [--store image_store]
+    python -m comic_crawler.cli run --source demo_source [--mode incremental|full]
+    python -m comic_crawler.cli transfer-images [--store image_store]
+    python -m comic_crawler.cli inspect [--store image_store]
     python -m comic_crawler.cli list          # 列出已注册的源站适配器
-    python -m comic_crawler.cli show [--db comic_demo.db]  # 展示库内数据
+    python -m comic_crawler.cli show          # 展示库内数据
 
-存储切换：默认 SQLite；`COMIC_DB_TYPE=mysql` 时读写 MySQL（见 mysql_storage.py）。
+存储：固定使用 MySQL（见 mysql_storage.py），连接参数经 COMIC_MYSQL_* 环境变量配置。
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
-import os
-import sqlite3
 import time
 
 from .adapter import create_adapter, list_adapters
 from .image_service import lazy_transfer
 from .image_store import LocalImageStore
+from .mysql_storage import MySQLStorage
 from .scheduler import SyncScheduler, full_sync, incremental_sync, inspect_sync
-from .storage import Storage, SQLiteStorage
+from .storage import Storage
 
 
-def _storage(args: argparse.Namespace) -> Storage:
-    """按环境变量 COMIC_DB_TYPE 返回 SQLite 或 MySQL 存储实现。"""
-    if os.environ.get("COMIC_DB_TYPE", "sqlite").lower() == "mysql":
-        from .mysql_storage import MySQLStorage
-
-        return MySQLStorage()
-    return SQLiteStorage(db_path=args.db)
+def _storage(_args: argparse.Namespace) -> Storage:
+    """返回 MySQL 存储实现（本项目唯一存储方案）。"""
+    return MySQLStorage()
 
 
 def _setup_logging() -> None:
@@ -63,31 +58,15 @@ def cmd_list(_: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_show(args: argparse.Namespace) -> int:
-    if os.environ.get("COMIC_DB_TYPE", "sqlite").lower() == "mysql":
-        from .mysql_storage import MySQLStorage
-
-        storage = MySQLStorage()
-        print(f"\n库内作品（MySQL: {storage.dsn['host']}:{storage.dsn['port']}/{storage.dsn['database']}）:")
-        items, _ = storage.list_comics(page=1, page_size=1000)
-        for row in items:
-            print(
-                f"  #{row['id']} [{row['source']}] {row['title']} - {row['author']} "
-                f"({row['status']}/{row['category']}) 更新至:{row['latest_chapter_title']}"
-            )
-        return 0
-
-    conn = sqlite3.connect(args.db)
-    conn.row_factory = sqlite3.Row
-    print(f"\n库内作品（{args.db}）:")
-    for row in conn.execute(
-        "SELECT id, title, author, status, category, source, latest_chapter_title FROM comic ORDER BY id"
-    ):
+def cmd_show(_args: argparse.Namespace) -> int:
+    storage = MySQLStorage()
+    print(f"\n库内作品（MySQL: {storage.dsn['host']}:{storage.dsn['port']}/{storage.dsn['database']}）:")
+    items, _ = storage.list_comics(page=1, page_size=1000)
+    for row in items:
         print(
             f"  #{row['id']} [{row['source']}] {row['title']} - {row['author']} "
             f"({row['status']}/{row['category']}) 更新至:{row['latest_chapter_title']}"
         )
-    conn.close()
     return 0
 
 
@@ -150,29 +129,24 @@ def main() -> int:
     p_run = sub.add_parser("run", help="执行一次同步")
     p_run.add_argument("--source", default="demo_source", help="源站名（见 list）")
     p_run.add_argument("--mode", choices=["incremental", "full"], default="incremental")
-    p_run.add_argument("--db", default="comic_demo.db", help="SQLite 库路径")
     p_run.set_defaults(fn=cmd_run)
 
     sub.add_parser("list", help="列出已注册适配器").set_defaults(fn=cmd_list)
 
     p_transfer = sub.add_parser("transfer-images", help="懒转存未转存页面")
-    p_transfer.add_argument("--db", default="comic_demo.db")
     p_transfer.add_argument("--store", default="image_store", help="图片存储目录（本地模拟 OSS）")
     p_transfer.set_defaults(fn=cmd_transfer_images)
 
     p_inspect = sub.add_parser("inspect", help="失效巡检（转存 + 校验 + 恢复）")
-    p_inspect.add_argument("--db", default="comic_demo.db")
     p_inspect.add_argument("--store", default="image_store")
     p_inspect.set_defaults(fn=cmd_inspect)
 
     p_show = sub.add_parser("show", help="展示库内数据")
-    p_show.add_argument("--db", default="comic_demo.db")
     p_show.set_defaults(fn=cmd_show)
 
     p_serve = sub.add_parser("serve", help="定时调度守护（增量/全量/巡检）")
     p_serve.add_argument("--source", default="", help="仅调度指定源站（默认全部已启用源）")
     p_serve.add_argument("--interval", type=int, default=30, help="轮询检查间隔秒数（默认 30）")
-    p_serve.add_argument("--db", default="comic_demo.db")
     p_serve.set_defaults(fn=cmd_serve)
 
     args = parser.parse_args()

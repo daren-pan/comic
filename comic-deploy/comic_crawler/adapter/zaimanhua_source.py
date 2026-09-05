@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 import time
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -75,7 +76,7 @@ class ZaimanhuaAdapter(CrawlerAdapter):
     # ------------------------------------------------------------------
     # 列表页：首页「最近更新」标签 -> 前 MAX_PAGE 页
     # ------------------------------------------------------------------
-    def fetch_comic_list(self, page: int = 1) -> ComicListResult:
+    def fetch_comic_list(self, page: int = 1, since: "datetime | None" = None) -> ComicListResult:
         if page > MAX_PAGE:
             return ComicListResult(items=[], page=page, has_next=False)
 
@@ -88,7 +89,10 @@ class ZaimanhuaAdapter(CrawlerAdapter):
             for row in list_data[:20]
             if isinstance(row, dict)
         ]
-        # 最近更新接口无明确 has_next 标志；以本页是否满 20 部判断是否还有下一页
+        # 增量窗口：只保留源站更新时间 > since 的漫画（首次 since=None 全收）
+        if since is not None:
+            items = [it for it in items if it.source_updated_at is not None and it.source_updated_at > since]
+        # 最近更新接口无明确 has_next 标志；以本页是否已满 20 部（原始数据）判断是否还有下一页
         has_next = len(list_data) >= 20 and page < MAX_PAGE
         return ComicListResult(items=items, page=page, has_next=has_next)
 
@@ -168,6 +172,14 @@ class ZaimanhuaAdapter(CrawlerAdapter):
         cid = str(row.get("comic_id") or row.get("id") or "").strip()
         title = (row.get("title") or "").strip()
         tags = self._tag_list(row.get("types"))
+        # 源站最近更新时间（last_updatetime，Unix 秒级时间戳），用于增量窗口过滤
+        updated_at = None
+        ts = row.get("last_updatetime")
+        if ts:
+            try:
+                updated_at = datetime.fromtimestamp(int(ts))
+            except (TypeError, ValueError, OSError):
+                updated_at = None
         return ComicBrief(
             source=self.source_name,
             source_comic_id=cid,
@@ -185,6 +197,7 @@ class ZaimanhuaAdapter(CrawlerAdapter):
                 or ""
             ).strip(),
             detail_url="",
+            source_updated_at=updated_at,
         )
 
     @staticmethod

@@ -50,7 +50,7 @@ class DemoSourceAdapter(CrawlerAdapter):
     # ------------------------------------------------------------------
     # 列表页：div.comic-item 内解析
     # ------------------------------------------------------------------
-    def fetch_comic_list(self, page: int = 1) -> ComicListResult:
+    def fetch_comic_list(self, page: int = 1, since: "datetime | None" = None) -> ComicListResult:  # noqa: ARG001
         if page > 1:
             # 演示源站只有一页数据：第 2 页起返回空，模拟翻页结束
             return ComicListResult(items=[], page=page, has_next=False)

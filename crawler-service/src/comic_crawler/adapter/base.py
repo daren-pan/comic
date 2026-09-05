@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from ..models import ChapterBrief, ComicBrief, ComicDetail, ComicListResult, PageInfo
 
@@ -44,9 +45,11 @@ class CrawlerAdapter(ABC):
     # 三个核心抽象方法：任何源站都必须实现
     # ------------------------------------------------------------------
     @abstractmethod
-    def fetch_comic_list(self, page: int = 1) -> ComicListResult:
+    def fetch_comic_list(self, page: int = 1, since: "datetime | None" = None) -> ComicListResult:
         """抓取一页漫画列表。
 
+        since: 增量时间窗口起点（None=全量/首次）。支持时间窗口的源站应
+        只返回源站更新时间 > since 的漫画；不支持的可忽略此参数。
         增量轮询（只看"最近更新"）与全量扫描（逐页翻完）都通过
         ComicListResult.has_next 驱动翻页。
         """
