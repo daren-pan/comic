@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getChapter, getChapters, getComic, isFavorite, toggleFavorite, upsertHistory, isLoggedIn } from '../api'
+import { getChapter, getChapters, getComic, isFavorite, toggleFavorite, upsertHistory } from '../api'
+import { useUserStore } from '../stores/user'
 import type { Chapter, Comic } from '../types'
 
 const route = useRoute()
 const router = useRouter()
 const comicId = Number(route.params.id)
+const { isLoggedIn } = useUserStore()
 
 const comic = ref<Comic>()
 const chapters = ref<Chapter[]>([])
@@ -26,7 +28,7 @@ onMounted(async () => {
   const [c, chs, f] = await Promise.all([
     getComic(comicId),
     getChapters(comicId),
-    isLoggedIn() ? isFavorite(comicId) : Promise.resolve(false),
+    isLoggedIn ? isFavorite(comicId) : Promise.resolve(false),
   ])
   comic.value = c
   chapters.value = chs
@@ -36,7 +38,7 @@ onMounted(async () => {
 
 async function onFav() {
   // 收藏需要登录；未登录引导去登录页
-  if (!isLoggedIn()) {
+  if (!isLoggedIn) {
     favNotice.value = true
     return
   }

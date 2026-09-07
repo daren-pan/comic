@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
-import { backendAlive, getCategories, isLoggedIn, currentUser, clearAuth } from './api'
+import { backendAlive, getCategories } from './api'
+import { useUserStore } from './stores/user'
 
 const route = useRoute()
 const router = useRouter()
@@ -10,10 +12,13 @@ const categories = ref<{ name: string; count: number }[]>([])
 const keyword = ref('')
 const showMenu = ref(false)
 const backend = ref<boolean | null>(null)
-const logged = ref(isLoggedIn())
-const user = ref(currentUser())
+
+// 登录态：全局唯一来源 = Pinia user store（登录/登出/401 后自动同步，无需路由 hack）
+const userStore = useUserStore()
+const { isLoggedIn: logged, user } = storeToRefs(userStore)
 
 onMounted(async () => {
+  userStore.init() // 开始监听 api 层 'auth:changed' 事件，同步登录态
   categories.value = await getCategories()
   backend.value = await backendAlive()
 })
@@ -26,21 +31,13 @@ function onSearch() {
 }
 
 function onLogout() {
-  clearAuth()
-  refreshAuth()
+  userStore.logout() // clearAuth + 广播事件 → store 自动同步 → 顶栏复位
   router.push('/')
 }
 
-// 登录/退出后刷新导航登录态：路由切换时重新读取（注册/登录在子组件发生，App 不会重建）
-function refreshAuth() {
-  logged.value = isLoggedIn()
-  user.value = currentUser()
-}
-
-// 详情页路由切换时刷新导航高亮
+// 路由切换时仅收起移动端菜单（登录态已由 store 自动同步，无需再手动刷新）
 watch(() => route.path, () => {
   showMenu.value = false
-  refreshAuth()
 })
 </script>
 

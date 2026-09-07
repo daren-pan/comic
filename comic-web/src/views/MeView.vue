@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
-import { getFavorites, getHistoryWithDetail, removeHistory, isLoggedIn } from '../api'
+import { getFavorites, getHistoryWithDetail, removeHistory } from '../api'
+import { useUserStore } from '../stores/user'
 import type { Comic, HistoryEntry } from '../types'
 
 const router = useRouter()
@@ -9,7 +11,7 @@ const favorites = ref<Comic[]>([])
 const history = ref<(HistoryEntry & { comic?: Comic; chapterTitle?: string })[]>([])
 const loaded = ref(false)
 const tab = ref<'history' | 'favorites'>('history')
-const logged = ref(isLoggedIn())
+const { isLoggedIn: logged } = storeToRefs(useUserStore())
 
 function fmtTime(iso: string): string {
   const d = new Date(iso)

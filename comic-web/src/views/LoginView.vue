@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { login, register, setAuth } from '../api'
+import { useUserStore } from '../stores/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 const mode = ref<'login' | 'register'>('login')
 const username = ref('')
 const password = ref('')
@@ -23,11 +24,11 @@ async function submit() {
   error.value = ''
   loading.value = true
   try {
-    const res =
-      mode.value === 'login'
-        ? await login(username.value.trim(), password.value)
-        : await register(username.value.trim(), password.value, nickname.value.trim())
-    setAuth(res)
+    if (mode.value === 'login') {
+      await userStore.login(username.value.trim(), password.value)
+    } else {
+      await userStore.register(username.value.trim(), password.value, nickname.value.trim())
+    }
     router.push('/me')
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : '操作失败，请重试'
