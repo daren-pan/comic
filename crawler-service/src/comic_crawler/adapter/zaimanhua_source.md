@@ -103,7 +103,9 @@ GET /api/app/v1/comic/chapter/{comic_id}/{chapter_id}
 
 - 返回 `data.data.page_url`：该章节所有正文页的**签名 CDN 地址数组**
 - URL 自带 `sign`/`t` 防盗链签名，**无 Referer 限制可直接下载**
-- 注意：签名会过期，批量晚转存可能 403 —— 增量重采时用新拿的 URL 转存
+- ⚠️ 签名**短时效**（实测约数日过期）：采集入库的 page_url 只是快照，批量晚转存会 403。
+  懒转存已内置兜底（2026-09-07）：`lazy_transfer` 本地解析 URL `t` 预判过期，过期或下载
+  失败时经适配器 `fetch_source_page_urls` 现场重新请求本接口重签 URL 再下载；无需手动重采。
 
 ### 3.4 搜索（备用，未用于默认列表）
 

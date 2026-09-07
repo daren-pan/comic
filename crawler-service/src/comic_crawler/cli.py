@@ -71,10 +71,22 @@ def cmd_show(_args: argparse.Namespace) -> int:
 
 
 def cmd_transfer_images(args: argparse.Namespace) -> int:
-    """懒转存：把库内全部『未转存』页转存到图片存储（模拟用户阅读触发的按需转存）。"""
+    """懒转存：把库内『未转存』页转存到图片存储。
+
+    带适配器工厂：URL 签名过期（zaimanhua 等短时效源）时现场重拉新 URL 再下载。
+    --since/--until：只转存该区间入库的页（配合增量采集联测：增量跑完后用
+    同一 since 起止时间调本命令，只转本次增量新收的页）。
+    """
     storage = _storage(args)
     store = LocalImageStore(root=args.store)
-    stats = lazy_transfer(storage, store)
+    stats = lazy_transfer(
+        storage,
+        store,
+        limit=args.limit,
+        adapter_provider=create_adapter,
+        since=args.since,
+        until=args.until,
+    )
     print("==> 懒转存:", stats)
     print("==> 页面状态分布:", storage.count_pages_by_status())
     return 0
@@ -135,6 +147,15 @@ def main() -> int:
 
     p_transfer = sub.add_parser("transfer-images", help="懒转存未转存页面")
     p_transfer.add_argument("--store", default="image_store", help="图片存储目录（本地模拟 OSS）")
+    p_transfer.add_argument(
+        "--limit", type=int, default=200, help="每批最多转存页数（默认 200）"
+    )
+    p_transfer.add_argument(
+        "--since", default=None, help="只转存该时间（ISO，如 2026-09-07T16:25:00）之后入库的页"
+    )
+    p_transfer.add_argument(
+        "--until", default=None, help="只转存该时间（ISO）之前入库的页（默认不限）"
+    )
     p_transfer.set_defaults(fn=cmd_transfer_images)
 
     p_inspect = sub.add_parser("inspect", help="失效巡检（转存 + 校验 + 恢复）")

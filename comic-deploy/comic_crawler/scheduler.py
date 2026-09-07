@@ -22,7 +22,7 @@ from .storage import Storage
 logger = logging.getLogger(__name__)
 
 MAX_PAGES_PER_SYNC = 50  # 单轮同步最多翻页数，防止失控
-FIRST_CHAPTERS = 5       # 新漫画首采：只入库连载卷最新 N 话（含分页图）；后续增量只补新章节
+FIRST_CHAPTERS = 1       # 新漫画首采：只入库连载卷最新 1 话（页面全部懒下载）；后续增量只补新章节
 
 
 @dataclass(slots=True)
@@ -99,9 +99,11 @@ def _upsert_detail(
     """详情 + 章节 + 页面入库（新漫画收录与已收录补章共用）。
 
     章节采样策略（避免每轮对全卷逐章请求，解决"太慢"）：
-    - 新漫画（库内尚无该作品章节）：只入库连载卷最新 FIRST_CHAPTERS 话（含分页图）；
+    - 新漫画（库内尚无该作品章节）：只入库连载卷最新 FIRST_CHAPTERS（=1）话；
     - 已收录漫画（库内已有章节）：只入库源站里 chapter_no 大于库内最大 chapter_no 的新章节，
       其余已同步章节仅更新元数据、不重复抓分页。
+    页面一律「懒下载」：入库只登记源站 URL（cached_status=未转存），图片字节不主动下载，
+    由失效巡检 lazy_transfer 或用户阅读访问时按需转存（见 image_service）。
     """
     comic_id, is_new = storage.upsert_comic(detail, fp)
     if is_new:
@@ -120,40 +122,27 @@ def _upsert_detail(
     existing_nos = {int(ch["chapter_no"]) for ch in storage.get_chapters(comic_id)}
     existing_max_no = max(existing_nos) if existing_nos else 0
     # detail.chapters 按源站返回（新 -> 旧）：
-    # - 新漫画（库内无章节）：只取最新 FIRST_CHAPTERS 话；
+    # - 新漫画（库内无章节）：只取最新 FIRST_CHAPTERS（=1，初次只收最新一话）；
     # - 老漫画（库内已有章节）：取所有 chapter_no 大于库内最大 chapter_no 的新章节（增量）。
     if existing_nos:
         sampled = [c for c in detail.chapters if c.chapter_no > existing_max_no]
     else:
         sampled = detail.chapters[:FIRST_CHAPTERS]
 
-    for idx, chapter in enumerate(sampled):
+    for chapter in sampled:
         chapter_id, chapter_new = storage.upsert_chapter(comic_id, chapter)
         if chapter_new:
             stats.new_chapters += 1
         try:
             pages = adapter.fetch_chapter_pages(detail, chapter)
             if pages:
+                # 懒下载：只登记页面源站 URL（cached_status=未转存），图片字节不主动下载，
+                # 由失效巡检 lazy_transfer / 阅读访问按需转存（image_service）。
                 storage.upsert_pages(chapter_id, pages)
-                # 采集入库后自动转存「最新一话的第 1 页」（detail.chapters 首个为最新话）
-                # 用于通量验证：只下载最新章第1页，其余页保持未转存（占位）。
-                if idx == 0:
-                    try:
-                        from .image_service import transfer_latest_first_page
-                        from .image_store import LocalImageStore
-
-                        transfer_latest_first_page(
-                            storage, LocalImageStore(), comic_id, chapter_id
-                        )
-                    except Exception:
-                        logger.exception(
-                            "自动转存最新章第1页异常 comic_id=%s chapter_id=%s",
-                            comic_id, chapter_id,
-                        )
         except Exception:
-            # 章节图片失败不阻塞整部漫画入库，仅记录并继续
+            # 页面登记失败不阻塞整部漫画入库，仅记录并继续
             stats.failed += 1
-            logger.warning("章节 %s(%s) 图片抓取失败", chapter.title, chapter.source_chapter_id)
+            logger.warning("章节 %s(%s) 页面登记失败", chapter.title, chapter.source_chapter_id)
 
 
 def full_sync(adapter: CrawlerAdapter, storage: Storage) -> SyncStats:
@@ -162,10 +151,10 @@ def full_sync(adapter: CrawlerAdapter, storage: Storage) -> SyncStats:
     return incremental_sync(adapter, storage, mode="full")
 
 
-def inspect_sync(storage: Storage, image_store=None) -> dict[str, int]:
+def inspect_sync(storage: Storage, image_store=None, adapter_provider=None) -> dict[str, int]:
     """失效巡检（架构方案 §2.2 第三类任务，每小时）：
 
-    1. 未转存页 → 触发懒转存；
+    1. 未转存页 → 触发懒转存（带 adapter_provider 时可对签名过期 URL 现场重拉）；
     2. 已转存页 → 校验 OSS 对象是否存在，缺失则标记失效并尝试恢复；
     3. 恢复失败的失效页保持 '失效'，由下次巡检或人工处理。
 
@@ -180,8 +169,8 @@ def inspect_sync(storage: Storage, image_store=None) -> dict[str, int]:
 
     stats = {"checked": 0, "transferred": 0, "verified": 0, "recovered": 0, "invalid": 0}
 
-    # 1) 未转存 → 转存
-    transfer_stats = lazy_transfer(storage, image_store)
+    # 1) 未转存 → 转存（URL 过期时经 adapter_provider 现场重拉再下载）
+    transfer_stats = lazy_transfer(storage, image_store, adapter_provider=adapter_provider)
     stats["transferred"] = transfer_stats["transferred"]
 
     # 2) 已转存 → 校验对象是否存在
@@ -286,7 +275,11 @@ class SyncScheduler:
         # 3) 失效巡检：独立于源站，固定间隔
         if self._last_inspect is None or now - self._last_inspect >= self.inspect_interval:
             try:
-                inspect_sync(self.storage, image_store=self.image_store)
+                inspect_sync(
+                    self.storage,
+                    image_store=self.image_store,
+                    adapter_provider=lambda name: self.adapters.get(name),
+                )
             except Exception:
                 logger.exception("失效巡检失败")
             self._last_inspect = now

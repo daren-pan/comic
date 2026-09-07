@@ -163,6 +163,29 @@ class ZaimanhuaAdapter(CrawlerAdapter):
             if url and url.strip()
         ]
 
+    def fetch_source_page_urls(
+        self, source_comic_id: str, source_chapter_id: str
+    ) -> list[str] | None:
+        """现场重拉整章 page_url（让源站重新签发新鲜 sign，规避旧 URL 过期 403）。
+
+        图床 images.zaimanhua.com 的 URL 带短时效签名（sign+t），采集入库的
+        source_url 数日即过期——懒转存遇过期/403 时经此重新请求章节接口。
+        带实例级缓存：同一章节的多页在同一批转存中只请求一次源站。
+        """
+        key = (str(source_comic_id), str(source_chapter_id))
+        cache = getattr(self, "_url_cache", None)
+        if cache is None:
+            cache = self._url_cache = {}
+        if key in cache:
+            return cache[key]
+        raw = self._api_get(API_CHAPTER.format(cid=key[0], chid=key[1])) or {}
+        info = ((raw.get("data") or {}).get("data") or {})
+        urls = [u.strip() for u in (info.get("page_url") or []) if u and u.strip()]
+        if len(cache) > 256:  # 缓存保护：超限清空，避免无限增长
+            cache.clear()
+        cache[key] = urls
+        return urls or None
+
     # ------------------------------------------------------------------
     # 工具
     # ------------------------------------------------------------------

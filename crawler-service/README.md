@@ -111,11 +111,27 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 跨站重复作品由 `fingerprint.py` 自动合并（演示：源 A 的「海贼王」与源 B 的
 「海贼王（重置版）」命中同一指纹，只保留一条记录）。
 
+## 章节采样（首次只收最新一话 · 页面全部懒下载）
+
+- 新漫画首次收录：只入库连载卷**最新 1 话**（`FIRST_CHAPTERS = 1`），不做全卷历史抓取；
+- 已收录漫画：后续增量只补 `chapter_no` 大于库内最大章号的新章节（源站更新几话补几话，
+  由增量时间窗口决定本轮覆盖哪些漫画）；
+- 所有章节页面入库时**仅登记源站 URL**（`cached_status = '未转存'`），采集过程不主动下载
+  任何图片字节 —— 真正的图片下载全部由「懒转存」按需触发（见下节）。
+
 ## 图片链路（懒转存 + 失效巡检）
 
 - 同步入库时图片只记 `source_url`，`cached_status='未转存'`（不预抓全量图片）；
 - `transfer-images` / 阅读服务触发 `lazy_transfer`：下载 → 写入 ImageStore →
   回填 `oss_url`、状态置 `已转存`；
+- **签名过期兜底**：短时效签名源（zaimanhua 的 `images.zaimanhua.com` URL 带
+  `sign+t`，数日过期）——`lazy_transfer` 先本地解析 URL 的 `t` 预判过期：过期则
+  经适配器 `fetch_source_page_urls` 现场重拉该章新鲜 URL 再下载，未过期直接下载、
+  失败再重拉兜底一次（无签名源 guazi/pepper 永久有效，恒走直接下载）；
+- `transfer-images --since <ISO> [--until <ISO>] [--limit N]`：只转存该时间范围内入库的
+  未转存页（按章节 sync_time 过滤）——配合增量采集：先跑一次增量，再用
+  `--since 增量开始时间` 调本命令，就只转本次增量新收的页；`--limit` 控制每批
+  页数（默认 200），窗口页多时分批转存；
 - `inspect` 巡检：转存未转存页 + 校验已转存对象是否存在 + 丢失自动恢复；
 - 生产环境实现 OSS/COS 版的 `ImageStore` 替换 `LocalImageStore` 即可。
 

@@ -51,8 +51,14 @@ class Storage(ABC):
         """库内作品/章节计数。"""
 
     @abstractmethod
-    def list_uncached_pages(self, limit: int = 200) -> list:
-        """未转存页面，用于懒转存。"""
+    def list_uncached_pages(
+        self, limit: int = 200, since=None, until=None
+    ) -> list:
+        """未转存页面，用于懒转存。
+
+        since/until：按所属章节 sync_time（≈该批入库时刻）过滤的 ISO 时间串，
+        用于「只转存某次增量采集新入库的页」。None 表示不限制该侧边界。
+        """
 
     @abstractmethod
     def mark_page_cached(self, page_id: int, oss_url: str) -> None:

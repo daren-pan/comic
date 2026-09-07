@@ -14,6 +14,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -68,22 +70,104 @@ def ensure_cover_local(
         return False
 
 
+def _url_expired(source_url: str, now: float | None = None) -> bool:
+    """本地判断签名 URL 是否已过期：解析 query 里的 t 参数（过期时间戳）。
+
+    无 t 参数（永久有效，如 guazi/pepper）或 t 在未来 → False（可直接下载）；
+    t 已过 → True（必然 403，应现场重拉）。纯本地解析，零网络开销。
+    """
+    if not source_url:
+        return True
+    m = re.search(r"[?&]t=(\d+)", source_url)
+    if not m:
+        return False
+    try:
+        expires = float(m.group(1))
+    except ValueError:
+        return False
+    return expires < (time.time() if now is None else now)
+
+
 def lazy_transfer(
     storage: Storage,
     image_store: ImageStore,
     downloader: Callable[[str, str], bytes] | None = None,
     limit: int = 200,
+    adapter_provider: Callable[[str], object] | None = None,
+    since=None,
+    until=None,
 ) -> dict[str, int]:
-    """转存所有「未转存」页，返回统计。可被阅读服务在用户访问时调用（限流参数可选）。"""
+    """转存「未转存」页到图片存储，返回统计。
+
+    下载策略（解决签名时效源 URL 过期问题）：
+    1. 本地解析 source_url 的 t：已过期 → 跳过直接下载，走现场重拉；
+    2. 未过期 → 直接下载；失败（403/网络）→ 同样走现场重拉兜底；
+    3. 重拉：调用 adapter_provider(source) 拿适配器实例，经
+       CrawlerAdapter.fetch_source_page_urls 让源站重新签发整章 URL，
+       再按 page_no 取新地址下载（对无签名源适配器默认不支持，直接失败记日志）。
+
+    参数:
+        adapter_provider: 按源名返回适配器实例的可调用对象（懒转存重拉用）；
+            为 None 时不具备重拉能力（旧 URL 过期则转存失败）。
+        since/until: 只转存该时间范围内入库的页（按章节 sync_time 过滤），
+            用于「增量采集后只转存本次增量新收的页」；None 表示不限制。
+    """
     downloader = downloader or default_downloader
     stats = {"checked": 0, "transferred": 0, "failed": 0}
+    ad_cache: dict[str, object] = {}  # source -> 适配器实例（None 表示创建失败/不支持）
 
-    rows = storage.list_uncached_pages(limit=limit)
+    def _adapter(source: str) -> object | None:
+        if source not in ad_cache:
+            try:
+                ad_cache[source] = adapter_provider(source) if adapter_provider else None
+            except Exception:
+                ad_cache[source] = None
+        return ad_cache[source]
+
+    def _fresh_url(ad: object, row: dict) -> str | None:
+        """现场重拉整章 URL 后按 page_no 取新地址。"""
+        fn = getattr(ad, "fetch_source_page_urls", None)
+        if fn is None:
+            return None
+        try:
+            urls = fn(row.get("source_comic_id"), row.get("source_chapter_id"))
+        except Exception as exc:
+            logger.warning("重拉章节 URL 失败 source=%s: %s", row.get("source"), exc)
+            return None
+        if not urls:
+            return None
+        try:
+            no = int(row["page_no"])
+        except (TypeError, ValueError):
+            no = 1
+        return urls[no - 1] if 1 <= no <= len(urls) else None
+
+    def _try_download(url: str | None, key: str) -> bytes | None:
+        if not url:
+            return None
+        try:
+            return downloader(url, key)
+        except Exception:
+            return None
+
+    rows = storage.list_uncached_pages(limit=limit, since=since, until=until)
     for row in rows:
         stats["checked"] += 1
         key = build_image_key(row["comic_id"], row["chapter_id"], row["page_no"])
+        # 1) t 未过期才直接用登记 URL 下载
+        data = None if _url_expired(row.get("source_url") or "") else _try_download(row.get("source_url"), key)
+        # 2) 过期或下载失败 → 现场重拉兜底
+        if data is None:
+            ad = _adapter(str(row.get("source") or ""))
+            if ad is not None:
+                data = _try_download(_fresh_url(ad, row), key)
+        if data is None:
+            stats["failed"] += 1
+            logger.warning(
+                "转存失败 page_id=%s source=%s（URL 过期且无法重拉）", row["page_id"], row.get("source")
+            )
+            continue
         try:
-            data = downloader(row["source_url"], key)
             image_store.put(key, data)  # 上传对象；put 返回的 URL 不落库
             # DB 回填图库内相对 key（OSS 对象键语义），与机器/项目路径解耦，
             # 读取端（api-service）按运行时定位的图库根拼接。
@@ -91,52 +175,7 @@ def lazy_transfer(
             stats["transferred"] += 1
         except Exception as exc:
             stats["failed"] += 1
-            logger.warning(
-                "转存失败 page_id=%s source=%s: %s", row["page_id"], row["source_url"], exc
-            )
+            logger.warning("转存失败 page_id=%s: %s", row["page_id"], exc)
 
     logger.info("懒转存完成: %s", stats)
     return stats
-
-
-def transfer_latest_first_page(
-    storage: Storage,
-    image_store: ImageStore,
-    comic_id: int,
-    latest_chapter_id: int,
-    downloader: Callable[[str, str], bytes] | None = None,
-) -> bool:
-    """采集入库后自动转存「最新一话的第 1 页」图片。
-
-    用于通量验证：入库时不下载全部分页图（慢、易被源站限流），只把
-    每部漫画最新一章的第 1 页转存到图库、回填 oss_url 标记已转存，
-    其余页面保持「未转存」（访问时显示占位符）。
-
-    参数:
-        latest_chapter_id: 最新一话的章节 id（DB 内 id，须先 upsert_pages 入库）
-
-    返回:
-        True 表示成功转存；False 表示无页可转 / 下载失败。
-    """
-    rows = storage.get_pages(latest_chapter_id)
-    if not rows:
-        return False
-    first = rows[0]  # get_pages 按 page_no ASC，第 1 页在最前，且带 page_id
-    page_id, page_no = int(first["page_id"]), int(first["page_no"])
-    key = build_image_key(comic_id, latest_chapter_id, page_no)
-    downloader = downloader or default_downloader
-    try:
-        data = downloader(str(first["source_url"]), key)
-        image_store.put(key, data)
-        storage.mark_page_cached(page_id, key)
-        logger.info(
-            "自动转存最新章第1页 comic_id=%s chapter_id=%s page_no=%s -> %s (%dB)",
-            comic_id, latest_chapter_id, page_no, key, len(data),
-        )
-        return True
-    except Exception as exc:
-        logger.warning(
-            "自动转存最新章第1页失败 comic_id=%s chapter_id=%s page_no=%s: %s",
-            comic_id, latest_chapter_id, page_no, exc,
-        )
-        return False

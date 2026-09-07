@@ -274,16 +274,31 @@ class MySQLStorage(Storage):
     # ------------------------------------------------------------------
     # 图片转存 / 失效巡检支持
     # ------------------------------------------------------------------
-    def list_uncached_pages(self, limit: int = 200) -> list[dict]:
+    def list_uncached_pages(
+        self, limit: int = 200, since=None, until=None
+    ) -> list[dict]:
+        """未转存页；since/until 按章节 sync_time（≈入库时刻）过滤，用于增量后只转新页。"""
+        conds = ["p.cached_status = '未转存'"]
+        params: list[object] = []
+        if since is not None:
+            conds.append("c.sync_time >= %s")
+            params.append(str(since))
+        if until is not None:
+            conds.append("c.sync_time < %s")
+            params.append(str(until))
+        params.append(limit)
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT p.id AS page_id, p.page_no, p.source_url, p.oss_url, p.cached_status,
-                              c.comic_id, c.id AS chapter_id
-                       FROM page p JOIN chapter c ON p.chapter_id = c.id
-                       WHERE p.cached_status = '未转存'
+                    f"""SELECT p.id AS page_id, p.page_no, p.source_url, p.oss_url, p.cached_status,
+                              c.comic_id, c.id AS chapter_id, c.source_chapter_id,
+                              co.source, co.source_comic_id
+                       FROM page p
+                       JOIN chapter c ON p.chapter_id = c.id
+                       JOIN comic co ON c.comic_id = co.id
+                       WHERE {" AND ".join(conds)}
                        ORDER BY p.id LIMIT %s""",
-                    (limit,),
+                    params,
                 )
                 return list(cur.fetchall())
 
