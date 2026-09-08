@@ -155,6 +155,27 @@ def _description(d):
 ## 合规红线
 - 本 demo 允许的"站点学习"仅指本地技术演示的受控样本；公开发布需另行授权与合规评估。
 
+## 实测验证记录（2026-09-08 端到端跑通）
+
+在受控样本范围内完成了一次完整的今日增量采集 + 懒转存闭环（种子水位播种到
+昨日 23:59:59，只收"今天更新"的漫画）：
+
+- **增量采集**：`cli run --source mangadex`（读 sync_log 水位）→ **7 部今日漫画**，
+  登记章节页 URL（含 at-home 分发地址）共 **196 页**，封面经 `ensure_cover_local`
+  幂等落盘；
+- **懒转存（2 路并发）**：`cli transfer-images` → `checked:179, transferred:179, failed:0`
+  （179 为本次未转存页数，其余此前已转存），页面状态分布 `已转存:277`（含
+  demo_source/demo_source_b/zaimanhua/mangadex 四类源全部页）；
+- **性能**：2 路并发下 MangaDex 单张 3~5s，179 页全程 **5 分 32 秒** 跑完；
+  串行基线约 45 分钟（瓶颈为境外图床带宽，见 crawler-service/README.md「并发转存」）；
+- **API 真图验证**：`GET /api/images/{mangadex_comic_id}/{chapter_id}/{page_no}` →
+  HTTP 200、`Content-Type: image/jpeg`、`Content-Length: 2,316,275`，文件头
+  `\xff\xd8\xff\xe1`（JPEG SOI），确认非 SVG 占位 —— 前端 5173 可正常展示 MangaDex 真图。
+- 库内总量（当日）：`comic=16, chapter=18, page=277`。
+
+> 验证用的漫画样本《独狼女孩的单相思》(comic=10, chapter=12) 分页图
+> `/api/images/10/12/{1,5,12}` 均已返回 2.08~2.32MB 真实 JPEG。
+
 ## ⚠️ at-home 响应结构（2026-09-08 实测修正）
 - MD 的 at-home 响应**没有外层 `data`**：顶层直接是 `{result, baseUrl, chapter:{hash, data[]}}`。
   曾误按 `data.chapter` 解析导致图片恒为空、误判"MD 无图"（实际图完全可下载，见下）。

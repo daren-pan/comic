@@ -125,12 +125,20 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 - `transfer-images` / 阅读服务触发 `lazy_transfer`：下载 → 写入 ImageStore →
   回填 `oss_url`、状态置 `已转存`；
 - **下载器连接复用**：`image_service.default_downloader` 用模块级 `httpx.Client` 单例
-  （keep-alive），批量转存不重复做 TCP/TLS 握手（曾实测：每张新建连接 ~6s/张、
-  复用连接 ~0.95s/张，提速 ~6 倍）；
+  （keep-alive），批量转存不重复做 TCP/TLS 握手。**实测结论（2026-09-08）**：
+  复用连接对**国内图床**显著有效（zaimanhua 单张 365KB 约 0.32s）；但**境外图床**
+  （如 MangaDex `*.mangadex.network`）带宽才是瓶颈——单张 2.26MB 大图即使复用连接
+  仍需 9~25s（瓶颈非握手，keep-alive 在此无优势），因此对境外源靠**并发**解耦；
+- **并发转存**（`image_service.CONCURRENCY = 2`，默认 2 路）：`lazy_transfer` 用
+  `ThreadPoolExecutor(max_workers=2)` + 抽出的 `_transfer_one(row)` 并发处理。
+  实测 MangaDex 从原串行 179 页约 45 分钟缩短到 **5 分钟**跑完（单张 3~5s）。
+  并发安全：`MySQLStorage` 每方法独立连接(autocommit)、`httpx` 共享 client 走线程安全
+  连接池、`LocalImageStore.put` 独立文件写。低频合规：MangaDex AUP 约 5 req/s，2 路远低于该值；
 - **签名过期兜底**：短时效签名源（zaimanhua 的 `images.zaimanhua.com` URL 带
-  `sign+t`，数日过期）——`lazy_transfer` 先本地解析 URL 的 `t` 预判过期：过期则
-  经适配器 `fetch_source_page_urls` 现场重拉该章新鲜 URL 再下载，未过期直接下载、
-  失败再重拉兜底一次（无签名源 guazi/pepper 永久有效，恒走直接下载）；
+  `sign+t`，数日过期；mangadex 的 at-home 分发 URL 同样短时效）——`lazy_transfer`
+  先本地解析 URL 的 `t` 预判过期：过期则经适配器 `fetch_source_page_urls` 现场重拉
+  该章新鲜 URL 再下载，未过期直接下载、失败再重拉兜底一次（无签名源 guazi/pepper
+  永久有效，恒走直接下载）；
 - `transfer-images --since <ISO> [--until <ISO>] [--limit N]`：只转存该时间范围内入库的
   未转存页（按章节 sync_time 过滤）——配合增量采集：先跑一次增量，再用
   `--since 增量开始时间` 调本命令，就只转本次增量新收的页；`--limit` 控制每批

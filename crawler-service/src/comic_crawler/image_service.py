@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
@@ -29,6 +30,10 @@ logger = logging.getLogger(__name__)
 # 共享 httpx.Client：keep-alive 复用连接，避免每张图都重建 TCP/TLS 握手
 # （曾实测：新建连接下载 ~6s/张，复用连接 ~2s/张；无并发，天然贴合源站低频约定）
 _client: httpx.Client | None = None
+
+# 懒转存并发路数（默认 2）：境外图床（如 MangaDex）单张耗时长，适度并发解耦网络 IO，
+# 同时对源站保持低频合规（MangaDex AUP 约 5 req/s，2 路远低于该值）。
+CONCURRENCY = 2
 
 
 def _shared_client() -> httpx.Client:
@@ -161,32 +166,45 @@ def lazy_transfer(
         except Exception:
             return None
 
-    rows = storage.list_uncached_pages(limit=limit, since=since, until=until)
-    for row in rows:
-        stats["checked"] += 1
-        key = build_image_key(row["comic_id"], row["chapter_id"], row["page_no"])
-        # 1) t 未过期才直接用登记 URL 下载
-        data = None if _url_expired(row.get("source_url") or "") else _try_download(row.get("source_url"), key)
-        # 2) 过期或下载失败 → 现场重拉兜底
-        if data is None:
-            ad = _adapter(str(row.get("source") or ""))
-            if ad is not None:
-                data = _try_download(_fresh_url(ad, row), key)
-        if data is None:
-            stats["failed"] += 1
-            logger.warning(
-                "转存失败 page_id=%s source=%s（URL 过期且无法重拉）", row["page_id"], row.get("source")
-            )
-            continue
+    def _transfer_one(row: dict) -> str:
+        """处理单张页：判断过期 -> 下载（必要时现场重拉）-> 写图库/回填状态。
+
+        返回 'ok'/'fail'。并发安全：MySQLStorage 每方法独立连接(autocommit)，
+        httpx 共享 client 用连接池(线程安全)，put 为独立文件写。
+        """
         try:
+            stats["checked"] += 1
+            key = build_image_key(row["comic_id"], row["chapter_id"], row["page_no"])
+            # 1) t 未过期才直接用登记 URL 下载
+            data = None if _url_expired(row.get("source_url") or "") else _try_download(row.get("source_url"), key)
+            # 2) 过期或下载失败 -> 现场重拉兜底
+            if data is None:
+                ad = _adapter(str(row.get("source") or ""))
+                if ad is not None:
+                    data = _try_download(_fresh_url(ad, row), key)
+            if data is None:
+                stats["failed"] += 1
+                logger.warning(
+                    "转存失败 page_id=%s source=%s（URL 过期且无法重拉）", row["page_id"], row.get("source")
+                )
+                return "fail"
             image_store.put(key, data)  # 上传对象；put 返回的 URL 不落库
             # DB 回填图库内相对 key（OSS 对象键语义），与机器/项目路径解耦，
             # 读取端（api-service）按运行时定位的图库根拼接。
             storage.mark_page_cached(row["page_id"], key)
             stats["transferred"] += 1
+            return "ok"
         except Exception as exc:
             stats["failed"] += 1
             logger.warning("转存失败 page_id=%s: %s", row["page_id"], exc)
+            return "fail"
+
+    rows = storage.list_uncached_pages(limit=limit, since=since, until=until)
+    # 并发转存：默认 CONCURRENCY 路（MangaDex 等境外图床单张耗时长，串行会拖满；
+    # 适度并发解耦网络 IO，同时对源站保持低频合规）。
+    workers = max(1, int(CONCURRENCY))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(_transfer_one, rows))
 
     logger.info("懒转存完成: %s", stats)
     return stats

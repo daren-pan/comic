@@ -59,3 +59,8 @@ crawler-service（采集/去重/入库）→ MySQL → api-service（RESTful API
 
 在 `crawler-service` 目录执行 `cli run` 后，刷新前端即可看到新入库内容 ——
 这就是架构方案「源站一更新，本站几分钟内可见」的最小闭环。
+
+已接入真实源站（需联网采集，见 crawler-service/README.md）：**Pepper & Carrot（CC-BY 4.0）**、
+**在漫画 zaimanhua（H5 通道，学习用受控样本）**、**MangaDex（v5 API，学习用受控样本，
+config 中 `enabled=False`，仅手动 `run --source mangadex`）**。图片经懒转存后，
+`/api/covers/{id}`、`/api/images/{cid}/{chid}/{pno}` 即返回**真实图片字节**（非 SVG 占位）。

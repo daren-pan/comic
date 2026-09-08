@@ -56,7 +56,7 @@ SOURCES: list[SourceConfig] = [
     SourceConfig(
         name="mangadex",
         priority="backup",
-        crawl_interval_seconds=3600,  # MangaDex（AUP 非商用）：默认不启用，仅手动 run
+        crawl_interval_seconds=3600,  # MangaDex（AUP 非商用）：默认不启用（enabled=False），仅手动 run 触发增量
         enabled=False,
     ),
 ]
