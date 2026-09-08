@@ -124,6 +124,9 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 - 同步入库时图片只记 `source_url`，`cached_status='未转存'`（不预抓全量图片）；
 - `transfer-images` / 阅读服务触发 `lazy_transfer`：下载 → 写入 ImageStore →
   回填 `oss_url`、状态置 `已转存`；
+- **下载器连接复用**：`image_service.default_downloader` 用模块级 `httpx.Client` 单例
+  （keep-alive），批量转存不重复做 TCP/TLS 握手（曾实测：每张新建连接 ~6s/张、
+  复用连接 ~0.95s/张，提速 ~6 倍）；
 - **签名过期兜底**：短时效签名源（zaimanhua 的 `images.zaimanhua.com` URL 带
   `sign+t`，数日过期）——`lazy_transfer` 先本地解析 URL 的 `t` 预判过期：过期则
   经适配器 `fetch_source_page_urls` 现场重拉该章新鲜 URL 再下载，未过期直接下载、

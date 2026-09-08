@@ -53,4 +53,10 @@ SOURCES: list[SourceConfig] = [
         priority="backup",
         crawl_interval_seconds=3600,  # 学习用途受控源（H5 通道）：低频 + 受限样本
     ),
+    SourceConfig(
+        name="mangadex",
+        priority="backup",
+        crawl_interval_seconds=3600,  # MangaDex（AUP 非商用）：默认不启用，仅手动 run
+        enabled=False,
+    ),
 ]

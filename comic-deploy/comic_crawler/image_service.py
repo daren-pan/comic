@@ -26,6 +26,17 @@ from .storage import Storage
 
 logger = logging.getLogger(__name__)
 
+# 共享 httpx.Client：keep-alive 复用连接，避免每张图都重建 TCP/TLS 握手
+# （曾实测：新建连接下载 ~6s/张，复用连接 ~2s/张；无并发，天然贴合源站低频约定）
+_client: httpx.Client | None = None
+
+
+def _shared_client() -> httpx.Client:
+    global _client
+    if _client is None:
+        _client = httpx.Client(timeout=30.0, follow_redirects=True)
+    return _client
+
 
 def build_image_key(comic_id: int, chapter_id: int, page_no: int) -> str:
     """OSS 对象键：comic/<comic_id>/<chapter_id>/<page_no>（架构方案 §3.3 分目录）。"""
@@ -35,7 +46,7 @@ def build_image_key(comic_id: int, chapter_id: int, page_no: int) -> str:
 def default_downloader(source_url: str, key: str) -> bytes:
     """下载源站图片字节。http(s) 走网络；其他路径返回占位字节（离线演示）。"""
     if source_url.startswith(("http://", "https://")):
-        resp = httpx.get(source_url, timeout=10.0, follow_redirects=True)
+        resp = _shared_client().get(source_url)
         resp.raise_for_status()
         return resp.content
     # 离线演示占位：内容含 key，便于在巡检中验证「对象内容与 key 一致」
