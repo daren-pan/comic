@@ -69,7 +69,7 @@ MAX_READABLE_PROBE = 8   # 可读性探测：从最新往前最多探测几话�
 FIRST_LANG = "zh"        # 译本优先中文，其次英文
 FALLBACK_LANG = "en"
 CN_CHAPTER_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*$")
-# 无编号章节（如外传/单行）高位兜底，仿 guazi 番外 10000+ 防冲突
+# 无编号章节（如外传/单行）高位兜底，仿番外 10000+ 防冲突
 NO_NUM_BASE = 10000
 
 # MD feed 端点必填 contentRating[]（缺省 400），且「返回范围 = 声明范围」。

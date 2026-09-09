@@ -4,7 +4,7 @@
 场景覆盖：
 - t 已过期 → 跳过旧 URL，现场重拉新 URL 下载成功；
 - t 未过期 → 直接用登记 URL 下载，不触发重拉；
-- 无 t 参数（永久 URL，如 guazi）→ 直接下载；
+- 无 t 参数（永久 URL，如 pepper）→ 直接下载；
 - 过期但无适配器 / 适配器不支持重拉 → 转存失败；
 - 未过期但下载 403 → 重拉兜底成功。
 
@@ -53,10 +53,14 @@ class FakeStorage:
         self.cached: list[tuple[int, str]] = []
         self.last_since = None
         self.last_until = None
+        self.last_source = None
 
-    def list_uncached_pages(self, limit: int = 200, since=None, until=None) -> list[dict]:
+    def list_uncached_pages(
+        self, limit: int = 200, since=None, until=None, source=None
+    ) -> list[dict]:
         self.last_since = since
         self.last_until = until
+        self.last_source = source
         return self.rows[:limit]
 
     def mark_page_cached(self, page_id: int, oss_url: str) -> None:
@@ -132,8 +136,8 @@ class TestLazyTransferRefresh(unittest.TestCase):
         self.assertEqual(ad.calls, 0)  # 未调用重拉
 
     def test_no_t_param_direct(self):
-        """无 t（永久 URL，如 guazi）：直接下载。"""
-        url = "https://cdn.guazi.example/img.jpg"
+        """无 t（永久 URL，如 pepper）：直接下载。"""
+        url = "https://cdn.pepper.example/img.jpg"
         storage, stats = self._run([_row(source_url=url)])
         self.assertEqual(stats["transferred"], 1)
         self.assertEqual(self.downloaded, [url])
@@ -190,9 +194,11 @@ class TestLazyTransferRefresh(unittest.TestCase):
             downloader=self._downloader(),
             since="2026-09-07T16:25:00",
             until="2026-09-07T17:05:00",
+            source="weebcentral",
         )
         self.assertEqual(storage.last_since, "2026-09-07T16:25:00")
         self.assertEqual(storage.last_until, "2026-09-07T17:05:00")
+        self.assertEqual(storage.last_source, "weebcentral")  # 仅转存某源
         self.assertEqual(stats["transferred"], 1)
 
 

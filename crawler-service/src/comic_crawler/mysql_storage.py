@@ -275,9 +275,12 @@ class MySQLStorage(Storage):
     # 图片转存 / 失效巡检支持
     # ------------------------------------------------------------------
     def list_uncached_pages(
-        self, limit: int = 200, since=None, until=None
+        self, limit: int = 200, since=None, until=None, source=None
     ) -> list[dict]:
-        """未转存页；since/until 按章节 sync_time（≈入库时刻）过滤，用于增量后只转新页。"""
+        """未转存页；since/until 按章节 sync_time（≈入库时刻）过滤，用于增量后只转新页。
+
+        source：按数据源过滤（如 'zaimanhua'）；None 表示不限制。
+        """
         conds = ["p.cached_status = '未转存'"]
         params: list[object] = []
         if since is not None:
@@ -286,6 +289,9 @@ class MySQLStorage(Storage):
         if until is not None:
             conds.append("c.sync_time < %s")
             params.append(str(until))
+        if source:
+            conds.append("co.source = %s")
+            params.append(str(source))
         params.append(limit)
         with self._conn() as conn:
             with conn.cursor() as cur:

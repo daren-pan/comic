@@ -70,3 +70,34 @@ export interface AuthResult {
   token: string
   user: User
 }
+
+// ---------------- 采集管理（运维控制台） ----------------
+export interface SourceInfo {
+  name: string
+  enabled: boolean
+  priority: string          // primary / backup
+  interval: number          // 增量轮询间隔（秒）
+  comicCount: number        // 库内该源作品数
+  lastSync: string | null   // 上次同步完成时间（ISO）
+}
+
+export interface SyncStats {
+  source: string
+  mode: string
+  started_at: string
+  total_seen: number
+  new_comics: number
+  updated_comics: number
+  new_chapters: number
+  failed: number
+}
+
+export interface AdminTask {
+  id: string
+  type: 'sync' | 'transfer'
+  status: 'running' | 'done' | 'failed'
+  message: string
+  result: Record<string, unknown> | null
+  startedAt: string
+  finishedAt: string | null
+}

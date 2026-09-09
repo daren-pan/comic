@@ -137,14 +137,26 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 - **签名过期兜底**：短时效签名源（zaimanhua 的 `images.zaimanhua.com` URL 带
   `sign+t`，数日过期；mangadex 的 at-home 分发 URL 同样短时效）——`lazy_transfer`
   先本地解析 URL 的 `t` 预判过期：过期则经适配器 `fetch_source_page_urls` 现场重拉
-  该章新鲜 URL 再下载，未过期直接下载、失败再重拉兜底一次（无签名源 guazi/pepper
+  该章新鲜 URL 再下载，未过期直接下载、失败再重拉兜底一次（无签名源 pepper
   永久有效，恒走直接下载）；
-- `transfer-images --since <ISO> [--until <ISO>] [--limit N]`：只转存该时间范围内入库的
+- `transfer-images --since <ISO> [--until <ISO>] [--limit N] [--source <name>]`：只转存该时间范围内入库的
   未转存页（按章节 sync_time 过滤）——配合增量采集：先跑一次增量，再用
   `--since 增量开始时间` 调本命令，就只转本次增量新收的页；`--limit` 控制每批
-  页数（默认 200），窗口页多时分批转存；
+  页数（默认 200），窗口页多时分批转存；`--source` 限定**只转存某数据源**的页
+  （`lazy_transfer` 内部透传给 `list_uncached_pages` 按 `co.source` 过滤），用于
+  单独补转某一个源（如管理台"仅转存某源"）；
 - `inspect` 巡检：转存未转存页 + 校验已转存对象是否存在 + 丢失自动恢复；
 - 生产环境实现 OSS/COS 版的 `ImageStore` 替换 `LocalImageStore` 即可。
+
+## 采集时间窗口（`since`，增量 vs 全量）
+
+`incremental_sync` / `full_sync` 均支持手动指定起始日期 `since`（ISO 8601），语义如下：
+
+- **增量（`--mode incremental`，默认）**：`since` 不填时自动取该源**上次同步时间**（`Storage.get_last_sync_time` 查 `sync_log.finished_at`，无记录返回 None），即采集 `[上次同步, 现在]` 窗口；手动填 `since` 则**优先于水位**，用于回补（上次同步之后漏掉/被跳过的时间段）或前移窗口。
+- **全量（`--mode full`）**：默认 `since=None` **无时间窗口**，扫描列表接口能返回的全部（不限时间）；手动填 `since` 时同样按 `[since, 现在]` 过滤。
+- **手动指定优先于水位**：`run --source xxx --mode incremental --since 2026-09-01` 即采集 9 月 1 日至今（而不是从上次同步开始）。
+- 源站按各自时间字段过滤（再漫画 `last_updatetime` Unix 时间戳；瓜子列表无时间字段，用 date 参数近似）；首采（无水位）默认收当天全部。
+- 采集管理控制台（`/#/admin`，见 api-service README）即在页面上暴露该 `since` / `mode` / `limit` 参数，无需手敲命令行。
 
 ## 合规说明（务必阅读）
 

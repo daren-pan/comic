@@ -43,9 +43,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     storage = _storage(args)
 
     if args.mode == "full":
-        stats = full_sync(adapter, storage)
+        stats = full_sync(adapter, storage, limit=args.limit)
     else:
-        stats = incremental_sync(adapter, storage)
+        stats = incremental_sync(adapter, storage, limit=args.limit)
     print("\n==> " + stats.summary())
     print("==> 库内数据:", storage.stats())
     return 0
@@ -141,6 +141,10 @@ def main() -> int:
     p_run = sub.add_parser("run", help="执行一次同步")
     p_run.add_argument("--source", default="demo_source", help="源站名（见 list）")
     p_run.add_argument("--mode", choices=["incremental", "full"], default="incremental")
+    p_run.add_argument(
+        "--limit", type=int, default=None,
+        help="本次同步最多收录的漫画数（受控样本，如 --limit 1 只抓最近 1 部；默认不限制）",
+    )
     p_run.set_defaults(fn=cmd_run)
 
     sub.add_parser("list", help="列出已注册适配器").set_defaults(fn=cmd_list)

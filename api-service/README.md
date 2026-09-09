@@ -33,6 +33,10 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000
 | `GET /api/images/{comic_id}/{chapter_id}/{page_no}` | 分页图（OSS 文件优先，缺失生成 SVG 占位） | 图片服务 |
 | `GET/PUT/DELETE /api/users/{user_id}/favorites[/{comic_id}]` | 收藏查询/添加/取消（`PUT` 幂等） | 用户中心 |
 | `GET/PUT /api/users/{user_id}/history` · `DELETE /api/users/{user_id}/history/{comic_id}` | 阅读历史：查询（含作品+章节信息）/写入进度/删除 | 用户中心 |
+| `GET /api/admin/sources` · `POST /api/admin/sources/{name}/toggle` | 数据源列表（enabled/库内数/上次同步）/ 开关采集（持久化 `source_state.json`） | 采集管理控制台 |
+| `POST /api/admin/sync` | 手动触发采集，body `{source, mode, since, limit}`，返回 `taskId`（后台线程执行） | 采集管理控制台 |
+| `POST /api/admin/transfer` | 手动触发懒转存，body `{source, since, until, limit}`，返回 `taskId` | 采集管理控制台 |
+| `GET /api/admin/tasks[/{task_id}]` | 后台任务状态轮询（running/done/failed + 结果统计） | 采集管理控制台 |
 
 > 匿名用户模型：前端首次访问生成 `userId`（localStorage 持久化），收藏与历史按用户隔离；
 > 服务端历史支持**跨浏览器续读**（换设备/浏览器登录同一 userId 即可继续上次阅读）。
@@ -48,6 +52,17 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000
 - **图片回退链**：已转存 OSS 文件（真实图片字节）→ 本地生成 SVG 占位图。
   接真实源站后转存文件即为真实漫画图，占位逻辑自动失效；
 - **视图计数**：内存计数器（演示版），生产换 Redis 计数器。
+
+## 采集管理控制台（`/api/admin/*`）
+
+面向本机运维的采集控制台（前端 `/#/admin`，无需登录）。采集/懒转存耗时，故用**后台线程执行 + 前端轮询**（`_run_admin_task`），触发后立即返回 `taskId`，再轮询 `GET /api/admin/tasks/{id}` 取结果。
+
+- **按源开关**：`POST /api/admin/sources/{name}/toggle` 切换某源采集启用状态，持久化到 `api-service/source_state.json`（默认读 `config.SOURCES.enabled`）；关闭的源拒绝触发采集（400）。
+- **触发采集**：`POST /api/admin/sync`，`since`（ISO，起始日期）**优先于上次同步水位**——留空按水位、填了按填的日期回补/前移；`limit` 限制本次收录数量（受控样本）。
+- **触发懒转存**：`POST /api/admin/transfer`，`source` 只转存指定源、`since/until` 按章节 `sync_time` 窗口过滤、`limit` 每批页数。
+- 数据层支撑（crawler-service）：`incremental_sync/full_sync` 增加 `since` 参数；`lazy_transfer`/`list_uncached_pages` 增加 `source` 按源过滤。
+
+> 采集/转存任务结果以 `{stats, summary, db}`（采集）或 `{checked, transferred, failed, pagesByStatus}`（转存）形式存于任务 `result`。
 
 ## 数据流闭环
 

@@ -74,13 +74,13 @@ class TestTagsFrom(unittest.TestCase):
 
     2026-09-05 修复前，_tags_from 分隔符优先级把「空格」排在「/」之前，
     导致「连载 / 国漫」先按空格切开 -> ['连载', '/', '国漫']，`/` 成为孤儿标签，
-    前端标签栏据此聚合出一个「/ 33」（33 部 guazi 漫画被错误关联到 `/`）。
+    前端标签栏据此聚合出一个「/ 33」（33 部漫画被错误关联到 `/`）。
     """
 
     @staticmethod
     def _mk(category: str):
         return ComicDetail(
-            source="guazi", source_comic_id="x", title="t", author="a",
+            source="demo", source_comic_id="x", title="t", author="a",
             cover_url="", status="连载", category=category,
             description="", latest_chapter_title="", detail_url="", chapters=[],
         )

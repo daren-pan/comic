@@ -76,6 +76,7 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 ```
 
 > 采集与 API 均直连 MySQL（`COMIC_MYSQL_*` 配置）。
+> 除 CLI 外，也可在站点 `/#/admin` **采集管理控制台**手动触发采集/懒转存（按源开关、`since`/`limit` 控制范围，无需登录）。
 
 图片约定（务必遵守）：
 
@@ -99,6 +100,7 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 | 地址 | 说明 |
 |---|---|
 | http://127.0.0.1:8000/ | 前端站点（同源托管） |
+| http://127.0.0.1:8000/#/admin | 采集管理控制台（手动触发采集/懒转存、按源开关、since/limit 控制范围；无需登录） |
 | http://127.0.0.1:8000/docs | FastAPI Swagger 文档 |
 | `GET /api/health` | 健康检查 + 库内统计 |
 | `GET /api/comics?category=&keyword=&sort=&page=` | 作品列表 |
@@ -109,6 +111,6 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 
 ## 合规说明
 
-- 仓库内真实图片仅包含 **CC-BY 4.0 开源授权**（Pepper & Carrot）与**本机受控演示抓取的少量章节页**（瓜子漫画/在漫画，均为站点公开免费内容，仅供个人学习演示，不对外分发、不绕过付费/VIP）；
+- 仓库内真实图片仅包含 **CC-BY 4.0 开源授权**（Pepper & Carrot）与**本机受控演示抓取的少量章节页**（在漫画，均为站点公开免费内容，仅供个人学习演示，不对外分发、不绕过付费/VIP）；
 - 采集适配器仅用于接口演示，请尊重源站 robots 与版权，控制频率；
 - 若需公开此仓库，请先移除演示抓取的版权图片（清空 `image_store` 并用 `cli run` 重建可授权数据）。

@@ -32,32 +32,53 @@ class SyncSession:
     started_at: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
 
 
-def incremental_sync(adapter: CrawlerAdapter, storage: Storage, mode: str = "incremental") -> SyncStats:
+def incremental_sync(
+    adapter: CrawlerAdapter,
+    storage: Storage,
+    mode: str = "incremental",
+    limit: int | None = None,
+    since=None,
+) -> SyncStats:
     """增量同步：列表 → 时间窗口过滤 → 新作品抓详情+章节入库。
 
     时间窗口：首次（无历史完成时间）采集"今天更新"全部；
     之后采集 [上次同步完成时间, now] 窗口内更新的漫画（由适配器按源站
     时间字段/date 参数过滤，见 CrawlerAdapter.fetch_comic_list 的 since）。
+
+    limit：本次同步最多收录的漫画数（受控样本，如 --limit 1 只抓最近 1 部）；
+    None 表示不限制（用适配器 MAX_ITEMS 默认值）。
+
+    since：手动指定的增量起始时间（ISO 字符串或 datetime），优先于上次同步水位；
+    None 表示按水位自动推断。用于管理页「按日期控制采集范围」。
     """
     session = SyncSession()
     stats = SyncStats(source=adapter.source_name, mode=mode, started_at=session.started_at)
     # 增量水位：该源上次同步完成时间（None=首次/无记录）
     last_sync_raw = storage.get_last_sync_time(adapter.source_name)
-    since = None
+    watermark = None
     if last_sync_raw and mode != "full":
         try:
-            since = datetime.fromisoformat(last_sync_raw)
+            watermark = datetime.fromisoformat(last_sync_raw)
         except ValueError:
-            since = None
-    logger.info("开始 %s 同步: %s（since=%s）", mode, adapter, since)
+            watermark = None
+    # 用户手动指定 since 日期优先于水位
+    if since:
+        since = datetime.fromisoformat(since) if isinstance(since, str) else since
+    else:
+        since = watermark
+    logger.info("开始 %s 同步: %s（since=%s limit=%s）", mode, adapter, since, limit)
 
     adapter.pre_fetch()
     try:
         page = 1
+        processed = 0
         while True:
             result = adapter.fetch_comic_list(page=page, since=since)
-            _process_batch(adapter, storage, result, stats)
+            processed = _process_batch(adapter, storage, result, stats, limit, processed)
             if not result.has_next:
+                break
+            if limit is not None and processed >= limit:
+                logger.info("已达受控 limit=%d，提前终止列表翻页", limit)
                 break
             page += 1
             if page > MAX_PAGES_PER_SYNC:
@@ -71,9 +92,19 @@ def incremental_sync(adapter: CrawlerAdapter, storage: Storage, mode: str = "inc
     return stats
 
 
-def _process_batch(adapter: CrawlerAdapter, storage: Storage, result: ComicListResult, stats: SyncStats) -> None:
+def _process_batch(
+    adapter: CrawlerAdapter,
+    storage: Storage,
+    result: ComicListResult,
+    stats: SyncStats,
+    limit: int | None = None,
+    processed: int = 0,
+) -> int:
     for brief in result.items:
+        if limit is not None and processed >= limit:
+            break
         stats.total_seen += 1
+        processed += 1
         try:
             fp = build_fingerprint(brief.title, brief.author)
             existing_id = storage.get_comic_id_by_fingerprint(fp)
@@ -91,6 +122,7 @@ def _process_batch(adapter: CrawlerAdapter, storage: Storage, result: ComicListR
         except Exception:
             stats.failed += 1
             logger.exception("处理漫画 %s 失败", brief.title)
+    return processed
 
 
 def _upsert_detail(
@@ -145,10 +177,10 @@ def _upsert_detail(
             logger.warning("章节 %s(%s) 页面登记失败", chapter.title, chapter.source_chapter_id)
 
 
-def full_sync(adapter: CrawlerAdapter, storage: Storage) -> SyncStats:
+def full_sync(adapter: CrawlerAdapter, storage: Storage, limit: int | None = None, since=None) -> SyncStats:
     """全量扫描：语义与增量一致（同为列表+详情补全），生产环境可在此
     追加"失效校验"（重抓已标记失效的章节、比对 content_hash 变更）。"""
-    return incremental_sync(adapter, storage, mode="full")
+    return incremental_sync(adapter, storage, mode="full", limit=limit, since=since)
 
 
 def inspect_sync(storage: Storage, image_store=None, adapter_provider=None) -> dict[str, int]:

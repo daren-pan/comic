@@ -52,12 +52,13 @@ watch(() => route.path, () => {
       <nav class="nav-links">
         <RouterLink to="/" :class="{ on: route.path === '/' }">首页</RouterLink>
         <RouterLink
-          v-for="c in categories.filter((x) => x.name !== '全部').slice(0, 5)"
+          v-for="c in categories.filter((x) => x.name !== '全部').slice(0, 3)"
           :key="c.name"
           :to="{ path: '/search', query: { category: c.name } }"
           :class="{ on: route.path === '/search' && route.query.category === c.name }"
         >{{ c.name }}</RouterLink>
         <RouterLink to="/me" :class="{ on: route.path === '/me' }">我的</RouterLink>
+        <RouterLink to="/admin" :class="{ on: route.path === '/admin' }">管理</RouterLink>
       </nav>
 
       <div class="nav-right">
@@ -84,6 +85,7 @@ watch(() => route.path, () => {
         {{ c.name }}<span>{{ c.count }}</span>
       </RouterLink>
       <RouterLink to="/me" @click="showMenu = false">我的收藏与历史</RouterLink>
+      <RouterLink to="/admin" @click="showMenu = false">采集管理</RouterLink>
       <RouterLink v-if="!logged" to="/login" @click="showMenu = false">登录</RouterLink>
       <a v-else href="#" @click.prevent="onLogout(); showMenu = false">退出登录</a>
     </div>
@@ -132,19 +134,21 @@ watch(() => route.path, () => {
 .logo-text { font-weight: 800; font-size: 19px; }
 .logo-text em { font-style: normal; font-size: 11px; color: var(--primary); margin-left: 4px; letter-spacing: 1px; }
 
-.nav-links { display: flex; gap: 4px; flex: 1; }
+.nav-links { display: flex; gap: 2px; flex: 1; min-width: 0; }
 .nav-links a {
-  padding: 6px 12px;
+  padding: 6px 10px;
   border-radius: 8px;
   font-weight: 600;
   color: var(--text-2);
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.15s;
 }
 .nav-links a:hover { color: var(--primary); background: var(--primary-soft); }
 .nav-links a.on { color: var(--primary); background: var(--primary-soft); }
 
 .nav-right { display: flex; align-items: center; gap: 10px; }
-.search-box { display: flex; align-items: center; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 0 4px 0 14px; height: 36px; width: 230px; transition: border 0.15s; }
+.search-box { display: flex; align-items: center; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 0 4px 0 14px; height: 36px; width: 200px; min-width: 130px; flex-shrink: 1; transition: border 0.15s; }
 .search-box:focus-within { border-color: var(--primary); background: #fff; }
 .search-box input { border: none; outline: none; background: transparent; flex: 1; font-size: 13px; color: var(--text); }
 .search-box button { border: none; background: var(--primary); color: #fff; width: 28px; height: 28px; border-radius: 999px; cursor: pointer; font-size: 12px; }

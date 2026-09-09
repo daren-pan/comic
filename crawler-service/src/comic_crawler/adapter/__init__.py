@@ -7,9 +7,9 @@ from .registry import create_adapter, list_adapters, register
 from . import (  # noqa: E402,F401
     demo_source,
     demo_source_b,
-    guazi_source,
     mangadex_source,
     pepper_source,
+    weebcentral_source,
     zaimanhua_source,
 )
 

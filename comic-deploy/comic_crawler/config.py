@@ -44,11 +44,6 @@ SOURCES: list[SourceConfig] = [
         crawl_interval_seconds=1800,  # 真实站点，放低频轮询
     ),
     SourceConfig(
-        name="guazi",
-        priority="backup",
-        crawl_interval_seconds=3600,  # 学习用途受控源：仅本地演示，低频 + 受限样本
-    ),
-    SourceConfig(
         name="zaimanhua",
         priority="backup",
         crawl_interval_seconds=3600,  # 学习用途受控源（H5 通道）：低频 + 受限样本
@@ -58,5 +53,10 @@ SOURCES: list[SourceConfig] = [
         priority="backup",
         crawl_interval_seconds=3600,  # MangaDex（AUP 非商用）：默认不启用，仅手动 run
         enabled=False,
+    ),
+    SourceConfig(
+        name="weebcentral",
+        priority="backup",
+        crawl_interval_seconds=3600,  # Weeb Central（学习用途受控源）：低频 + 受限样本
     ),
 ]

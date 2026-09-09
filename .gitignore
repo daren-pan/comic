@@ -28,6 +28,7 @@ serve_out.txt
 nohup.out
 *.log
 logs/
+source_state.json
 
 # ---- 开发/探测残留（不随仓库分发） ----
 _zmh_probe/

@@ -13,7 +13,12 @@ from __future__ import annotations
 
 import os
 import sys
+import json
+import logging
+import threading
+import time
 from contextlib import contextmanager
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -456,6 +461,196 @@ def page_image(comic_id: int, chapter_id: int, page_no: int):
         content=make_page_svg(comic["title"] if comic else "漫画", ch["title"], page_no, len(rows)),
         media_type="image/svg+xml",
     )
+
+
+# ---------------- 采集管理（运维控制台） ----------------
+# 管理页能力：列出数据源、开关采集、手动触发采集（增量/全量 + since/limit）、
+# 手动触发懒转存（source/since/until/limit）。采集与转存耗时，用后台线程执行，
+# 前端触发后轮询任务状态，避免 HTTP 请求长时间挂起。
+_admin_logger = logging.getLogger("comic.admin")
+
+# 源开关状态持久化：默认读 config.SOURCES.enabled，覆盖态存 source_state.json（重启不丢）
+_SOURCE_STATE_FILE = APP_DIR / "source_state.json"
+
+
+def _load_source_state() -> dict[str, bool]:
+    state: dict[str, bool] = {}
+    try:
+        from comic_crawler.config import SOURCES
+        for s in SOURCES:
+            state[s.name] = s.enabled
+    except Exception:
+        pass
+    if _SOURCE_STATE_FILE.exists():
+        try:
+            saved = json.loads(_SOURCE_STATE_FILE.read_text("utf-8"))
+            if isinstance(saved, dict):
+                for k, v in saved.items():
+                    if isinstance(v, bool):
+                        state[k] = v
+        except Exception:
+            _admin_logger.exception("读取 source_state.json 失败")
+    return state
+
+
+def _save_source_state(state: dict[str, bool]) -> None:
+    try:
+        _SOURCE_STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), "utf-8")
+    except Exception:
+        _admin_logger.exception("写入 source_state.json 失败")
+
+
+_SOURCE_STATE = _load_source_state()
+
+# 后台任务注册表（内存；taskId -> 状态/结果）
+_ADMIN_TASKS: dict[str, dict] = {}
+_TASK_SEQ = 0
+_TASK_LOCK = threading.Lock()
+
+
+def _new_task_id(prefix: str) -> str:
+    global _TASK_SEQ
+    with _TASK_LOCK:
+        _TASK_SEQ += 1
+        return f"{prefix}-{_TASK_SEQ}-{int(time.time())}"
+
+
+def _run_admin_task(task_id: str, task_type: str, fn) -> None:
+    _ADMIN_TASKS[task_id] = {
+        "id": task_id,
+        "type": task_type,
+        "status": "running",
+        "message": "运行中",
+        "result": None,
+        "startedAt": datetime.now().isoformat(timespec="seconds"),
+        "finishedAt": None,
+    }
+
+    def _runner():
+        try:
+            result = fn()
+            _ADMIN_TASKS[task_id].update(
+                status="done", message="ok", result=result,
+                finishedAt=datetime.now().isoformat(timespec="seconds"),
+            )
+        except Exception as exc:
+            _admin_logger.exception("后台任务 %s 失败", task_id)
+            _ADMIN_TASKS[task_id].update(
+                status="failed", message=str(exc), result=None,
+                finishedAt=datetime.now().isoformat(timespec="seconds"),
+            )
+
+    threading.Thread(target=_runner, daemon=True).start()
+
+
+def _admin_image_store():
+    """懒转存落盘位置与 api-service 读取图库一致（crawler-service/image_store）。"""
+    from comic_crawler.image_store import LocalImageStore
+    root = CRAWLER_SRC.parent / "image_store"
+    if not root.is_dir():
+        root = APP_DIR / "image_store"
+    return LocalImageStore(root=root)
+
+
+def _admin_sources_meta() -> list[dict]:
+    from comic_crawler.config import SOURCES
+    from collections import Counter
+    rows, _ = db.list_comics(page=1, page_size=10000)
+    count = Counter(r["source"] for r in rows)
+    meta = []
+    for s in SOURCES:
+        meta.append({
+            "name": s.name,
+            "enabled": _SOURCE_STATE.get(s.name, s.enabled),
+            "priority": s.priority,
+            "interval": s.crawl_interval_seconds,
+            "comicCount": count.get(s.name, 0),
+            "lastSync": db.get_last_sync_time(s.name),
+        })
+    return meta
+
+
+class AdminSyncBody(BaseModel):
+    source: str
+    mode: str = "incremental"
+    since: str | None = None
+    limit: int | None = None
+
+
+class AdminTransferBody(BaseModel):
+    source: str | None = None
+    since: str | None = None
+    until: str | None = None
+    limit: int = 200
+
+
+@app.get("/api/admin/sources")
+def admin_sources():
+    return _ok(_admin_sources_meta())
+
+
+@app.post("/api/admin/sources/{name}/toggle")
+def admin_toggle_source(name: str):
+    cur = _SOURCE_STATE.get(name, True)
+    _SOURCE_STATE[name] = not cur
+    _save_source_state(_SOURCE_STATE)
+    return _ok({"name": name, "enabled": _SOURCE_STATE[name]})
+
+
+@app.post("/api/admin/sync")
+def admin_sync(body: AdminSyncBody):
+    if not _SOURCE_STATE.get(body.source, True):
+        raise HTTPException(status_code=400, detail=f"源 {body.source} 已关闭采集")
+    from comic_crawler.adapter import create_adapter
+    from comic_crawler.scheduler import incremental_sync, full_sync
+
+    task_id = _new_task_id("sync")
+
+    def job():
+        storage = MySQLStorage()
+        adapter = create_adapter(body.source)
+        if body.mode == "full":
+            stats = full_sync(adapter, storage, limit=body.limit, since=body.since)
+        else:
+            stats = incremental_sync(adapter, storage, limit=body.limit, since=body.since)
+        return {"stats": asdict(stats), "summary": stats.summary(), "db": storage.stats()}
+
+    _run_admin_task(task_id, "sync", job)
+    return _ok({"taskId": task_id})
+
+
+@app.post("/api/admin/transfer")
+def admin_transfer(body: AdminTransferBody):
+    from comic_crawler.adapter import create_adapter
+    from comic_crawler.image_service import lazy_transfer
+
+    task_id = _new_task_id("transfer")
+
+    def job():
+        storage = MySQLStorage()
+        stats = lazy_transfer(
+            storage, _admin_image_store(),
+            limit=body.limit, adapter_provider=create_adapter,
+            since=body.since, until=body.until, source=body.source,
+        )
+        return {**stats, "pagesByStatus": storage.count_pages_by_status()}
+
+    _run_admin_task(task_id, "transfer", job)
+    return _ok({"taskId": task_id})
+
+
+@app.get("/api/admin/tasks")
+def admin_tasks():
+    items = sorted(_ADMIN_TASKS.values(), key=lambda t: t["startedAt"], reverse=True)[:30]
+    return _ok(items)
+
+
+@app.get("/api/admin/tasks/{task_id}")
+def admin_task(task_id: str):
+    t = _ADMIN_TASKS.get(task_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="task not found")
+    return _ok(t)
 
 
 # ---------------- 托管前端构建产物（同源部署） ----------------

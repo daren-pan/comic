@@ -89,7 +89,7 @@ def ensure_cover_local(
 def _url_expired(source_url: str, now: float | None = None) -> bool:
     """本地判断签名 URL 是否已过期：解析 query 里的 t 参数（过期时间戳）。
 
-    无 t 参数（永久有效，如 guazi/pepper）或 t 在未来 → False（可直接下载）；
+    无 t 参数（永久有效，如 pepper）或 t 在未来 → False（可直接下载）；
     t 已过 → True（必然 403，应现场重拉）。纯本地解析，零网络开销。
     """
     if not source_url:
@@ -112,6 +112,7 @@ def lazy_transfer(
     adapter_provider: Callable[[str], object] | None = None,
     since=None,
     until=None,
+    source=None,
 ) -> dict[str, int]:
     """转存「未转存」页到图片存储，返回统计。
 
@@ -127,6 +128,7 @@ def lazy_transfer(
             为 None 时不具备重拉能力（旧 URL 过期则转存失败）。
         since/until: 只转存该时间范围内入库的页（按章节 sync_time 过滤），
             用于「增量采集后只转存本次增量新收的页」；None 表示不限制。
+        source: 只转存指定数据源的页（如 'zaimanhua'）；None 表示不限制。
     """
     downloader = downloader or default_downloader
     stats = {"checked": 0, "transferred": 0, "failed": 0}
@@ -199,7 +201,7 @@ def lazy_transfer(
             logger.warning("转存失败 page_id=%s: %s", row["page_id"], exc)
             return "fail"
 
-    rows = storage.list_uncached_pages(limit=limit, since=since, until=until)
+    rows = storage.list_uncached_pages(limit=limit, since=since, until=until, source=source)
     # 并发转存：默认 CONCURRENCY 路（MangaDex 等境外图床单张耗时长，串行会拖满；
     # 适度并发解耦网络 IO，同时对源站保持低频合规）。
     workers = max(1, int(CONCURRENCY))
