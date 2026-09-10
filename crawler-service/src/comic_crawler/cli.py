@@ -150,9 +150,12 @@ def main() -> int:
     sub.add_parser("list", help="列出已注册适配器").set_defaults(fn=cmd_list)
 
     p_transfer = sub.add_parser("transfer-images", help="懒转存未转存页面")
-    p_transfer.add_argument("--store", default="image_store", help="图片存储目录（本地模拟 OSS）")
     p_transfer.add_argument(
-        "--limit", type=int, default=200, help="每批最多转存页数（默认 200）"
+        "--store", default=None, help="图片存储目录（本地模拟 OSS）；默认用统一图库根"
+    )
+    p_transfer.add_argument(
+        "--limit", type=int, default=None,
+        help="本次最多转存页数（可选兜底）；默认不限制，转存窗口内全部未转存页",
     )
     p_transfer.add_argument(
         "--since", default=None, help="只转存该时间（ISO，如 2026-09-07T16:25:00）之后入库的页"
@@ -163,7 +166,7 @@ def main() -> int:
     p_transfer.set_defaults(fn=cmd_transfer_images)
 
     p_inspect = sub.add_parser("inspect", help="失效巡检（转存 + 校验 + 恢复）")
-    p_inspect.add_argument("--store", default="image_store")
+    p_inspect.add_argument("--store", default=None, help="图片存储目录；默认用统一图库根")
     p_inspect.set_defaults(fn=cmd_inspect)
 
     p_show = sub.add_parser("show", help="展示库内数据")

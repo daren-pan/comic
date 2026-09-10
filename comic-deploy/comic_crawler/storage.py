@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from .models import ChapterBrief, ComicDetail, PageInfo
 
@@ -40,10 +41,11 @@ class Storage(ABC):
         """记录同步日志（审计与版权存证，见架构方案 §6.2）。"""
 
     @abstractmethod
-    def get_last_sync_time(self, source: str) -> str | None:
-        """查该源最近一次同步完成时间（sync_log.finished_at），无记录返回 None。
+    def get_last_sync_time(self, source: str) -> datetime | None:
+        """查该源最近一次同步完成时间（`sync_log.finished_at`，DATETIME），无记录返回 None。
 
         用作增量水位：None=首次（采集当天全部），否则采集 [finished_at, now] 窗口内更新的漫画。
+        返回 naive datetime（naive 按本机时区解释，与适配器的时间比较语义一致）。
         """
 
     @abstractmethod
@@ -52,12 +54,15 @@ class Storage(ABC):
 
     @abstractmethod
     def list_uncached_pages(
-        self, limit: int = 200, since=None, until=None
+        self, limit: int | None = None, since=None, until=None, source=None
     ) -> list:
         """未转存页面，用于懒转存。
 
-        since/until：按所属章节 sync_time（≈该批入库时刻）过滤的 ISO 时间串，
-        用于「只转存某次增量采集新入库的页」。None 表示不限制该侧边界。
+        limit：本次最多取多少页；None/<=0 = 不限制（取窗口内全部）。
+        since/until：按所属章节 `sync_time`（DATETIME，≈该批入库时刻）过滤，
+        用于「只转存某次增量采集新入库的页」。边界**双端含**：只给日期时
+        `until` 含当天全天。None 表示不限制该侧边界。
+        source：按数据源过滤（如 'zaimanhua'）；None = 不限制。
         """
 
     @abstractmethod

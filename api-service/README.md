@@ -35,7 +35,7 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000
 | `GET/PUT /api/users/{user_id}/history` · `DELETE /api/users/{user_id}/history/{comic_id}` | 阅读历史：查询（含作品+章节信息）/写入进度/删除 | 用户中心 |
 | `GET /api/admin/sources` · `POST /api/admin/sources/{name}/toggle` | 数据源列表（enabled/库内数/上次同步）/ 开关采集（持久化 `source_state.json`） | 采集管理控制台 |
 | `POST /api/admin/sync` | 手动触发采集，body `{source, mode, since, limit}`，返回 `taskId`（后台线程执行） | 采集管理控制台 |
-| `POST /api/admin/transfer` | 手动触发懒转存，body `{source, since, until, limit}`，返回 `taskId` | 采集管理控制台 |
+| `POST /api/admin/transfer` | 手动触发懒转存，body `{source, since, until, limit?}`（`limit` 留空=窗口内全部），返回 `taskId` | 采集管理控制台 |
 | `GET /api/admin/tasks[/{task_id}]` | 后台任务状态轮询（running/done/failed + 结果统计） | 采集管理控制台 |
 
 > 匿名用户模型：前端首次访问生成 `userId`（localStorage 持久化），收藏与历史按用户隔离；
@@ -59,10 +59,11 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000
 
 - **按源开关**：`POST /api/admin/sources/{name}/toggle` 切换某源采集启用状态，持久化到 `api-service/source_state.json`（默认读 `config.SOURCES.enabled`）；关闭的源拒绝触发采集（400）。
 - **触发采集**：`POST /api/admin/sync`，`since`（ISO，起始日期）**优先于上次同步水位**——留空按水位、填了按填的日期回补/前移；`limit` 限制本次收录数量（受控样本）。
-- **触发懒转存**：`POST /api/admin/transfer`，`source` 只转存指定源、`since/until` 按章节 `sync_time` 窗口过滤、`limit` 每批页数。
-- 数据层支撑（crawler-service）：`incremental_sync/full_sync` 增加 `since` 参数；`lazy_transfer`/`list_uncached_pages` 增加 `source` 按源过滤。
+- **触发懒转存**：`POST /api/admin/transfer`，`source` 只转存指定源、`since/until` 按章节 `sync_time`（DATETIME）窗口过滤——**语义是把窗口内所有未转存页全部转存**；边界**双端含**（`until` 只给日期时**含当天全天**）；`limit` 为可选兜底阀门（留空/≤0 = 不限制）。**转存完成后自动附带封面自愈**（无需单独按钮，见下）。
+- **封面自愈（自动）**：转存任务内接着跑 `scheduler.heal_covers` —— 外链未落盘的封面重下落盘；本地 key 但图库文件缺失的按 `source_comic_id` 回源重抓 `cover_url` 再落盘；结果并入转存任务 `result.coverHeal`。
+- 数据层支撑（crawler-service）：`incremental_sync/full_sync` 增加 `since` 参数；`lazy_transfer`/`list_uncached_pages` 增加 `source` 按源过滤；新增 `heal_covers` 封面自愈。
 
-> 采集/转存任务结果以 `{stats, summary, db}`（采集）或 `{checked, transferred, failed, pagesByStatus}`（转存）形式存于任务 `result`。
+> 采集任务结果以 `{stats, summary, db}` 存入 `result`；转存任务为 `{checked, transferred, failed, pagesByStatus, coverHeal}`（`coverHeal` = `{checked, healed, failed, skipped}`）。
 
 ## 数据流闭环
 

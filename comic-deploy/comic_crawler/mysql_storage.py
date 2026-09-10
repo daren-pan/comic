@@ -16,7 +16,7 @@ import logging
 import os
 import re
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Iterator
 
 import pymysql
@@ -39,8 +39,45 @@ _DSN = {
 }
 
 
-def _now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+def _now() -> datetime:
+    """当前时刻（秒精度、naive 本机时间）。
+
+    直接返回 datetime 而不是 ISO 字符串：时间列已是 MySQL `DATETIME`，
+    由驱动按 'YYYY-MM-DD HH:MM:SS' 格式化，避免字符串自带 'T' 分隔符/时区
+    写法差异导致的隐式转换问题（这是 varchar(32) 时代的遗留坑）。
+    """
+    return datetime.now().replace(microsecond=0)
+
+
+def _as_dt(value) -> datetime | None:
+    """把 ISO 字符串（可含 'T'，如 SyncStats.started_at）归一成 datetime。
+
+    已是 datetime 的原样返回；None 透传；无法解析时记警告并回落到当前时刻
+    （目标列均 NOT NULL，不能写 None）。
+    """
+    if value is None or isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value)).replace(microsecond=0)
+    except ValueError:
+        logger.warning("时间字段无法解析，已回落为当前时刻: %r", value)
+        return _now()
+
+
+def _until_bound(value) -> tuple[object, bool]:
+    """把「截止」参数归一成 (SQL 边界值, 是否用 `<` 排他比较)。
+
+    语义**含边界**：只给日期（`YYYY-MM-DD`）→ 含当天全天，返回 (次日 00:00, True)；
+    带时刻（`YYYY-MM-DD HH:MM:SS` / ISO 带 'T' / datetime）→ 含该时刻，返回 (原值, False)。
+    这样 UI 上「截止 09-10」就是 09-10 23:59:59 之前都在范围内，符合直觉。
+    """
+    text = str(value).strip()
+    if len(text) == 10 and text.count("-") == 2:  # 纯日期
+        try:
+            return datetime.strptime(text, "%Y-%m-%d") + timedelta(days=1), True
+        except ValueError:
+            pass
+    return value, False
 
 
 class MySQLStorage(Storage):
@@ -245,12 +282,16 @@ class MySQLStorage(Storage):
                     (
                         source, mode, stats.total_seen, stats.new_comics,
                         stats.updated_comics, stats.new_chapters, stats.failed,
-                        stats.started_at, now,
+                        _as_dt(stats.started_at), now,
                     ),
                 )
 
-    def get_last_sync_time(self, source: str) -> str | None:
-        """查该源最近一次同步完成时间（finished_at），用作增量水位；无记录返回 None。"""
+    def get_last_sync_time(self, source: str) -> datetime | None:
+        """查该源最近一次同步完成时间（`sync_log.finished_at`，DATETIME）。
+
+        用作增量水位：None=首次（采集当天全部），否则采集 [finished_at, now] 窗口。
+        返回 **naive datetime**（与适配器比较的语义一致：naive 当本机时区解释）。
+        """
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -258,7 +299,7 @@ class MySQLStorage(Storage):
                     (source,),
                 )
                 row = cur.fetchone()
-        return str(row["finished_at"]) if row else None
+        return row["finished_at"] if row else None
 
     def stats(self) -> dict[str, int]:
         with self._conn() as conn:
@@ -275,24 +316,34 @@ class MySQLStorage(Storage):
     # 图片转存 / 失效巡检支持
     # ------------------------------------------------------------------
     def list_uncached_pages(
-        self, limit: int = 200, since=None, until=None, source=None
+        self, limit: int | None = None, since=None, until=None, source=None
     ) -> list[dict]:
-        """未转存页；since/until 按章节 sync_time（≈入库时刻）过滤，用于增量后只转新页。
+        """未转存页；since/until 按章节 `chapter.sync_time`（DATETIME，≈入库时刻）过滤。
 
+        边界语义**双端含**：`since` 起于该时刻（只给日期=当日 00:00）；
+        `until` 止于该时刻（**只给日期=含当天全天**，内部转成次日 00:00 排他；
+        带时刻则含该时刻）。两者可任意留空。
+
+        limit：本次最多取多少页；**None 或 <=0 表示不限制**，即取窗口内全部未转存页
+            （转存语义 = 把所选时间范围内所有未转存页都转掉，数量只是可选的兜底阀门）。
         source：按数据源过滤（如 'zaimanhua'）；None 表示不限制。
         """
         conds = ["p.cached_status = '未转存'"]
         params: list[object] = []
         if since is not None:
             conds.append("c.sync_time >= %s")
-            params.append(str(since))
+            params.append(since if isinstance(since, datetime) else str(since))
         if until is not None:
-            conds.append("c.sync_time < %s")
-            params.append(str(until))
+            end, exclusive = _until_bound(until)
+            conds.append("c.sync_time < %s" if exclusive else "c.sync_time <= %s")
+            params.append(end)
         if source:
             conds.append("co.source = %s")
             params.append(str(source))
-        params.append(limit)
+        limit_sql = ""
+        if limit is not None and int(limit) > 0:
+            limit_sql = " LIMIT %s"
+            params.append(int(limit))
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -303,7 +354,7 @@ class MySQLStorage(Storage):
                        JOIN chapter c ON p.chapter_id = c.id
                        JOIN comic co ON c.comic_id = co.id
                        WHERE {" AND ".join(conds)}
-                       ORDER BY p.id LIMIT %s""",
+                       ORDER BY p.id{limit_sql}""",
                     params,
                 )
                 return list(cur.fetchall())

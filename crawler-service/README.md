@@ -140,12 +140,19 @@ uvicorn main:app --port 8000   # 在 api-service 目录
   该章新鲜 URL 再下载，未过期直接下载、失败再重拉兜底一次（无签名源 pepper
   永久有效，恒走直接下载）；
 - `transfer-images --since <ISO> [--until <ISO>] [--limit N] [--source <name>]`：只转存该时间范围内入库的
-  未转存页（按章节 sync_time 过滤）——配合增量采集：先跑一次增量，再用
-  `--since 增量开始时间` 调本命令，就只转本次增量新收的页；`--limit` 控制每批
-  页数（默认 200），窗口页多时分批转存；`--source` 限定**只转存某数据源**的页
+  未转存页（按章节 `sync_time`(DATETIME) 过滤，边界**双端含**：`--until` 只给日期时含当天全天）
+  ——配合增量采集：先跑一次增量，再用
+  `--since 增量开始时间` 调本命令，就只转本次增量新收的页；**默认把窗口内所有未
+  转存页全部转掉**，`--limit` 只是可选的兜底阀门（默认不限制，需分批时才填）；
+  `--source` 限定**只转存某数据源**的页
   （`lazy_transfer` 内部透传给 `list_uncached_pages` 按 `co.source` 过滤），用于
   单独补转某一个源（如管理台"仅转存某源"）；
 - `inspect` 巡检：转存未转存页 + 校验已转存对象是否存在 + 丢失自动恢复；
+- **封面自愈**（`scheduler.heal_covers`）：修复图库中缺失/未落盘的封面——封面仍是外链 → 重试下载；
+  本地 key 但文件缺失 → 按 `source_comic_id` 回源重抓 `cover_url` 再落盘；健康/无法修复的跳过。
+  返回 `{checked, healed, failed, skipped}`；由管理台「触发转存」后**自动执行**（无需单独按钮）。
+- `ensure_cover_local` 是单部作品的封面落盘原语（同步链路每轮幂等调用）；`heal_covers` 是
+  面向全库的批量自愈编排；
 - 生产环境实现 OSS/COS 版的 `ImageStore` 替换 `LocalImageStore` 即可。
 
 ## 采集时间窗口（`since`，增量 vs 全量）

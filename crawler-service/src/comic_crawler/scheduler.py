@@ -57,10 +57,14 @@ def incremental_sync(
     last_sync_raw = storage.get_last_sync_time(adapter.source_name)
     watermark = None
     if last_sync_raw and mode != "full":
-        try:
-            watermark = datetime.fromisoformat(last_sync_raw)
-        except ValueError:
-            watermark = None
+        # 存储层返回 naive datetime（DATETIME 列）；兼容可能返回 ISO 字符串的实现
+        if isinstance(last_sync_raw, datetime):
+            watermark = last_sync_raw
+        else:
+            try:
+                watermark = datetime.fromisoformat(last_sync_raw)
+            except ValueError:
+                watermark = None
     # 用户手动指定 since 日期优先于水位
     if since:
         since = datetime.fromisoformat(since) if isinstance(since, str) else since
@@ -236,6 +240,103 @@ def inspect_sync(storage: Storage, image_store=None, adapter_provider=None) -> d
 
     logger.info("失效巡检完成: %s", stats)
     return stats
+
+
+def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> dict[str, int]:
+    """封面自愈（管理台触发「懒转存」后自动执行）：修复图库中缺失/未落盘的封面。
+
+    逐部漫画判断（封面统一存「图库内相对 key」，见 image_service.ensure_cover_local）：
+    - 封面仍是外链（http/https，此前下载失败留下的）→ 直接重试下载落盘；
+    - 封面是本地 key（covers/xx.jpg）且图库文件存在 → 健康，跳过；
+    - 封面为空 / 本地 key 但文件缺失 → 经 adapter_provider 按 source_comic_id
+      回源站重抓一次详情，取其最新 cover_url 再落盘（best-effort，取不到则跳过）；
+    - 其余非空非外链（如演示占位路径）→ 按源站自身约定，跳过（不发起无谓回源）。
+
+    返回统计：{checked, healed, failed, skipped}
+    """
+    if image_store is None:
+        from .image_store import LocalImageStore
+
+        image_store = LocalImageStore()
+
+    from .image_service import ensure_cover_local
+
+    stats = {"checked": 0, "healed": 0, "failed": 0, "skipped": 0}
+    rows, _ = storage.list_comics(page=1, page_size=10000)
+    need_refetch: dict[str, list[dict]] = {}  # source -> 需回源取封面的漫画行
+
+    for row in rows:
+        stats["checked"] += 1
+        cover = str(row.get("cover_url") or "").strip()
+
+        # 仍是外链（此前下载失败）：直接重试下载落盘
+        if cover.startswith(("http://", "https://")):
+            if ensure_cover_local(storage, image_store, int(row["id"]), cover):
+                stats["healed"] += 1
+            else:
+                stats["failed"] += 1
+            continue
+
+        # 本地 key：文件在 → 健康；文件缺失 → 需回源
+        if cover.startswith("covers/"):
+            if image_store.exists(cover):
+                stats["skipped"] += 1
+                continue
+        # 空封面 → 需回源；非空非外链非本地（占位路径）→ 跳过
+        elif cover != "":
+            stats["skipped"] += 1
+            continue
+
+        if adapter_provider is None:
+            stats["skipped"] += 1
+            continue
+        need_refetch.setdefault(str(row.get("source") or ""), []).append(row)
+
+    # 回源取封面：按源分组，每源只做一次 pre_fetch / post_fetch
+    for src, srows in need_refetch.items():
+        adapter = adapter_provider(src)
+        if adapter is None:
+            stats["skipped"] += len(srows)
+            continue
+        try:
+            adapter.pre_fetch()
+        except Exception:
+            logger.exception("封面自愈 pre_fetch 失败 source=%s", src)
+        try:
+            for row in srows:
+                url = _refetch_cover_url(adapter, row)
+                if not url.startswith(("http://", "https://")):
+                    stats["skipped"] += 1
+                    continue
+                if ensure_cover_local(storage, image_store, int(row["id"]), url):
+                    stats["healed"] += 1
+                else:
+                    stats["failed"] += 1
+        finally:
+            try:
+                adapter.post_fetch()
+            except Exception:
+                logger.exception("封面自愈 post_fetch 失败 source=%s", src)
+
+    logger.info("封面自愈完成: %s", stats)
+    return stats
+
+
+def _refetch_cover_url(adapter: CrawlerAdapter, row: dict) -> str:
+    """回源站重抓详情，取其封面外链（本地封面文件丢失、DB 只存相对 key 时用）。"""
+    from .models import ComicBrief
+
+    brief = ComicBrief(
+        source=str(row.get("source") or ""),
+        source_comic_id=str(row.get("source_comic_id") or ""),
+        title=str(row.get("title") or ""),
+    )
+    try:
+        detail = adapter.fetch_comic_detail(brief)
+        return detail.cover_url or ""
+    except Exception:
+        logger.warning("封面回源失败 comic_id=%s source=%s", row.get("id"), row.get("source"), exc_info=True)
+        return ""
 
 
 class SyncScheduler:

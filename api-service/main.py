@@ -160,25 +160,30 @@ _IMG_EXT = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".
 def _resolve_image_root() -> Path | None:
     """定位图库根目录（image_store）。
 
-    优先级：env COMIC_IMAGE_ROOT > 发布模式 main.py 同目录 / DB 同目录 > 开发模式项目结构。
-    DB 只存图库内相对 key（如 covers/26.jpg），根目录随部署环境解析，整库可随项目移动。
+    优先级：env COMIC_IMAGE_ROOT > 采集器统一真源（如 crawler-service/image_store）
+    > 发布模式 main.py 同目录。
+
+    ⚠️ 必须与写入端 `comic_crawler.image_store.default_store_root()` 保持一致：
+    此前这里优先 `APP_DIR/image_store`（api-service/image_store），而转存写入端优先
+    `crawler-service/image_store` —— 两者不一致时，DB 里 oss_url 有值、文件也确实落了盘，
+    接口却读不到，只能返回 SVG 占位图（正文页全站「假成功」）。
     """
     env = os.environ.get("COMIC_IMAGE_ROOT")
     if env:
         p = Path(env)
         if p.is_dir():
             return p.resolve()
-    candidates: list[Path] = []
+    try:
+        from comic_crawler.image_store import default_store_root
+
+        p = default_store_root()
+        if p.is_dir():
+            return p.resolve()
+    except Exception:  # 采集器不可用时退回发布模式目录
+        pass
     img_dir = APP_DIR / "image_store"
     if img_dir.is_dir():
-        candidates.append(img_dir)
-    if CRAWLER_SRC.is_dir():
-        img_dir = CRAWLER_SRC.parent / "image_store"
-        if img_dir.is_dir():
-            candidates.append(img_dir)
-    for c in candidates:
-        if c.is_dir():
-            return c.resolve()
+        return img_dir.resolve()
     return None
 
 
@@ -465,8 +470,8 @@ def page_image(comic_id: int, chapter_id: int, page_no: int):
 
 # ---------------- 采集管理（运维控制台） ----------------
 # 管理页能力：列出数据源、开关采集、手动触发采集（增量/全量 + since/limit）、
-# 手动触发懒转存（source/since/until/limit）。采集与转存耗时，用后台线程执行，
-# 前端触发后轮询任务状态，避免 HTTP 请求长时间挂起。
+# 手动触发懒转存（source/since/until/limit；转存完成后自动附带封面自愈）。
+# 采集/转存耗时，用后台线程执行，前端触发后轮询任务状态，避免 HTTP 请求长时间挂起。
 _admin_logger = logging.getLogger("comic.admin")
 
 # 源开关状态持久化：默认读 config.SOURCES.enabled，覆盖态存 source_state.json（重启不丢）
@@ -544,12 +549,12 @@ def _run_admin_task(task_id: str, task_type: str, fn) -> None:
 
 
 def _admin_image_store():
-    """懒转存落盘位置与 api-service 读取图库一致（crawler-service/image_store）。"""
+    """懒转存落盘位置：直接复用读取端 `_IMAGE_ROOT`，保证写入与读取同源。"""
     from comic_crawler.image_store import LocalImageStore
-    root = CRAWLER_SRC.parent / "image_store"
-    if not root.is_dir():
-        root = APP_DIR / "image_store"
-    return LocalImageStore(root=root)
+
+    if _IMAGE_ROOT is not None:
+        return LocalImageStore(root=_IMAGE_ROOT)
+    return LocalImageStore()
 
 
 def _admin_sources_meta() -> list[dict]:
@@ -581,7 +586,8 @@ class AdminTransferBody(BaseModel):
     source: str | None = None
     since: str | None = None
     until: str | None = None
-    limit: int = 200
+    # None = 不限制：把 source/since/until 所选范围内的未转存页全部转掉
+    limit: int | None = None
 
 
 @app.get("/api/admin/sources")
@@ -623,17 +629,21 @@ def admin_sync(body: AdminSyncBody):
 def admin_transfer(body: AdminTransferBody):
     from comic_crawler.adapter import create_adapter
     from comic_crawler.image_service import lazy_transfer
+    from comic_crawler.scheduler import heal_covers
 
     task_id = _new_task_id("transfer")
 
     def job():
         storage = MySQLStorage()
+        store = _admin_image_store()
         stats = lazy_transfer(
-            storage, _admin_image_store(),
+            storage, store,
             limit=body.limit, adapter_provider=create_adapter,
             since=body.since, until=body.until, source=body.source,
         )
-        return {**stats, "pagesByStatus": storage.count_pages_by_status()}
+        # 转存完成后自动封面自愈：修复外链未落盘 / 本地文件缺失的封面（无需单独按钮）
+        cover = heal_covers(storage, store, adapter_provider=create_adapter)
+        return {**stats, "coverHeal": cover, "pagesByStatus": storage.count_pages_by_status()}
 
     _run_admin_task(task_id, "transfer", job)
     return _ok({"taskId": task_id})

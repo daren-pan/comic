@@ -56,12 +56,12 @@ class FakeStorage:
         self.last_source = None
 
     def list_uncached_pages(
-        self, limit: int = 200, since=None, until=None, source=None
+        self, limit: int | None = None, since=None, until=None, source=None
     ) -> list[dict]:
         self.last_since = since
         self.last_until = until
         self.last_source = source
-        return self.rows[:limit]
+        return self.rows if limit is None else self.rows[:limit]
 
     def mark_page_cached(self, page_id: int, oss_url: str) -> None:
         self.cached.append((page_id, oss_url))

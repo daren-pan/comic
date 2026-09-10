@@ -1,5 +1,6 @@
 -- 漫画聚合平台 MySQL 表结构（架构方案 §3.1，项目唯一存储方案）
 -- 字符集 utf8mb4，支持中文与 emoji
+-- 时间列一律 DATETIME（勿用 VARCHAR 存时间：字符串比较的边界/排序语义都是错的）
 
 CREATE TABLE IF NOT EXISTS comic (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -13,9 +14,9 @@ CREATE TABLE IF NOT EXISTS comic (
     source VARCHAR(64) NOT NULL,
     source_comic_id VARCHAR(128) NOT NULL,
     latest_chapter_title VARCHAR(255) NOT NULL DEFAULT '',
-    sync_time VARCHAR(32) NOT NULL,
+    sync_time DATETIME NOT NULL,
     -- addtime: 首次收录时间（第一次同步写入，之后不再更新）；sync_time 为最近一次同步时间
-    addtime VARCHAR(32) NOT NULL DEFAULT '',
+    addtime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_fingerprint (fingerprint),
     UNIQUE KEY uk_source_comic (source, source_comic_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -26,7 +27,7 @@ CREATE TABLE IF NOT EXISTS chapter (
     chapter_no INT NOT NULL,
     title VARCHAR(255) NOT NULL,
     source_chapter_id VARCHAR(128) NOT NULL,
-    sync_time VARCHAR(32) NOT NULL,
+    sync_time DATETIME NOT NULL,
     UNIQUE KEY uk_comic_chapter (comic_id, chapter_no),
     KEY idx_comic_id (comic_id),
     CONSTRAINT fk_chapter_comic FOREIGN KEY (comic_id) REFERENCES comic(id)
@@ -52,8 +53,8 @@ CREATE TABLE IF NOT EXISTS sync_log (
     updated_comics INT NOT NULL DEFAULT 0,
     new_chapters INT NOT NULL DEFAULT 0,
     failed INT NOT NULL DEFAULT 0,
-    started_at VARCHAR(32) NOT NULL,
-    finished_at VARCHAR(32) NOT NULL
+    started_at DATETIME NOT NULL,
+    finished_at DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- 标签字典表：每个唯一标签一行（去重），供关联表引用
@@ -80,14 +81,14 @@ CREATE TABLE IF NOT EXISTS user (
     password_hash VARCHAR(255) NOT NULL,
     nickname VARCHAR(64) NOT NULL DEFAULT '',
     avatar_url VARCHAR(512) NOT NULL DEFAULT '',
-    created_at VARCHAR(32) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS favorite (
     user_id VARCHAR(64) NOT NULL,
     comic_id INT NOT NULL,
-    created_at VARCHAR(32) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, comic_id),
     KEY idx_user_created (user_id, created_at),
     CONSTRAINT fk_fav_comic FOREIGN KEY (comic_id) REFERENCES comic(id)
@@ -98,7 +99,7 @@ CREATE TABLE IF NOT EXISTS history (
     comic_id INT NOT NULL,
     chapter_id INT NOT NULL,
     page_no INT NOT NULL DEFAULT 1,
-    read_at VARCHAR(32) NOT NULL,
+    read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, comic_id),
     KEY idx_user_read (user_id, read_at),
     CONSTRAINT fk_hist_comic FOREIGN KEY (comic_id) REFERENCES comic(id)

@@ -76,7 +76,7 @@ class SyncStats:
 
     source: str
     mode: str = "incremental"
-    started_at: str = ""   # ISO 时间，由调度器写入
+    started_at: str = ""   # ISO 时间，由调度器写入；写库时由存储层归一成 DATETIME
     total_seen: int = 0
     new_comics: int = 0
     updated_comics: int = 0

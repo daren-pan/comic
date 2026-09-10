@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { Comic } from '../types'
 
-defineProps<{ comic: Comic }>()
+// time：可选角标（如「3 小时前」），用于「最近更新」等需要体现时间维度的列表页；
+// 不传时卡片与原先完全一致（首页 / 分类页 / 搜索结果均不受影响）。
+defineProps<{ comic: Comic; time?: string }>()
 </script>
 
 <template>
@@ -9,6 +11,7 @@ defineProps<{ comic: Comic }>()
     <div class="cover">
       <img :src="comic.cover" :alt="comic.title" loading="lazy" />
       <span class="status" :class="{ done: comic.status === '已完结' }">{{ comic.status }}</span>
+      <span v-if="time" class="time">{{ time }}</span>
     </div>
     <div class="info">
       <h3 class="title">{{ comic.title }}</h3>
@@ -44,6 +47,19 @@ defineProps<{ comic: Comic }>()
   font-weight: 700;
 }
 .status.done { background: rgba(90, 90, 90, 0.85); }
+
+.time {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-weight: 600;
+  backdrop-filter: blur(2px);
+}
 
 .info { padding: 10px 12px 12px; }
 .title {

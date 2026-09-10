@@ -81,14 +81,14 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 图片约定（务必遵守）：
 
 - DB 内 `cover_url` / `oss_url` **只存图库相对 key**（如 `covers/26.jpg`、`comic/26/34/001.jpg`），不存外链/绝对路径；
-- 读端自动定位图库根：`COMIC_IMAGE_ROOT` → main.py 同目录 → DB 同目录 → 开发结构 `crawler-service/image_store`；
+- 图库根**唯一真源** `image_store.default_store_root()`：`COMIC_IMAGE_ROOT` → 仓库根 `image_store/`；**读写两端共用同一函数，不随进程 cwd 漂移**（曾因两端各自解析、优先级相反，导致 DB 有 `oss_url`、文件也落了盘，接口却读不到而全站返回占位图）；
 - 封面落盘由调度同步自动执行（`ensure_cover_local` 幂等自愈），新增适配器无需自行处理封面外链。
 
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `COMIC_IMAGE_ROOT` | 自动 | 图库根目录覆盖（读端 `_resolve_image_root` 自动定位） |
+| `COMIC_IMAGE_ROOT` | 自动 | 图库根目录覆盖（读写端统一经 `default_store_root()` 定位） |
 | `COMIC_MYSQL_HOST` | `127.0.0.1` | MySQL 主机 |
 | `COMIC_MYSQL_PORT` | `3307` | MySQL 端口（Docker ruoyi-mysql 映射） |
 | `COMIC_MYSQL_USER` | `root` | MySQL 用户 |

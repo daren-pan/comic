@@ -12,7 +12,7 @@
 | `/reader/:comicId/:chapterId` | 在线阅读器 | 双阅读模式（左右滑动/竖排连播）、主题切换、设置面板、章节切换、进度记忆续读 |
 | `/me` | 我的 | 最近阅读（续读/删除）+ 我的收藏 |
 | `/login` | 登录/注册 | JWT 登录，收藏需登录，历史匿名 |
-| `/admin` | 采集管理控制台 | 手动跑采集/懒转存、每源开关、按参数控制范围、历史消息（**无需登录**，运维用） |
+| `/admin` | 采集管理控制台 | 手动跑采集/懒转存、每源开关、按参数控制范围（**无需登录**，运维用）；任务结果汇总到顶栏**消息中心** |
 
 ## 架构要点
 
@@ -40,6 +40,15 @@ src/api/
 - **持久化**：token/user 落在 localStorage（`comic_web_token`/`comic_web_user`），刷新不丢；
 - **事件同步**：api 层 `setAuth`/`clearAuth` 广播 `window` 自定义事件 `auth:changed`，store `init()` 监听后从 localStorage 重读 → 全站组件（顶栏/收藏/书架）实时同步，无路由 hack；
 - **分工**：api 层管"数据 + 持久化真相"，store 管"共享 + 响应式"，两者单向依赖无循环。
+
+### 消息中心（`src/stores/message.ts`）
+
+- **定位**：顶栏登录账号旁的 **🔔 消息入口**（带未读角标），点击展开面板查看**采集/转存任务结果**，并预留**系统消息推送**（`addSystem`）。
+- **消息类型**：`sync`(采集) / `transfer`(转存) / `system`(系统)，统一 `NoticeItem { kind,status,summary,detail,source,mode,time,read }`。
+- **轮询在 store（单例）而非组件**：触发任务后 `trackTask` 登记 running 占位 → `getAdminTask` 每 1.5s 轮询到 done/failed → 回填摘要、置未读、弹 **toast**（6s，全站可见，不再是管理页局部提示）。因此**离开 `/admin` 页任务仍会跟踪**。
+- **持久化**：已完成消息落 `localStorage`（`comic_msg_notices`，上限 50 条），刷新不丢；刷新时仍在 running 的消息标记为「任务已中断」（后端任务不跨会话恢复）。
+- **管理页解耦**：`AdminView.vue` 只负责触发表单，结果统一交给 store（页面内不再自持历史与 toast）。
+- **转存消息含封面自愈**：后端「触发转存」会在转存后自动做封面自愈，结果里的 `coverHeal`（`{checked,healed,failed,skipped}`）由摘要展示为「封面自愈 修复 N · 跳过 M」。
 
 ### 阅读器（架构方案 §4.2）
 

@@ -71,7 +71,7 @@ watch(() => route.query, applyQuery)
 
 <template>
   <div>
-    <h2 class="section-title">搜索结果</h2>
+    <h2 class="section-title">{{ keyword ? '搜索结果' : '分类浏览' }}</h2>
 
     <div class="toolbar">
       <form class="big-search" @submit.prevent="onSearch">

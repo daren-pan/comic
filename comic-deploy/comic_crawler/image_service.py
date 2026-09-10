@@ -108,13 +108,16 @@ def lazy_transfer(
     storage: Storage,
     image_store: ImageStore,
     downloader: Callable[[str, str], bytes] | None = None,
-    limit: int = 200,
+    limit: int | None = None,
     adapter_provider: Callable[[str], object] | None = None,
     since=None,
     until=None,
     source=None,
 ) -> dict[str, int]:
     """转存「未转存」页到图片存储，返回统计。
+
+    转存语义：**把 since/until/source 所选范围内的所有未转存页都转掉**，
+    `limit` 只是可选的兜底阀门（None/<=0 = 不限制）。
 
     下载策略（解决签名时效源 URL 过期问题）：
     1. 本地解析 source_url 的 t：已过期 → 跳过直接下载，走现场重拉；
@@ -124,10 +127,12 @@ def lazy_transfer(
        再按 page_no 取新地址下载（对无签名源适配器默认不支持，直接失败记日志）。
 
     参数:
+        limit: 本次最多转存页数；None 或 <=0 表示不限制（范围内全部未转存页）。
         adapter_provider: 按源名返回适配器实例的可调用对象（懒转存重拉用）；
             为 None 时不具备重拉能力（旧 URL 过期则转存失败）。
-        since/until: 只转存该时间范围内入库的页（按章节 sync_time 过滤），
+        since/until: 只转存该时间范围内入库的页（按章节 `sync_time` 过滤），
             用于「增量采集后只转存本次增量新收的页」；None 表示不限制。
+            **边界双端含**：`until` 只给日期时含当天全天。
         source: 只转存指定数据源的页（如 'zaimanhua'）；None 表示不限制。
     """
     downloader = downloader or default_downloader

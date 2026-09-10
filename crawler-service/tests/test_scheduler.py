@@ -64,10 +64,10 @@ class FakeStorage(Storage):
     def log_sync(self, source: str, mode: str, stats) -> None:
         self.logs.append({"source": source, "mode": mode})
 
-    def get_last_sync_time(self, source: str) -> str | None:
+    def get_last_sync_time(self, source: str):
         return None  # 无历史完成时间：调度器按"首次"处理（since=None），保证测试节奏不变
 
-    def list_uncached_pages(self, limit: int = 200, since=None, until=None) -> list:
+    def list_uncached_pages(self, limit: int | None = None, since=None, until=None, source=None) -> list:
         return []
 
     def list_pages(self, limit: int = 500) -> list:

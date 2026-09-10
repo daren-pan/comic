@@ -30,6 +30,9 @@ nohup.out
 logs/
 source_state.json
 
+# ---- 数据库备份（含业务数据，仅供本地回滚，不随仓库分发） ----
+backup/
+
 # ---- 开发/探测残留（不随仓库分发） ----
 _zmh_probe/
 .workbuddy/

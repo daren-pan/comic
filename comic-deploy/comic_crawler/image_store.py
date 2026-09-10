@@ -17,6 +17,24 @@ from urllib.parse import unquote, urlparse
 logger = logging.getLogger(__name__)
 
 
+def default_store_root() -> Path:
+    """图库根目录的**唯一真源**（写入端与读取端必须一致）。
+
+    优先级：env COMIC_IMAGE_ROOT > 本包所在仓库根下 image_store。
+
+    刻意**不**提供「相对进程 cwd 的 image_store」兜底：那种解析会随启动目录漂移
+    —— api-service 里以 cwd=api-service 起 uvicorn 时，封面被写到 api-service/image_store，
+    而转存走显式 root 写到 crawler-service/image_store，读取端又只认其中一个，
+    于是 DB 里 oss_url 有值、文件也确实落了盘，接口却读不到、只能返回占位图。
+    """
+    env = os.environ.get("COMIC_IMAGE_ROOT")
+    if env:
+        return Path(env)
+    # image_store.py 位于 <repo>/crawler-service/src/comic_crawler/ 或 <repo>/comic-deploy/comic_crawler/
+    # 向上两级即仓库根（crawler-service / comic-deploy），image_store 在其下。
+    return Path(__file__).resolve().parents[2] / "image_store"
+
+
 class ImageStore(ABC):
     """对象存储统一接口。"""
 
@@ -40,8 +58,9 @@ class ImageStore(ABC):
 class LocalImageStore(ImageStore):
     """本地文件系统模拟 OSS。key 即相对路径，URL 为 file:// 形式。"""
 
-    def __init__(self, root: str | Path = "image_store") -> None:
-        self.root = Path(root)
+    def __init__(self, root: str | Path | None = None) -> None:
+        # 不传 root 时用统一真源，避免随进程 cwd 漂移到别的 image_store
+        self.root = Path(root) if root is not None else default_store_root()
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, key: str) -> Path:

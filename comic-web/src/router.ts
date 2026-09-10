@@ -6,6 +6,8 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'home', component: () => import('./views/HomeView.vue') },
     { path: '/search', name: 'search', component: () => import('./views/SearchView.vue') },
+    { path: '/latest', name: 'latest', component: () => import('./views/LatestView.vue') },
+    { path: '/rank', name: 'rank', component: () => import('./views/RankingView.vue') },
     { path: '/comic/:id', name: 'detail', component: () => import('./views/ComicDetailView.vue') },
     { path: '/reader/:comicId/:chapterId', name: 'reader', component: () => import('./views/ReaderView.vue') },
     { path: '/me', name: 'me', component: () => import('./views/MeView.vue') },
