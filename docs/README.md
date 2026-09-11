@@ -16,10 +16,9 @@
 
 | 文档 | 源站 | 状态 |
 |---|---|---|
-| [`sources/zaimanhua/README.md`](../crawler-service/src/comic_crawler/sources/zaimanhua/README.md) | 再漫画（H5 匿名可读） | 启用 |
-| [`sources/peppercarrot/README.md`](../crawler-service/src/comic_crawler/sources/peppercarrot/README.md) | Pepper&Carrot（CC-BY） | 启用 |
-| [`sources/weebcentral/README.md`](../crawler-service/src/comic_crawler/sources/weebcentral/README.md) | WeebCentral | 启用 |
-| [`sources/mangadex/README.md`](../crawler-service/src/comic_crawler/sources/mangadex/README.md) | MangaDex | 默认关闭（`enabled=False`） |
+| [`sources/zaimanhua/README.md`](../crawler-service/src/comic_crawler/sources/zaimanhua/README.md) | 再漫画（H5 匿名可读） | **主源** |
+| [`sources/mangadex/README.md`](../crawler-service/src/comic_crawler/sources/mangadex/README.md) | MangaDex | 备源（config 默认 `enabled=False`） |
+| [`sources/weebcentral/README.md`](../crawler-service/src/comic_crawler/sources/weebcentral/README.md) | WeebCentral | 备源 |
 
 > **新增源站**：在 `sources/` 下复制一个子包（`adapter.py` + `README.md` + `fixtures/`），
 > 改动只在子包内 —— 具体步骤见 `crawler-service/README.md`。

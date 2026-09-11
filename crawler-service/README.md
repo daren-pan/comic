@@ -52,12 +52,12 @@ python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt     # Windows
 # .venv/bin/pip install -r requirements.txt       # macOS/Linux
 
-# 2. 增量同步（源站 A：3 部漫画）
-PYTHONPATH=src python -m comic_crawler.cli run --source demo_source
+# 2. 增量同步（**主源**：再漫画 zaimanhua —— 会联网；受控样本请加 --limit）
+PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --limit 3
 
-# 3. 增量同步（源站 B：含与 A 重复的"海贼王（重置版）"，验证跨站合并）
-PYTHONPATH=src python -m comic_crawler.cli run --source demo_source_b
-#    预期：库内 4 部（而不是 5），重复作品被指纹合并
+# 3. 备源（各自独立采集，跨站重复作品由指纹自动合并）
+PYTHONPATH=src python -m comic_crawler.cli run --source mangadex
+PYTHONPATH=src python -m comic_crawler.cli run --source weebcentral
 
 # 4. 图片懒转存（模拟用户阅读触发的按需转存）
 PYTHONPATH=src python -m comic_crawler.cli transfer-images
@@ -69,19 +69,11 @@ PYTHONPATH=src python -m comic_crawler.cli inspect
 PYTHONPATH=src python -m comic_crawler.cli show
 PYTHONPATH=src python -m comic_crawler.cli list
 
-# 7. 跑单元测试（50 个用例，纯逻辑：不连数据库、不写临时文件）
+# 7. 跑单元测试（54 个用例，纯逻辑：不连数据库、不写临时文件）
 PYTHONPATH=src python -m unittest discover -s tests -v
 
-# 8. 真实源站同步（Pepper & Carrot，CC-BY 4.0 开源授权）
-PYTHONPATH=src python -m comic_crawler.cli run --source peppercarrot
-#    - 站点结构为"1 部漫画 + episode 即章节"，默认收录最新 10 话
-#      （调整 adapter/pepper_source.py 的 MAX_EPISODES 即全量收录）；
-#    - 已核对 robots.txt：仅禁 /cache/、/extras/temp/，正文图取官方 low-res 版；
-#    - 入库后执行懒转存即可下载真实漫画图。
-PYTHONPATH=src python -m comic_crawler.cli transfer-images
-
-# 9. 定时调度守护（增量轮询 / 每日全量 / 失效巡检，Ctrl+C 退出）
-#    - 增量间隔取 config.py SOURCES 各源 crawl_interval_seconds（默认 15~30 分钟）
+# 8. 定时调度守护（增量轮询 / 每日全量 / 失效巡检，Ctrl+C 退出）
+#    - 增量间隔取各源 `sources/<源名>/__init__.py` 里的 crawl_interval_seconds
 #    - 每日凌晨 3 点后每源跑一次全量；失效巡检每小时一次（全表键集分页校验）
 #    - --source 可只调度指定源；--interval 调整轮询检查粒度（默认 30s）
 PYTHONPATH=src python -m comic_crawler.cli serve
@@ -102,7 +94,7 @@ mysql -h127.0.0.1 -P3307 -uroot -p -e "CREATE DATABASE comic DEFAULT CHARACTER S
 mysql -h127.0.0.1 -P3307 -uroot -p comic < sql/mysql_schema.sql
 
 # 2. 采集链路直接写 MySQL（无需迁移）
-PYTHONPATH=src python -m comic_crawler.cli run --source demo_source
+PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --limit 3
 PYTHONPATH=src python -m comic_crawler.cli transfer-images
 PYTHONPATH=src python -m comic_crawler.cli inspect
 
@@ -126,22 +118,27 @@ uvicorn main:app --port 8000   # 在 api-service 目录
   KEY UPDATE`），**不是主键**，所以主键换成 `id` 不影响原有语义。⚠️ `favorite` 无 `comic_id` 单列索引时
   由 FK 自动补（`fk_fav_comic`）；统计收藏数用 `COUNT(DISTINCT f.user_id)`。
 
-## 接入一个新源站（两步）
+## 接入一个新源站
 
-1. **实现适配器**：复制 `adapter/demo_source.py` 为 `adapter/xxx_source.py`，
-   把 `base_url` 换成目标域名，按目标站真实 DOM 改写三个方法中的 XPath；
-   若结构与现有源相同，直接继承复用（见 `demo_source_b.py`）：
+全程**只动 `sources/` 一个子包**，业务/存储/调度层零改动：
 
-   - `fetch_comic_list(page)` —— 列表页 → 漫画摘要 + has_next；
+1. **复制模板**：`cp -r sources/zaimanhua sources/<新源名>`（zaimanhua 是结构最完整的真实源）；
+2. **写适配器**：改 `adapter.py` —— `source_name`、`@register(...)`、`base_url`，
+   再按目标站真实 DOM 改写三个方法；四个文件各司其职：
+
+   - `fetch_comic_list(page, since)` —— 列表页 → 漫画摘要 + `has_next`；
    - `fetch_comic_detail(comic)` —— 详情页 → 简介 + 章节列表；
    - `fetch_chapter_pages(detail, chapter)` —— 章节页 → 分页图片。
 
-2. **注册**：`adapter/__init__.py` 中 `from . import xxx_source`（装饰器自动注册），
-   并在 `config.py` 的 `SOURCES` 添加一行源站配置。
+3. **声明配置**：改该子包 `__init__.py` 的 `SOURCES = [SourceConfig(name="<新源名>", ...)]`
+   （频率/启停**就近维护在这里**，不再集中到 `config.py`）；
+4. **登记**：在 `sources/__init__.py` 的 `_SOURCE_PACKAGES` 加一项 —— 完成。
 
-业务层、存储层、调度层无需任何改动 —— 这就是架构方案中「源站可插拔」的落地。
-跨站重复作品由 `fingerprint.py` 自动合并（演示：源 A 的「海贼王」与源 B 的
-「海贼王（重置版）」命中同一指纹，只保留一条记录）。
+子包固定 4 件套：`__init__.py`（导出 + SOURCES）、`adapter.py`（解析）、
+`README.md`（接口/请求头/限流/已知坑）、`fixtures/`（离线样例，可选）。
+
+跨站重复作品由 `fingerprint.py` 自动合并（标题归一化 + 作者 → sha1 前 16 位，
+命中同一指纹只保留一条记录）。
 
 ## 章节采样（首次只收最新一话 · 页面全部懒下载）
 
@@ -169,7 +166,7 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 - **签名过期兜底**：短时效签名源（zaimanhua 的 `images.zaimanhua.com` URL 带
   `sign+t`，数日过期；mangadex 的 at-home 分发 URL 同样短时效）——`lazy_transfer`
   先本地解析 URL 的 `t` 预判过期：过期则经适配器 `fetch_source_page_urls` 现场重拉
-  该章新鲜 URL 再下载，未过期直接下载、失败再重拉兜底一次（无签名源 pepper
+  该章新鲜 URL 再下载，未过期直接下载、失败再重拉兜底一次（无签名源如 weebcentral
   永久有效，恒走直接下载）；
 - `transfer-images --since <ISO> [--until <ISO>] [--limit N] [--source <name>]`：只转存该时间范围内入库的
   未转存页（按章节 `sync_time`(DATETIME) 过滤，边界**双端含**：`--until` 只给日期时含当天全天）

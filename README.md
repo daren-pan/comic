@@ -10,12 +10,12 @@
 
 ```
 comic/
-├── docs/                     # 设计与原理文档（architecture / auth / adapters 各源站接口说明）
+├── docs/                     # 设计与原理文档（architecture / auth；各源站说明随代码放在 sources/<源名>/）
 ├── crawler-service/          # 采集服务（Python）：适配器/调度/指纹去重/图片懒转存
-│   ├── src/comic_crawler/    #   核心包（adapter 注册源站、storage 契约 + MySQL 实现、cli）
+│   ├── src/comic_crawler/    #   核心包 L0/L1/L2 分层：sources/<源名>/ 自包含、storage/mysql/、images/、scheduling/
 │   ├── sql/                  #   mysql_schema.sql（表结构，无数据快照）
 │   ├── image_store/          #   图库：covers/{id}.jpg 封面、comic/{cid}/{chid}/{page}.jpg 分页图
-│   ├── fixtures/ tests/      #   模拟源站 HTML 与单元测试
+│   ├── tests/                #   单元测试（含 test_layering.py 分层守卫；样例 HTML 随各源包 fixtures/）
 ├── api-service/              # FastAPI 业务服务（唯一存储：MySQL，同源托管前端）
 │   ├── main.py               #   装配入口（建 app / 挂路由 / 托管 dist）
 │   ├── core/ services/       #   基础设施（config·db·security·responses）与业务动作（images·tasks·sources）
@@ -31,7 +31,7 @@ comic/
 > 避免像以前 `comic-deploy/` 那样维护手工双副本而漂移。
 
 > 📖 **文档入口：`docs/`** —— [`architecture.md`](docs/architecture.md) 总体架构设计、
-> [`auth.md`](docs/auth.md) 登录认证原理、[`adapters/`](docs/adapters) 各源站接口与限制。
+> [`auth.md`](docs/auth.md) 登录认证原理；各源站接口与限制见 `crawler-service/src/comic_crawler/sources/<源名>/README.md`。
 
 ## 快速开始（异地 clone 后）
 
@@ -122,6 +122,6 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 
 ## 合规说明
 
-- 仓库内真实图片仅包含 **CC-BY 4.0 开源授权**（Pepper & Carrot）与**本机受控演示抓取的少量章节页**（在漫画，均为站点公开免费内容，仅供个人学习演示，不对外分发、不绕过付费/VIP）；
+- 仓库内 `image_store/` 不入库（gitignore），图库内容为**本机受控抓取的少量章节页**（在漫画等源站公开免费内容，仅供个人学习演示，不对外分发、不绕过付费/VIP）；
 - 采集适配器仅用于接口演示，请尊重源站 robots 与版权，控制频率；
 - 若需公开此仓库，请先移除演示抓取的版权图片（清空 `image_store` 并用 `cli run` 重建可授权数据）。
