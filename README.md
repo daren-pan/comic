@@ -10,18 +10,28 @@
 
 ```
 comic/
+├── docs/                     # 设计与原理文档（architecture / auth / adapters 各源站接口说明）
 ├── crawler-service/          # 采集服务（Python）：适配器/调度/指纹去重/图片懒转存
 │   ├── src/comic_crawler/    #   核心包（adapter 注册源站、storage 契约 + MySQL 实现、cli）
 │   ├── sql/                  #   mysql_schema.sql（表结构，无数据快照）
 │   ├── image_store/          #   图库：covers/{id}.jpg 封面、comic/{cid}/{chid}/{page}.jpg 分页图
 │   ├── fixtures/ tests/      #   模拟源站 HTML 与单元测试
 ├── api-service/              # FastAPI 业务服务（唯一存储：MySQL，同源托管前端）
-├── comic-deploy/             # 发布包：main.py + comic_crawler（图库/dist 不随仓库分发）
+│   ├── main.py               #   装配入口（建 app / 挂路由 / 托管 dist）
+│   ├── core/ services/       #   基础设施（config·db·security·responses）与业务动作（images·tasks·sources）
+│   ├── routers/              #   HTTP 接口分层：public / auth / users / admin
+│   └── schemas.py serializers.py  # 请求体模型 / 领域对象序列化
 ├── comic-web/                # 前端（Vite + Vue3，dist 不随仓库分发，clone 后需先 npm run build）
-├── tools/                    # 一次性运维脚本（标签回填/规范化等）
-├── scripts/                  # 一键脚本：启动/初始化（.bat + .sh 双份）
-└── 漫画聚合网站_架构设计方案.md
+├── tools/                    # 一次性运维脚本（标签回填/规范化等，见 tools/README.md）
+├── scripts/                  # 一键脚本：初始化/启动/自检/打包（.bat + .sh 双份，见 scripts/README.md）
+└── logs/                     # 运行时日志（api/vite，gitignore 不入库）
 ```
+
+> 📦 **发布包不随仓库保存**：部署时用 `./scripts/package.sh`（或 `package.bat`）生成到 `build/deploy`，
+> 避免像以前 `comic-deploy/` 那样维护手工双副本而漂移。
+
+> 📖 **文档入口：`docs/`** —— [`architecture.md`](docs/architecture.md) 总体架构设计、
+> [`auth.md`](docs/auth.md) 登录认证原理、[`adapters/`](docs/adapters) 各源站接口与限制。
 
 ## 快速开始（异地 clone 后）
 
@@ -72,23 +82,24 @@ cd comic-web && npm run dev   # Vite dev server（5173），/api 由 Vite 代理
 cd crawler-service
 PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua   # 增量同步某源
 PYTHONPATH=src python -m comic_crawler.cli transfer-images          # 未转存图片懒转存
-PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡检（封面自愈）
+PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡检（转存未转存页 + 全表校验已转存对象 + 恢复丢失）
 ```
 
 > 采集与 API 均直连 MySQL（`COMIC_MYSQL_*` 配置）。
-> 除 CLI 外，也可在站点 `/#/admin` **采集管理控制台**手动触发采集/懒转存（按源开关、`since`/`limit` 控制范围，无需登录）。
+> 除 CLI 外，也可在站点 `/#/admin` **采集管理控制台**手动触发采集/懒转存/失效巡检（按源开关；采集支持 `mode`/`since`/`limit`，转存支持 `since`/`until` 且**把窗口内所有未转存页全部转掉**；巡检同样支持 `since`/`until`，并额外**全表校验**已转存对象是否还在、缺失则恢复；无需登录）。
+> 转存完成后会自动顺带执行**封面自愈**（`scheduling.heal.heal_covers`，无独立入口）。
 
 图片约定（务必遵守）：
 
 - DB 内 `cover_url` / `oss_url` **只存图库相对 key**（如 `covers/26.jpg`、`comic/26/34/001.jpg`），不存外链/绝对路径；
-- 图库根**唯一真源** `image_store.default_store_root()`：`COMIC_IMAGE_ROOT` → 仓库根 `image_store/`；**读写两端共用同一函数，不随进程 cwd 漂移**（曾因两端各自解析、优先级相反，导致 DB 有 `oss_url`、文件也落了盘，接口却读不到而全站返回占位图）；
+- 图库根**唯一真源** `images.store.default_store_root()`：`COMIC_IMAGE_ROOT` → 仓库根 `image_store/`；**读写两端共用同一函数，不随进程 cwd 漂移**（曾因两端各自解析、优先级相反，导致 DB 有 `oss_url`、文件也落了盘，接口却读不到而全站返回占位图）；
 - 封面落盘由调度同步自动执行（`ensure_cover_local` 幂等自愈），新增适配器无需自行处理封面外链。
 
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `COMIC_IMAGE_ROOT` | 自动 | 图库根目录覆盖（读写端统一经 `default_store_root()` 定位） |
+| `COMIC_IMAGE_ROOT` | 自动 | 图库根目录覆盖（读写端统一经 `default_store_root()` 定位）。**须为绝对路径**；空值 / `none`·`false`·`0` 等哨兵值 / 相对路径会被**忽略并告警**，回落到默认根 |
 | `COMIC_MYSQL_HOST` | `127.0.0.1` | MySQL 主机 |
 | `COMIC_MYSQL_PORT` | `3307` | MySQL 端口（Docker ruoyi-mysql 映射） |
 | `COMIC_MYSQL_USER` | `root` | MySQL 用户 |
@@ -100,7 +111,7 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 | 地址 | 说明 |
 |---|---|
 | http://127.0.0.1:8000/ | 前端站点（同源托管） |
-| http://127.0.0.1:8000/#/admin | 采集管理控制台（手动触发采集/懒转存、按源开关、since/limit 控制范围；无需登录） |
+| http://127.0.0.1:8000/#/admin | 采集管理控制台（手动触发采集/懒转存、按源开关、`since`/`until` 控制转存范围；无需登录） |
 | http://127.0.0.1:8000/docs | FastAPI Swagger 文档 |
 | `GET /api/health` | 健康检查 + 库内统计 |
 | `GET /api/comics?category=&keyword=&sort=&page=` | 作品列表 |

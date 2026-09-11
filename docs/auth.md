@@ -2,7 +2,7 @@
 
 > 覆盖范围：本项目（漫画聚合平台）用户登录/收藏功能的认证体系
 > 技术栈：JWT (HS256) + bcrypt 密码哈希 + user 表唯一约束
-> 说明：本文档以 `api-service/main.py` 的真实代码为准，供 review / 讲解使用
+> 说明：本文档以 `api-service` 的真实代码为准（接口在 `routers/`，实现在 `core/` 与 `services/`），供 review / 讲解使用
 
 ---
 
@@ -61,24 +61,25 @@ $2b$12$  NSIuNmCBrNdd9hdU1r3Rmu  msPzM7.jLMEXRkB8MetJzhtNK67jjK2
 ## 2. 用户唯一性：`username NOT NULL UNIQUE`
 
 ### 2.1 为什么同名不存在
-user 表建表语句（第 70-77 行）：
+user 表建表语句（`crawler-service/sql/mysql_schema.sql`，MySQL 5.7）：
 
 ```sql
 CREATE TABLE IF NOT EXISTS user (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    username    TEXT NOT NULL UNIQUE,   -- ← 数据库层禁止同名
-    password_hash TEXT NOT NULL,
-    nickname    TEXT NOT NULL DEFAULT '',
-    avatar_url  TEXT NOT NULL DEFAULT '',
-    created_at  TEXT NOT NULL
-);
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    username      VARCHAR(64) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    nickname      VARCHAR(64) NOT NULL DEFAULT '',
+    avatar_url    VARCHAR(512) NOT NULL DEFAULT '',
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_username (username)   -- ← 数据库层禁止同名
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 ```
 
 ### 2.2 两道防线
 | 防线 | 位置 | 作用 |
 |---|---|---|
 | ① 注册查重 | `register()` | 先查 username 已存在，返回 409「用户名已存在」 |
-| ② 数据库唯一索引 | `username TEXT NOT NULL UNIQUE` | 兜底，即使并发同名注册也强制拒绝 |
+| ② 数据库唯一索引 | `UNIQUE KEY uk_username (username)` | 兜底，即使并发同名注册也强制拒绝 |
 
 ### 2.3 username vs nickname
 - **`username`**：登录标识，唯一，禁止同名。
@@ -227,16 +228,23 @@ def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer
 
 ---
 
-## 7. 关键代码位置索引（api-service/main.py）
+## 7. 关键代码位置索引
 
-| 功能 | 行号 |
+> `api-service` 已按层拆分（2026-09-11）：认证相关代码在 `core/security.py`，接口在 `routers/auth.py`，
+> 用户中心接口在 `routers/users.py`。下表按**文件**定位，不再依赖行号（行号易随改动失效）。
+
+| 功能 | 位置 |
 |---|---|
-| user 表（username UNIQUE） | 70-77 |
-| `_hash_password` / `_verify_password` | 366 / 370 |
-| `_make_token` / `_decode_token` | 377 / 388 |
-| `get_current_user` | 399 |
-| `register` / `login` / `me` 端点 | 437 / 450 / 458 |
+| user 表（username UNIQUE） | `crawler-service/sql/mysql_schema.sql`（`CREATE TABLE IF NOT EXISTS user`） |
+| `hash_password` / `verify_password` | `api-service/core/security.py` |
+| `make_token` / `decode_token` | `api-service/core/security.py` |
+| `get_current_user`（Bearer 依赖） | `api-service/core/security.py` |
+| `register` / `login` / `me` 端点 | `api-service/routers/auth.py` |
+| 收藏 / 历史端点 | `api-service/routers/users.py` |
+| 请求体模型（`RegisterBody` 等） | `api-service/schemas.py` |
+| 用户对外视图（`user_out`） | `api-service/serializers.py` |
+| 存储句柄 `db` / `users` | `api-service/core/db.py` |
 
 ---
 
-*本文档整理于 2026-09-04，对应 api-service 登录/收藏功能改动。*
+*本文档整理于 2026-09-04，对应 api-service 登录/收藏功能改动；2026-09-10 同步 user 表 DDL（MySQL，时间列 `DATETIME`）；2026-09-11 改为按文件索引（api-service 已分层拆分）。*
