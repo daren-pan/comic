@@ -186,7 +186,8 @@ uvicorn main:app --port 8000   # 在 api-service 目录
   `inspect_sync(storage, image_store, adapter_provider, source, since, until)`：
   `source/since/until` 只作用于「转存」部分（与 `transfer-images` 同语义），`source` 同时限定校验范围；
   全部留空 = 全库巡检。
-- **管理台「触发巡检」**（`POST /api/admin/inspect`）与命令行 `inspect` 走同一函数；与「触发转存」的区别是多做了上面的第 2 步校验。
+- **管理台「触发巡检」**（`POST /api/admin/inspect`）与命令行 `inspect` 走同一函数；与「触发转存」的区别是多做了上面的第 2 步校验。巡检是**全库**动作，故管理台只在页面顶部放**一块**面板，不随源卡片复制。
+  命令行可选参数：`--source <name>`（只巡检某源）、`--since/--until`（只限定「转存」部分的时间窗，校验始终覆盖全表）。
 - **封面自愈**（`scheduling.heal.heal_covers`）：修复图库中缺失/未落盘的封面——封面仍是外链 → 重试下载；
   本地 key 但文件缺失 → 按 `source_comic_id` 回源重抓 `cover_url` 再落盘；健康/无法修复的跳过。
   返回 `{checked, healed, failed, skipped}`；由管理台「触发转存」后**自动执行**（无需单独按钮）。
@@ -202,7 +203,7 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 - **全量（`--mode full`）**：默认 `since=None` **无时间窗口**，扫描列表接口能返回的全部（不限时间）；手动填 `since` 时同样按 `[since, 现在]` 过滤。
 - **手动指定优先于水位**：`run --source xxx --mode incremental --since 2026-09-01` 即采集 9 月 1 日至今（而不是从上次同步开始）。
 - 源站按各自时间字段过滤（再漫画 `last_updatetime` Unix 时间戳；瓜子列表无时间字段，用 date 参数近似）；首采（无水位）默认收当天全部。
-- 采集管理控制台（`/#/admin`，见 api-service README）在页面上暴露上述参数，无需手敲命令行：**采集**面板可填 `mode` / `since` / `limit`；**懒转存**面板只填 `since` / `until`（**已无数量输入**，语义就是「把窗口内所有未转存页全部转掉」）；**失效巡检**面板同样填 `since` / `until`，语义 = 上述转存 + **全表**校验已转存对象（缺失自动恢复）。
+- 采集管理控制台（`/#/admin`，见 api-service README）在页面上暴露上述参数，无需手敲命令行：**采集**面板可填 `mode` / `since` / `limit`；**懒转存**面板只填 `since` / `until`（**已无数量输入**，语义就是「把窗口内所有未转存页全部转掉」）；页面顶部另有**全库「失效巡检」**面板（不随源复制），同样填 `since` / `until`，语义 = 上述转存 + **全表**校验已转存对象（缺失自动恢复）。
 
 ## 合规说明（务必阅读）
 
