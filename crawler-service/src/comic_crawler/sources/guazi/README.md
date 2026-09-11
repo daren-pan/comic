@@ -11,7 +11,7 @@
 
 ## 接入步骤（三步，都在本目录内完成）
 
-1. 写 `adapter.py`：继承 `sources.base.CrawlerAdapter`，参考 `sources/demo/adapter.py`；
+1. 写 `adapter.py`：继承 `sources.base.CrawlerAdapter`，参考 `sources/zaimanhua/adapter.py`；
 2. 写 `__init__.py`：导出 `Adapter` 类与 `SOURCES = [SourceConfig(name="guazi", ...)]`；
 3. 在 `sources/__init__.py` 的聚合处加一行 import。
 

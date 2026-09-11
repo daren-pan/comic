@@ -21,10 +21,10 @@ from .base import CrawlerAdapter
 from .registry import create_adapter, list_adapters, register
 
 # 导入各源子包：既触发 @register 注册，也把各自的 SOURCES 配置带进来
-from . import demo, mangadex, peppercarrot, weebcentral, zaimanhua  # noqa: E402,F401
+from . import mangadex, weebcentral, zaimanhua  # noqa: E402,F401
 
 # 轮询清单顺序 = 管理台展示顺序
-_SOURCE_PACKAGES = (demo, peppercarrot, zaimanhua, mangadex, weebcentral)
+_SOURCE_PACKAGES = (zaimanhua, mangadex, weebcentral)
 
 SOURCES: list[SourceConfig] = [s for pkg in _SOURCE_PACKAGES for s in pkg.SOURCES]
 

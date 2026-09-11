@@ -1,7 +1,7 @@
 """命令行入口。
 
 用法：
-    python -m comic_crawler.cli run --source demo_source [--mode incremental|full]
+    python -m comic_crawler.cli run --source zaimanhua [--mode incremental|full]
     python -m comic_crawler.cli transfer-images [--store image_store]
     python -m comic_crawler.cli inspect [--store image_store] [--source <name>] [--since ISO] [--until ISO]
     python -m comic_crawler.cli list          # 列出已注册的源站适配器
@@ -148,7 +148,10 @@ def main() -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_run = sub.add_parser("run", help="执行一次同步")
-    p_run.add_argument("--source", default="demo_source", help="源站名（见 list）")
+    p_run.add_argument(
+        "--source", default="zaimanhua",
+        help="源站名（见 list）；默认主源 zaimanhua —— 会联网采集，受控样本请用 --limit",
+    )
     p_run.add_argument("--mode", choices=["incremental", "full"], default="incremental")
     p_run.add_argument(
         "--limit", type=int, default=None,

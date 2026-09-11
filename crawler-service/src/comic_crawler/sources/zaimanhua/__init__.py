@@ -10,7 +10,7 @@ from .adapter import ZaimanhuaAdapter
 SOURCES = [
     SourceConfig(
         name="zaimanhua",
-        priority="backup",
+        priority="primary",  # 主源（2026-09-11 起）
         crawl_interval_seconds=3600,  # 学习用途受控源（H5 通道）：低频 + 受限样本
     ),
 ]

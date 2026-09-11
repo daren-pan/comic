@@ -87,7 +87,7 @@ def ensure_cover_local(
 def _url_expired(source_url: str, now: float | None = None) -> bool:
     """本地判断签名 URL 是否已过期：解析 query 里的 t 参数（过期时间戳）。
 
-    无 t 参数（永久有效，如 pepper）或 t 在未来 → False（可直接下载）；
+    无 t 参数（永久有效，如 weebcentral）或 t 在未来 → False（可直接下载）；
     t 已过 → True（必然 403，应现场重拉）。纯本地解析，零网络开销。
     """
     if not source_url:

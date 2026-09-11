@@ -16,14 +16,14 @@
 
 ## 常见改动位置
 
-- **加一个源站** → 复制 `sources/demo/` 为模板，改 `source_name` 与三个解析方法，
+- **加一个源站** → 复制 `sources/zaimanhua/` 为模板，改 `source_name` 与三个解析方法，
   在 `sources/__init__.py` 的 `_SOURCE_PACKAGES` 加一项（不用碰 `config.py`）；
 - **换存储后端** → 在 `storage/` 下新增实现 `storage.base` 两个契约的子包；
 - **调采集节奏 / 封面自愈** → `scheduling/`；
 - **跑一次 / 常驻** → `cli.py`。
 
 ```bash
-PYTHONPATH=src python -m comic_crawler.cli run --source demo_source
+PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua
 ```
 """
 

@@ -165,7 +165,7 @@ def _description(d):
   幂等落盘；
 - **懒转存（2 路并发）**：`cli transfer-images` → `checked:179, transferred:179, failed:0`
   （179 为本次未转存页数，其余此前已转存），页面状态分布 `已转存:277`（含
-  demo_source/demo_source_b/zaimanhua/mangadex 四类源全部页）；
+  zaimanhua/mangadex 等当时的各源全部页；demo_source 已于 2026-09-11 移除，此处为当时的记录）；
 - **性能**：2 路并发下 MangaDex 单张 3~5s，179 页全程 **5 分 32 秒** 跑完；
   串行基线约 45 分钟（瓶颈为境外图床带宽，见 crawler-service/README.md「并发转存」）；
 - **API 真图验证**：`GET /api/images/{mangadex_comic_id}/{chapter_id}/{page_no}` →

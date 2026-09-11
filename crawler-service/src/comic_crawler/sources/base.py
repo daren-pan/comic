@@ -78,7 +78,7 @@ class CrawlerAdapter(ABC):
     ) -> list[str] | None:
         """按源站 id 现场重拉整章最新图片 URL（懒转存遇签名过期时重试）。
 
-        默认不支持（返回 None）：URL 永久有效的源（pepper/demo 等）
+        默认不支持（返回 None）：URL 永久有效的源（如 weebcentral）
         无需覆写——其 source_url 长期可直接下载。
         带 sign 短时效签名的源（如 zaimanhua）应覆写为「重新请求源站章节
         接口让其重新签发 URL」，并尽量做同批章级缓存避免重复请求。
