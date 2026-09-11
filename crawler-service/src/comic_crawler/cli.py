@@ -3,7 +3,7 @@
 用法：
     python -m comic_crawler.cli run --source demo_source [--mode incremental|full]
     python -m comic_crawler.cli transfer-images [--store image_store]
-    python -m comic_crawler.cli inspect [--store image_store]
+    python -m comic_crawler.cli inspect [--store image_store] [--source <name>] [--since ISO] [--until ISO]
     python -m comic_crawler.cli list          # 列出已注册的源站适配器
     python -m comic_crawler.cli show          # 展示库内数据
 
@@ -93,10 +93,21 @@ def cmd_transfer_images(args: argparse.Namespace) -> int:
 
 
 def cmd_inspect(args: argparse.Namespace) -> int:
-    """失效巡检：转存未转存页 + 校验已转存对象 + 恢复丢失。"""
+    """失效巡检：转存未转存页 + **全表**校验已转存对象 + 恢复丢失。
+
+    默认全库巡检；`--source` 只巡检指定源（同时限定转存范围），`--since/--until`
+    限定「转存」部分的时间窗（校验始终是全表/全源，保证不留死角）。
+    """
     storage = _storage(args)
     store = LocalImageStore(root=args.store)
-    stats = inspect_sync(storage, image_store=store)
+    stats = inspect_sync(
+        storage,
+        image_store=store,
+        source=args.source,
+        since=args.since,
+        until=args.until,
+        adapter_provider=create_adapter,
+    )
     print("==> 失效巡检:", stats)
     print("==> 页面状态分布:", storage.count_pages_by_status())
     return 0
@@ -163,8 +174,11 @@ def main() -> int:
     )
     p_transfer.set_defaults(fn=cmd_transfer_images)
 
-    p_inspect = sub.add_parser("inspect", help="失效巡检（转存 + 校验 + 恢复）")
+    p_inspect = sub.add_parser("inspect", help="失效巡检（转存 + 全表校验 + 恢复）")
     p_inspect.add_argument("--store", default=None, help="图片存储目录；默认用统一图库根")
+    p_inspect.add_argument("--source", default=None, help="只巡检指定源（默认全库）")
+    p_inspect.add_argument("--since", default=None, help="只转存该时间（ISO）之后入库的页")
+    p_inspect.add_argument("--until", default=None, help="只转存该时间（ISO）之前入库的页（默认不限）")
     p_inspect.set_defaults(fn=cmd_inspect)
 
     p_show = sub.add_parser("show", help="展示库内数据")
