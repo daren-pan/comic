@@ -28,17 +28,24 @@ DEFAULT_UA_POOL: list[str] = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
 ]
 
+# ---- 抓取限速默认值（**单一真源**；要按源定制就直接给 HttpFetcher 传参）----
+DEFAULT_MIN_DELAY = 0.5    # 请求间隔下限（秒）
+DEFAULT_MAX_DELAY = 2.0    # 请求间隔上限（秒）
+DEFAULT_MAX_RETRIES = 3    # 失败重试次数（指数退避）
+DEFAULT_BASE_DELAY = 1.0   # 退避基数（秒）：第 n 次重试等待 base_delay * 2**n
+DEFAULT_TIMEOUT = 10.0     # 单请求超时（秒）
+
 
 class HttpFetcher:
     """带反爬礼仪的 HTTP 抓取客户端（线程安全：每次请求独立 client）。"""
 
     def __init__(
         self,
-        min_delay: float = 0.5,
-        max_delay: float = 2.0,
-        max_retries: int = 3,
-        base_delay: float = 1.0,
-        timeout: float = 10.0,
+        min_delay: float = DEFAULT_MIN_DELAY,
+        max_delay: float = DEFAULT_MAX_DELAY,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        base_delay: float = DEFAULT_BASE_DELAY,
+        timeout: float = DEFAULT_TIMEOUT,
         ua_pool: list[str] | None = None,
         proxy_pool: list[str] | None = None,
     ) -> None:

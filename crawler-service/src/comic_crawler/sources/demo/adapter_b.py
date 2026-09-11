@@ -12,8 +12,8 @@ build_fingerprint 命中 → 调度层判定为同一部漫画，不重复入库
 
 from __future__ import annotations
 
-from .demo_source import DemoSourceAdapter
-from .registry import register
+from .adapter import DemoSourceAdapter
+from ..registry import register
 
 
 @register("demo_source_b")

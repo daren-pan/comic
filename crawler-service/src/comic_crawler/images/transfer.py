@@ -1,29 +1,27 @@
-"""图片懒转存服务。
+"""图片懒转存服务（业务动作层）。
 
 对应架构方案 §2.2「图片转存：懒触发 + 热点预取」与 §3.3：
 - 不预抓全量图片：同步入库时 page.cached_status = '未转存'，只存源站 URL；
-- 用户访问某章节时（或定时巡检时）触发 lazy_transfer，按需转存到 OSS；
+- 用户访问某章节时（或定时巡检时）触发 lazy_transfer，按需转存到对象存储；
 - 转存成功 → 回填 oss_url、状态置 '已转存'；失败重试，仍失败置 '失效'。
 
 下载器说明：
 - 真实源站：source_url 为 http(s)，走 httpx 下载；
-- 演示/离线：source_url 为占位路径，download_stub 返回占位字节，
-  同样能验证「状态机迁移 + OSS 写入 + 巡检恢复」的完整链路。
+- 演示/离线：source_url 为占位路径，default_downloader 返回占位字节，
+  同样能验证「状态机迁移 + 对象写入 + 巡检恢复」的完整链路。
 """
-
 from __future__ import annotations
 
 import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Callable
 
 import httpx
 
-from .image_store import ImageStore
-from .storage import Storage
+from ..storage.base import Storage
+from .store import ImageStore
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +42,7 @@ def _shared_client() -> httpx.Client:
 
 
 def build_image_key(comic_id: int, chapter_id: int, page_no: int) -> str:
-    """OSS 对象键：comic/<comic_id>/<chapter_id>/<page_no>（架构方案 §3.3 分目录）。"""
+    """对象键：comic/<comic_id>/<chapter_id>/<page_no>（架构方案 §3.3 分目录）。"""
     return f"comic/{comic_id}/{chapter_id}/{page_no:03d}.jpg"
 
 
@@ -196,7 +194,7 @@ def lazy_transfer(
                 )
                 return "fail"
             image_store.put(key, data)  # 上传对象；put 返回的 URL 不落库
-            # DB 回填图库内相对 key（OSS 对象键语义），与机器/项目路径解耦，
+            # DB 回填图库内相对 key（对象键语义），与机器/项目路径解耦，
             # 读取端（api-service）按运行时定位的图库根拼接。
             storage.mark_page_cached(row["page_id"], key)
             stats["transferred"] += 1

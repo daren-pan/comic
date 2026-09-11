@@ -21,7 +21,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from comic_crawler.image_service import lazy_transfer
+from comic_crawler.images.transfer import lazy_transfer
 
 # 时间戳：PAST = 已过期；FUTURE = 远未来（未过期）
 PAST = 1700000000  # 2023-11 已过期

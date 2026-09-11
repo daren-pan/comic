@@ -16,12 +16,12 @@ import argparse
 import logging
 import time
 
-from .adapter import create_adapter, list_adapters
-from .image_service import lazy_transfer
-from .image_store import LocalImageStore
-from .mysql_storage import MySQLStorage
-from .scheduler import SyncScheduler, full_sync, incremental_sync, inspect_sync
-from .storage import Storage
+from .sources import SOURCES, create_adapter, list_adapters
+from .images.transfer import lazy_transfer
+from .images.store import LocalImageStore
+from .storage.mysql import MySQLStorage
+from .scheduling import SyncScheduler, full_sync, incremental_sync, inspect_sync
+from .storage.base import Storage
 
 
 def _storage(_args: argparse.Namespace) -> Storage:
@@ -104,8 +104,6 @@ def cmd_inspect(args: argparse.Namespace) -> int:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     """调度守护：按配置轮询执行 增量同步 / 每日全量 / 失效巡检。"""
-    from .config import SOURCES
-
     storage = _storage(args)
     sources = [s for s in SOURCES if s.enabled]
     if args.source:

@@ -24,7 +24,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from comic_crawler.adapter.mangadex_source import MangaDexAdapter
+from comic_crawler.sources.mangadex.adapter import MangaDexAdapter
 
 LIST_RESP = {
     "data": [
@@ -170,7 +170,7 @@ class TestMangaDexAdapter(unittest.TestCase):
         self.assertTrue(manga_calls)
         self.assertTrue(all("contentRating[]" not in (p or {}) for p in manga_calls))
         # 超过翻页安全阀返回空（列表不再固定只翻 1 页）
-        from comic_crawler.adapter import mangadex_source as md
+        from comic_crawler.sources.mangadex import adapter as md
 
         self.assertEqual(
             len(self.ad.fetch_comic_list(page=md.MAX_LIST_PAGES + 1).items), 0
@@ -198,7 +198,7 @@ class TestMangaDexAdapter(unittest.TestCase):
 
     def test_fetch_list_paginate_to_window_edge(self):
         """窗口内更新超一页时应继续翻页；翻到某页全部越过 since 才停。"""
-        import comic_crawler.adapter.mangadex_source as md
+        import comic_crawler.sources.mangadex.adapter as md
 
         def _manga(mid: str) -> dict:
             return {
@@ -256,7 +256,7 @@ class TestMangaDexAdapter(unittest.TestCase):
         c2v5 = next(c for c in detail.chapters if c.source_chapter_id == "c3")
         self.assertEqual(c2v5.chapter_no, 2050)
         # feed 请求 contentRating[] = CONTENT_RATINGS 全部 4 值（返回范围=声明范围）
-        from comic_crawler.adapter.mangadex_source import CONTENT_RATINGS
+        from comic_crawler.sources.mangadex.adapter import CONTENT_RATINGS
 
         feed_params = next(p for path, p in fake.calls if path.endswith("/feed"))
         self.assertEqual(

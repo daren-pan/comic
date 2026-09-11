@@ -24,7 +24,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from comic_crawler.adapter.weebcentral_source import WeebCentralAdapter
+from comic_crawler.sources.weebcentral.adapter import WeebCentralAdapter
 from parsel import Selector
 
 # ---------------------------------------------------------------------------

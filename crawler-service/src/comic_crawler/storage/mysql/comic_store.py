@@ -1,83 +1,20 @@
-"""存储层 MySQL 唯一实现（Storage 契约）。
+"""存储层 MySQL 实现：漫画侧（comic / chapter / page / sync_log / tag / comic_tag）。
 
-对应架构方案 §3.1/§6.1：生产环境用 MySQL。连接参数通过环境变量配置。
-
-连接参数（环境变量，均有默认值）：
-    COMIC_MYSQL_HOST    默认 127.0.0.1
-    COMIC_MYSQL_PORT    默认 3307 （Docker ruoyi-mysql 映射端口）
-    COMIC_MYSQL_USER    默认 root
-    COMIC_MYSQL_PASSWORD 默认 password
-    COMIC_MYSQL_DB      默认 comic
+对应架构方案 §3.1/§6.1。连接参数与时间/热度工具见 `._util`；
+每个方法使用独立连接（线程安全），autocommit 提交。
 """
-
 from __future__ import annotations
 
-import logging
-import os
 import re
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Iterator
 
 import pymysql
-from pymysql.cursors import DictCursor
 
-from .models import ChapterBrief, ComicDetail, PageInfo
-from .storage import Storage
-
-logger = logging.getLogger(__name__)
-
-_DSN = {
-    "host": os.environ.get("COMIC_MYSQL_HOST", "127.0.0.1"),
-    "port": int(os.environ.get("COMIC_MYSQL_PORT", "3307")),
-    "user": os.environ.get("COMIC_MYSQL_USER", "root"),
-    "password": os.environ.get("COMIC_MYSQL_PASSWORD", "password"),
-    "database": os.environ.get("COMIC_MYSQL_DB", "comic"),
-    "charset": "utf8mb4",
-    "cursorclass": DictCursor,
-    "autocommit": True,
-}
-
-
-def _now() -> datetime:
-    """当前时刻（秒精度、naive 本机时间）。
-
-    直接返回 datetime 而不是 ISO 字符串：时间列已是 MySQL `DATETIME`，
-    由驱动按 'YYYY-MM-DD HH:MM:SS' 格式化，避免字符串自带 'T' 分隔符/时区
-    写法差异导致的隐式转换问题（这是 varchar(32) 时代的遗留坑）。
-    """
-    return datetime.now().replace(microsecond=0)
-
-
-def _as_dt(value) -> datetime | None:
-    """把 ISO 字符串（可含 'T'，如 SyncStats.started_at）归一成 datetime。
-
-    已是 datetime 的原样返回；None 透传；无法解析时记警告并回落到当前时刻
-    （目标列均 NOT NULL，不能写 None）。
-    """
-    if value is None or isinstance(value, datetime):
-        return value
-    try:
-        return datetime.fromisoformat(str(value)).replace(microsecond=0)
-    except ValueError:
-        logger.warning("时间字段无法解析，已回落为当前时刻: %r", value)
-        return _now()
-
-
-def _until_bound(value) -> tuple[object, bool]:
-    """把「截止」参数归一成 (SQL 边界值, 是否用 `<` 排他比较)。
-
-    语义**含边界**：只给日期（`YYYY-MM-DD`）→ 含当天全天，返回 (次日 00:00, True)；
-    带时刻（`YYYY-MM-DD HH:MM:SS` / ISO 带 'T' / datetime）→ 含该时刻，返回 (原值, False)。
-    这样 UI 上「截止 09-10」就是 09-10 23:59:59 之前都在范围内，符合直觉。
-    """
-    text = str(value).strip()
-    if len(text) == 10 and text.count("-") == 2:  # 纯日期
-        try:
-            return datetime.strptime(text, "%Y-%m-%d") + timedelta(days=1), True
-        except ValueError:
-            pass
-    return value, False
+from ...models import ChapterBrief, ComicDetail, PageInfo
+from ..base import Storage
+from ._util import _DSN, _as_dt, _now, _until_bound, heat_sql, logger
 
 
 class MySQLStorage(Storage):
@@ -310,7 +247,9 @@ class MySQLStorage(Storage):
                 chapters = cur.fetchone()["c"]
                 cur.execute("SELECT COUNT(*) AS c FROM page")
                 pages = cur.fetchone()["c"]
-        return {"comics": comics, "chapters": chapters, "pages": pages}
+                cur.execute("SELECT COALESCE(SUM(views), 0) AS v FROM comic")
+                views = cur.fetchone()["v"]
+        return {"comics": comics, "chapters": chapters, "pages": pages, "views": int(views)}
 
     # ------------------------------------------------------------------
     # 图片转存 / 失效巡检支持
@@ -375,16 +314,29 @@ class MySQLStorage(Storage):
                     (page_id,),
                 )
 
-    def list_pages(self, limit: int = 500) -> list[dict]:
+    def list_pages(
+        self, after_id: int = 0, limit: int = 1000, source: str | None = None
+    ) -> list[dict]:
+        """按 id 升序键集分页取页（巡检遍历全表用）。
+
+        语义见 `storage.base.Storage.list_pages`：一次只返回「一批」，
+        调用方用返回行最大 `page_id` 推进 `after_id` 反复调用，直至某批不足 limit。
+        """
+        sql = """SELECT p.id AS page_id, p.page_no, p.source_url, p.oss_url, p.cached_status,
+                        c.comic_id, c.id AS chapter_id
+                 FROM page p
+                 JOIN chapter c ON p.chapter_id = c.id
+                 JOIN comic co ON c.comic_id = co.id
+                 WHERE p.id > %s"""
+        args: list = [after_id]
+        if source:
+            sql += " AND co.source = %s"
+            args.append(source)
+        sql += " ORDER BY p.id LIMIT %s"
+        args.append(limit)
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """SELECT p.id AS page_id, p.page_no, p.source_url, p.oss_url, p.cached_status,
-                              c.comic_id, c.id AS chapter_id
-                       FROM page p JOIN chapter c ON p.chapter_id = c.id
-                       ORDER BY p.id LIMIT %s""",
-                    (limit,),
-                )
+                cur.execute(sql, tuple(args))
                 return list(cur.fetchall())
 
     def count_pages_by_status(self) -> dict[str, int]:
@@ -407,11 +359,14 @@ class MySQLStorage(Storage):
         page: int = 1,
         page_size: int = 12,
     ) -> tuple[list[dict], int]:
-        sql = """SELECT c.*, COUNT(DISTINCT ch.id) AS chapter_count
+        sql = f"""SELECT c.*, COUNT(DISTINCT ch.id) AS chapter_count,
+                         COUNT(DISTINCT f.user_id) AS favorite_count,
+                         {heat_sql()} AS heat
                  FROM comic c
                  LEFT JOIN chapter ch ON ch.comic_id = c.id
                  LEFT JOIN comic_tag ct ON ct.comic_id = c.id
-                 LEFT JOIN tag t ON t.id = ct.tag_id"""
+                 LEFT JOIN tag t ON t.id = ct.tag_id
+                 LEFT JOIN favorite f ON f.comic_id = c.id"""
         conds: list[str] = []
         params: list = []
         if category and category != "全部":
@@ -425,7 +380,8 @@ class MySQLStorage(Storage):
             sql += " WHERE " + " AND ".join(conds)
         sql += " GROUP BY c.id"
         if sort == "views":
-            sql += " ORDER BY c.id DESC"
+            # 热度相同的作品再按最近更新时间倒序 —— 同分时"更新的排前面"
+            sql += " ORDER BY heat DESC, c.sync_time DESC, c.id DESC"
         else:
             sql += " ORDER BY c.sync_time DESC"
         with self._conn() as conn:
@@ -439,16 +395,26 @@ class MySQLStorage(Storage):
         return rows, total
 
     def get_comic(self, comic_id: int) -> dict | None:
+        # COUNT(DISTINCT ch.id)：与 favorite 的 JOIN 会放大行数，非 DISTINCT 会算重复
+        sql = f"""SELECT c.*, COUNT(DISTINCT ch.id) AS chapter_count,
+                         COUNT(DISTINCT f.user_id) AS favorite_count,
+                         {heat_sql()} AS heat
+                  FROM comic c
+                  LEFT JOIN chapter ch ON ch.comic_id = c.id
+                  LEFT JOIN favorite f ON f.comic_id = c.id
+                  WHERE c.id = %s GROUP BY c.id"""
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """SELECT c.*, COUNT(ch.id) AS chapter_count
-                       FROM comic c LEFT JOIN chapter ch ON ch.comic_id = c.id
-                       WHERE c.id = %s GROUP BY c.id""",
-                    (comic_id,),
-                )
+                cur.execute(sql, (comic_id,))
                 row = cur.fetchone()
         return row
+
+    def increment_comic_views(self, comic_id: int) -> bool:
+        """浏览次数 +1（落库，重启不丢）。返回是否命中该漫画（False = 不存在）。"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE comic SET views = views + 1 WHERE id = %s", (comic_id,))
+                return cur.rowcount > 0
 
     def set_comic_cover(self, comic_id: int, cover_url: str) -> None:
         with self._conn() as conn:
@@ -514,111 +480,3 @@ class MySQLStorage(Storage):
                     (comic_id,),
                 )
                 return [r["name"] for r in cur.fetchall()]
-
-
-# ---------------- 用户中心（favorite / history，对应 api-service UserStore） ----------------
-
-class MySQLUserStore:
-    """用户中心 MySQL 实现：接口与 api-service/main.py 的 UserStore 一致。"""
-
-    def __init__(self, dsn: dict | None = None) -> None:
-        self.dsn = dsn or _DSN
-
-    @contextmanager
-    def _conn(self) -> Iterator[pymysql.connections.Connection]:
-        conn = pymysql.connect(**self.dsn)
-        try:
-            yield conn
-        finally:
-            conn.close()
-
-    def list_favorites(self, user_id: str) -> list[int]:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT comic_id FROM favorite WHERE user_id=%s ORDER BY created_at DESC",
-                    (user_id,),
-                )
-                return [int(r["comic_id"]) for r in cur.fetchall()]
-
-    # ---- 用户账户（登录/注册） ----
-    def get_user_by_username(self, username: str) -> dict | None:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT * FROM user WHERE username=%s", (username,))
-                row = cur.fetchone()
-                return dict(row) if row else None
-
-    def create_user(self, username: str, password_hash: str, nickname: str) -> dict:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO user (username, password_hash, nickname, created_at)
-                       VALUES (%s,%s,%s,%s)""",
-                    (username, password_hash, nickname, _now()),
-                )
-                conn.commit()
-                cur.execute("SELECT * FROM user WHERE id=%s", (cur.lastrowid,))
-                return dict(cur.fetchone())
-
-    def get_user(self, user_id: str) -> dict | None:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT * FROM user WHERE id=%s", (user_id,))
-                row = cur.fetchone()
-                return dict(row) if row else None
-
-    def is_favorite(self, user_id: str, comic_id: int) -> bool:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM favorite WHERE user_id=%s AND comic_id=%s",
-                    (user_id, comic_id),
-                )
-                return cur.fetchone() is not None
-
-    def set_favorite(self, user_id: str, comic_id: int, fav: bool) -> None:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                if fav:
-                    cur.execute(
-                        "INSERT IGNORE INTO favorite (user_id, comic_id, created_at) VALUES (%s,%s,%s)",
-                        (user_id, comic_id, _now()),
-                    )
-                else:
-                    cur.execute(
-                        "DELETE FROM favorite WHERE user_id=%s AND comic_id=%s",
-                        (user_id, comic_id),
-                    )
-
-    def list_history(self, user_id: str) -> list[dict]:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """SELECT h.comic_id, h.chapter_id, h.page_no, h.read_at,
-                              ch.title AS chapter_title
-                       FROM history h LEFT JOIN chapter ch ON ch.id = h.chapter_id
-                       WHERE h.user_id=%s ORDER BY h.read_at DESC LIMIT 50""",
-                    (user_id,),
-                )
-                return list(cur.fetchall())
-
-    def upsert_history(self, user_id: str, comic_id: int, chapter_id: int, page_no: int) -> None:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """INSERT INTO history (user_id, comic_id, chapter_id, page_no, read_at)
-                       VALUES (%s,%s,%s,%s,%s)
-                       ON DUPLICATE KEY UPDATE
-                           chapter_id=VALUES(chapter_id), page_no=VALUES(page_no),
-                           read_at=VALUES(read_at)""",
-                    (user_id, comic_id, chapter_id, page_no, _now()),
-                )
-
-    def delete_history(self, user_id: str, comic_id: int) -> None:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM history WHERE user_id=%s AND comic_id=%s",
-                    (user_id, comic_id),
-                )

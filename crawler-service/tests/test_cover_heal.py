@@ -18,7 +18,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from comic_crawler.scheduler import heal_covers  # noqa: E402
+from comic_crawler.scheduling import heal_covers  # noqa: E402
 
 
 class FakeStorage:
@@ -91,7 +91,7 @@ class TestHealCovers(unittest.TestCase):
         store = FakeStore(existing)
         calls: list[tuple[int, str]] = []
         provider = (lambda name: FakeAdapter(adapter_url)) if use_adapter and adapter_url is not None else None
-        with patch("comic_crawler.image_service.ensure_cover_local", _fake_ensure(ok_urls or set(), calls)):
+        with patch("comic_crawler.images.transfer.ensure_cover_local", _fake_ensure(ok_urls or set(), calls)):
             stats = heal_covers(storage, store, adapter_provider=provider)
         return storage, stats, calls
 

@@ -19,7 +19,7 @@ if str(SRC) not in sys.path:
 
 from comic_crawler.config import SourceConfig
 from comic_crawler.models import ComicListResult
-from comic_crawler.scheduler import SyncScheduler
+from comic_crawler.scheduling import SyncScheduler
 from comic_crawler.storage import Storage
 
 # 凌晨 0:30（不触发每日全量）
@@ -70,7 +70,7 @@ class FakeStorage(Storage):
     def list_uncached_pages(self, limit: int | None = None, since=None, until=None, source=None) -> list:
         return []
 
-    def list_pages(self, limit: int = 500) -> list:
+    def list_pages(self, after_id: int = 0, limit: int = 1000, source: str | None = None) -> list:
         return []
 
     # 其余抽象方法不参与调度节奏测试，统一占位

@@ -18,15 +18,15 @@ import re
 
 from parsel import Selector
 
-from ..models import (
+from ...models import (
     ChapterBrief,
     ComicBrief,
     ComicDetail,
     ComicListResult,
     PageInfo,
 )
-from .base import CrawlerAdapter
-from .registry import register
+from ..base import CrawlerAdapter
+from ..registry import register
 
 BASE = "https://www.peppercarrot.com"
 LIST_PATH = "/en/webcomics/peppercarrot.html"

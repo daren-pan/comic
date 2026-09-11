@@ -48,15 +48,15 @@ from datetime import datetime, timezone
 
 from parsel import Selector
 
-from ..models import (
+from ...models import (
     ChapterBrief,
     ComicBrief,
     ComicDetail,
     ComicListResult,
     PageInfo,
 )
-from .base import CrawlerAdapter
-from .registry import register
+from ..base import CrawlerAdapter
+from ..registry import register
 
 logger = logging.getLogger(__name__)
 

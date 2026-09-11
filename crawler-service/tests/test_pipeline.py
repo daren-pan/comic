@@ -14,10 +14,10 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from comic_crawler.adapter import create_adapter
+from comic_crawler.sources import create_adapter
 from comic_crawler.fingerprint import build_fingerprint, normalize_title
 from comic_crawler.models import ComicDetail
-from comic_crawler.mysql_storage import MySQLStorage
+from comic_crawler.storage.mysql import MySQLStorage
 
 
 class TestFingerprint(unittest.TestCase):

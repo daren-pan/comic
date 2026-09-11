@@ -18,18 +18,18 @@ from pathlib import Path
 
 from parsel import Selector
 
-from ..models import (
+from ...models import (
     ChapterBrief,
     ComicBrief,
     ComicDetail,
     ComicListResult,
     PageInfo,
 )
-from .base import CrawlerAdapter
-from .registry import register
+from ..base import CrawlerAdapter
+from ..registry import register
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-FIXTURES_DIR = PROJECT_ROOT / "fixtures"
+# 样例 HTML 与适配器同目录（fixtures/）——不再依赖仓库根，源包自洽可迁移
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 @register("demo_source")
