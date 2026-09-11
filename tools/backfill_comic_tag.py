@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "crawler-service", "src"))
 
-from comic_crawler.mysql_storage import MySQLStorage  # noqa: E402
+from comic_crawler.storage.mysql import MySQLStorage  # noqa: E402
 
 
 def split_tags(category: str) -> list[str]:

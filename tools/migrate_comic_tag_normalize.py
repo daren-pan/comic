@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "crawler-service", "src"))
 
-from comic_crawler.mysql_storage import MySQLStorage  # noqa: E402
+from comic_crawler.storage.mysql import MySQLStorage  # noqa: E402
 
 
 def migrate(db) -> None:
@@ -47,9 +47,10 @@ def migrate(db) -> None:
             cur.execute("ALTER TABLE comic_tag RENAME TO comic_tag_old")
             cur.execute(
                 """CREATE TABLE comic_tag (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
                     comic_id INT NOT NULL,
                     tag_id INT NOT NULL,
-                    PRIMARY KEY (comic_id, tag_id),
+                    UNIQUE KEY uk_comic_tag (comic_id, tag_id),
                     KEY idx_comic_tag_tag (tag_id),
                     CONSTRAINT fk_ct_comic FOREIGN KEY (comic_id) REFERENCES comic(id),
                     CONSTRAINT fk_ct_tag FOREIGN KEY (tag_id) REFERENCES tag(id)
