@@ -13,6 +13,9 @@ node_modules/
 dist/
 */dist/
 
+# ---- 打包产物（scripts/package.* 按需生成部署包，不入库）----
+build/
+
 # ---- 本地数据库（不在仓库中分发，需联网采集或手动导入重建） ----
 *.db
 *.db-journal
@@ -23,11 +26,12 @@ dist/
 image_store/
 */image_store/
 
-# ---- 运行时产物 / 日志 ----
+# ---- 运行时产物 / 日志（统一收在根 logs/，仅保留占位文件）----
 serve_out.txt
 nohup.out
 *.log
-logs/
+logs/*
+!logs/.gitkeep
 source_state.json
 
 # ---- 数据库备份（含业务数据，仅供本地回滚，不随仓库分发） ----
