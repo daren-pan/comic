@@ -13,7 +13,9 @@ export interface Comic {
   cover: string          // 封面（svg data uri 或 url）
   latestChapterTitle: string
   chapterCount: number
-  views: number          // 热度（用于榜单排序）
+  views: number          // 累计浏览次数（原始计数）
+  favoriteCount: number  // 收藏人数
+  heat: number           // 热度分 = 1000（起底）+ 浏览×1 + 收藏×2，用于榜单排序
   updatedAt: string      // 最近更新，驱动"最新更新"列表
   sources: string[]      // 数据来源（体现多源聚合）
   tags: string[]
@@ -94,7 +96,7 @@ export interface SyncStats {
 
 export interface AdminTask {
   id: string
-  type: 'sync' | 'transfer'
+  type: 'sync' | 'transfer' | 'inspect'
   status: 'running' | 'done' | 'failed'
   message: string
   result: Record<string, unknown> | null

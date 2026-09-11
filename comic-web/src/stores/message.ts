@@ -14,8 +14,8 @@ import { defineStore } from 'pinia'
 import { getAdminTask } from '../api'
 import type { AdminTask } from '../types'
 
-/** 消息类型：采集 / 懒转存 / 系统推送 */
-export type NoticeKind = 'sync' | 'transfer' | 'system'
+/** 消息类型：采集 / 懒转存 / 失效巡检 / 系统推送 */
+export type NoticeKind = 'sync' | 'transfer' | 'inspect' | 'system'
 /** 消息状态：运行中 / 完成 / 失败 / 通知（系统消息） */
 export type NoticeStatus = 'running' | 'done' | 'failed' | 'info'
 
@@ -36,7 +36,7 @@ const MAX_NOTICES = 50
 const POLL_INTERVAL = 1500   // 轮询间隔（ms）
 const TOAST_DURATION = 6000  // 结果弹窗停留（ms）
 
-/** 任务结果摘要（采集：扫描/新增/更新/章节/失败；转存：检查/成功/失败） */
+/** 任务结果摘要（采集：扫描/新增/更新/章节/失败；转存：检查/成功/失败；巡检：校验/转存/恢复/失效） */
 export function noticeSummary(t: AdminTask): string {
   if (t.status !== 'done' || !t.result) return ''
   if (t.type === 'sync') {
@@ -46,6 +46,9 @@ export function noticeSummary(t: AdminTask): string {
     }
   }
   const r = t.result as Record<string, number>
+  if (t.type === 'inspect') {
+    return `校验 ${r.checked ?? 0} | 转存 ${r.transferred ?? 0} | 恢复 ${r.recovered ?? 0} | 失效 ${r.invalid ?? 0}`
+  }
   return `检查 ${r.checked ?? 0} | 成功 ${r.transferred ?? 0} | 失败 ${r.failed ?? 0}`
 }
 
@@ -120,7 +123,14 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   /** 触发任务后登记（占位 running，确保能检测到 running→结束 的跳变） */
-  function trackTask(taskId: string, kind: 'sync' | 'transfer', source: string, mode?: string) {
+  function trackTask(
+    taskId: string,
+    kind: 'sync' | 'transfer' | 'inspect',
+    source: string,
+    mode?: string,
+  ) {
+    const running =
+      kind === 'sync' ? '采集进行中…' : kind === 'transfer' ? '转存进行中…' : '巡检进行中…'
     notices.value = notices.value.filter((n) => n.id !== taskId)
     notices.value.unshift({
       id: taskId,
@@ -128,7 +138,7 @@ export const useMessageStore = defineStore('message', () => {
       status: 'running',
       source,
       mode,
-      summary: kind === 'sync' ? '采集进行中…' : '转存进行中…',
+      summary: running,
       detail: '',
       time: new Date().toISOString(),
       read: true,

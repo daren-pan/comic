@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 热度排行 —— 按分类分区块，各分类内按热度（views）倒序取前 N 部。
+// 热度排行 —— 按分类分区块，各分类内按热度（后端 heat 字段）倒序取前 N 部。
+// 热度口径：1000 起底 + 浏览次数×1 + 收藏数×2（见 crawler-service/mysql_storage.py）。
 //
 // 分类很多（库内 70+ 个标签），为避免一次性发出几十个请求，这里用 IntersectionObserver
 // 做「区块进入视口才拉取该分类榜单」的懒加载；分类按作品数从多到少排列，内容多的排前面。
@@ -90,7 +91,7 @@ onBeforeUnmount(() => {
   <div>
     <h2 class="section-title">🏆 热度排行</h2>
     <p class="lead">
-      按分类分区块，每个分类内按热度（浏览量）从高到低取前 {{ TOP_N }} 部；
+      按分类分区块，每个分类内按热度从高到低取前 {{ TOP_N }} 部（热度 = 起底 1000 + 浏览 ×1 + 收藏 ×2，同分按最近更新）；
       仅收录作品数 ≥ {{ MIN_COUNT }} 的分类，作品多的分类排在前面。
     </p>
 
@@ -122,7 +123,7 @@ onBeforeUnmount(() => {
               <p class="meta">{{ c.author }}</p>
               <p class="latest">{{ c.latestChapterTitle || '暂无章节' }}</p>
             </div>
-            <span class="heat">🔥 {{ fmtHeat(c.views) }}</span>
+            <span class="heat">🔥 {{ fmtHeat(c.heat) }}</span>
           </li>
         </ol>
       </section>

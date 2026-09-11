@@ -5,11 +5,12 @@ import {
   toggleAdminSource,
   startAdminSync,
   startAdminTransfer,
+  startAdminInspect,
 } from '../api'
 import { useMessageStore } from '../stores/message'
 import type { SourceInfo } from '../types'
 
-// 每个源的采集/转存操作表单状态（独立参数）
+// 每个源的采集/转存/巡检操作表单状态（独立参数）
 interface SourceVM {
   info: SourceInfo
   syncMode: 'incremental' | 'full'
@@ -17,6 +18,8 @@ interface SourceVM {
   syncLimit: string   // 数量（空=不限）
   transferSince: string
   transferUntil: string
+  inspectSince: string
+  inspectUntil: string
   running: boolean    // 是否正在触发（防重复点击）
 }
 
@@ -51,6 +54,8 @@ async function load() {
       syncLimit: '',
       transferSince: '',
       transferUntil: '',
+      inspectSince: '',
+      inspectUntil: '',
       running: false,
     }))
     loaded.value = true
@@ -106,6 +111,25 @@ async function runTransfer(vm: SourceVM) {
   }
 }
 
+async function runInspect(vm: SourceVM) {
+  if (vm.running) return
+  vm.running = true
+  try {
+    // 巡检 = 转存（窗口内全部未转存页）+ 全表校验已转存对象、缺失则恢复
+    const body = {
+      source: vm.info.name,
+      since: vm.inspectSince || undefined,
+      until: vm.inspectUntil || undefined,
+    }
+    const { taskId } = await startAdminInspect(body)
+    msgStore.trackTask(taskId, 'inspect', vm.info.name)
+  } catch (e) {
+    alert((e as Error).message || '触发失效巡检失败')
+  } finally {
+    vm.running = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -113,8 +137,9 @@ onMounted(load)
   <div>
     <h2 class="section-title">采集管理</h2>
     <p class="lead">
-      手动触发各数据源的采集与懒转存；关闭的源将拒绝触发采集。
-      转存会把所选时间范围内的未转存页<b>全部转存</b>（起止留空=全部）。
+      手动触发各数据源的采集 / 懒转存 / 失效巡检；关闭的源将拒绝触发采集。
+      转存会把所选时间范围内的未转存页<b>全部转存</b>（起止留空=全部）；
+      巡检在此基础上还会<b>全表校验</b>已转存对象是否还在、缺失则自动恢复。
       任务进度与结果见右上角 <b>🔔 消息</b>（含历史记录，执行完毕会有提示）。
     </p>
 
@@ -176,6 +201,22 @@ onMounted(load)
           </div>
           <button class="btn ghost" :disabled="vm.running" @click="runTransfer(vm)">
             {{ vm.running ? '运行中…' : '触发转存' }}
+          </button>
+        </div>
+
+        <!-- 失效巡检区 -->
+        <div class="panel">
+          <div class="panel-title">失效巡检</div>
+          <div class="row-inputs">
+            <label>起始
+              <input v-model="vm.inspectSince" type="date" />
+            </label>
+            <label>截止（含当天）
+              <input v-model="vm.inspectUntil" type="date" />
+            </label>
+          </div>
+          <button class="btn ghost" :disabled="vm.running" @click="runInspect(vm)">
+            {{ vm.running ? '运行中…' : '触发巡检' }}
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 // 采集管理接口（运维控制台）—— 无需登录，本地演示
 // 职责：列出数据源 / 开关采集 / 手动触发采集（增量|全量 + since/limit）/
-//      手动触发懒转存（source/since/until/limit）/ 查询后台任务状态。
+//      手动触发懒转存（source/since/until/limit）/
+//      手动触发失效巡检（source/since/until）/ 查询后台任务状态。
 import type { AdminTask, SourceInfo } from '../types'
 import { request } from './request'
 
@@ -50,6 +51,23 @@ export interface AdminTransferRequest {
  */
 export function startAdminTransfer(body: AdminTransferRequest): Promise<{ taskId: string }> {
   return request('/api/admin/transfer', { method: 'POST', data: body })
+}
+
+export interface AdminInspectRequest {
+  source?: string     // 仅巡检某源；空 = 不限源
+  since?: string
+  until?: string
+}
+
+/**
+ * 触发一次失效巡检（后台线程执行，返回 taskId 供轮询）
+ *
+ * 与「转存」的区别：转存只做「未转存 → 转存」；巡检在此基础上再多做一步
+ * 「已转存对象校验 + 丢失恢复」（按 id 键集分页遍历全表，不会截断）。
+ * @see POST /api/admin/inspect
+ */
+export function startAdminInspect(body: AdminInspectRequest): Promise<{ taskId: string }> {
+  return request('/api/admin/inspect', { method: 'POST', data: body })
 }
 
 /**

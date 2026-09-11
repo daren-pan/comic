@@ -34,7 +34,13 @@ function onDocClick() {
 }
 
 function kindLabel(k: NoticeKind): string {
-  return k === 'sync' ? '采集' : k === 'transfer' ? '转存' : '系统'
+  return k === 'sync'
+    ? '采集'
+    : k === 'transfer'
+      ? '转存'
+      : k === 'inspect'
+        ? '巡检'
+        : '系统'
 }
 function statusLabel(n: NoticeItem): string {
   if (n.status === 'running') return '运行中'
@@ -362,6 +368,7 @@ watch(() => route.path, () => {
 .msg-item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
 .msg-kind { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-dark); }
 .msg-item.transfer .msg-kind { background: #eef6ff; color: #2b6cb0; }
+.msg-item.inspect .msg-kind { background: #eef7ec; color: #2f6d1f; }
 .msg-item.system .msg-kind { background: #f0f0f0; color: var(--text-2); }
 .msg-status { font-size: 12px; font-weight: 700; }
 .msg-item .msg-status { color: var(--text-2); }
