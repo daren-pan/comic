@@ -1,4 +1,4 @@
-"""采集服务单元测试：指纹去重、适配器解析（纯逻辑，不依赖数据库）。
+"""采集服务单元测试：指纹去重、标签拆分（纯逻辑，不依赖数据库）。
 
 运行：python -m unittest discover -s tests -v
 （需在 crawler-service 目录下，或设置 PYTHONPATH=src；无需 MySQL，离线可跑。）
@@ -14,7 +14,6 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from comic_crawler.sources import create_adapter
 from comic_crawler.fingerprint import build_fingerprint, normalize_title
 from comic_crawler.models import ComicDetail
 from comic_crawler.storage.mysql import MySQLStorage
@@ -40,35 +39,6 @@ class TestFingerprint(unittest.TestCase):
         self.assertEqual(normalize_title("ONE PIECE 海贼王"), normalize_title("one piece海贼王"))
 
 
-class TestDemoAdapter(unittest.TestCase):
-    """演示源站适配器：解析 fixture HTML（纯逻辑，无外部依赖）。"""
-
-    def setUp(self):
-        self.adapter = create_adapter("demo_source")
-
-    def test_list_parses_three_comics(self):
-        result = self.adapter.fetch_comic_list(page=1)
-        self.assertEqual(len(result.items), 3)
-        self.assertTrue(result.has_next)
-        self.assertEqual(result.items[0].title, "海贼王")
-        self.assertEqual(result.items[2].status, "连载")
-
-    def test_detail_parses_chapters(self):
-        brief = self.adapter.fetch_comic_list(page=1).items[0]
-        detail = self.adapter.fetch_comic_detail(brief)
-        self.assertIn("路飞", detail.description)
-        self.assertEqual(len(detail.chapters), 4)
-        self.assertEqual(detail.chapters[0].chapter_no, 1080)
-
-    def test_chapter_pages(self):
-        brief = self.adapter.fetch_comic_list(page=1).items[0]
-        detail = self.adapter.fetch_comic_detail(brief)
-        pages = self.adapter.fetch_chapter_pages(detail, detail.chapters[0])
-        self.assertEqual(len(pages), 5)
-        self.assertEqual(pages[0].page_no, 1)
-        self.assertIn("/images/", pages[0].source_url)
-
-
 class TestTagsFrom(unittest.TestCase):
     """标签拆分回归测试：category 用 `/` 分隔时不得产生孤儿 `/` 标签。
 
@@ -80,7 +50,7 @@ class TestTagsFrom(unittest.TestCase):
     @staticmethod
     def _mk(category: str):
         return ComicDetail(
-            source="demo", source_comic_id="x", title="t", author="a",
+            source="zaimanhua", source_comic_id="x", title="t", author="a",
             cover_url="", status="连载", category=category,
             description="", latest_chapter_title="", detail_url="", chapters=[],
         )

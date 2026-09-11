@@ -38,7 +38,7 @@ class FakeStore:
 class PagingStorage(Storage):
     """内存存储：`total` 页，`list_pages` 严格实现键集分页语义。"""
 
-    def __init__(self, total: int, cached: bool = True, source: str = "demo_source") -> None:
+    def __init__(self, total: int, cached: bool = True, source: str = "zaimanhua") -> None:
         self.pages = [
             {
                 "page_id": i,
@@ -132,7 +132,7 @@ class TestInspectPaging(unittest.TestCase):
         st = PagingStorage(total, cached=True)
         store = FakeStore()  # 图库为空 → 全部「对象丢失」，走恢复分支
 
-        stats = inspect_sync(st, image_store=store, source="demo_source")
+        stats = inspect_sync(st, image_store=store, source="zaimanhua")
 
         self.assertEqual(stats["checked"], total)
         self.assertEqual(stats["invalid"], total)
@@ -144,7 +144,7 @@ class TestInspectPaging(unittest.TestCase):
         st = PagingStorage(total, cached=True)
         store = FakeStore({p["oss_url"] for p in st.pages})
 
-        stats = inspect_sync(st, image_store=store, source="demo_source")
+        stats = inspect_sync(st, image_store=store, source="zaimanhua")
 
         self.assertEqual(stats["checked"], total)
         self.assertEqual(stats["verified"], total)
@@ -155,7 +155,7 @@ class TestInspectPaging(unittest.TestCase):
         """source 过滤：只校验该源的页，其他源不计入。"""
         st = PagingStorage(SCAN_BATCH + 3, cached=True, source="other")
 
-        stats = inspect_sync(st, image_store=FakeStore(), source="demo_source")
+        stats = inspect_sync(st, image_store=FakeStore(), source="zaimanhua")
 
         self.assertEqual(stats["checked"], 0)
 
