@@ -15,6 +15,8 @@ crawler-service/
 │   ├── http.py                # L0 通用内核 · 抓取客户端：UA 池 / 随机延迟 / 指数退避 / 代理池预留
 │   ├── fingerprint.py         # L0 通用内核 · 标题归一化 + 跨站指纹（跨源去重核心）
 │   ├── paths.py               # L0 通用内核 · 路径常量（服务根 / 图库根唯一真源）
+│   ├── taxonomy.py            # L0 通用内核 · 标签归一化（各源写法 -> 统一中文规范名）
+│   ├── data/tag_synonyms.json #   词表数据：规范名 -> 同义词（跨源跨语言）
 │   ├── cli.py                 # 命令行入口（run / transfer-images / inspect / list / show / serve）
 │   ├── sources/               # 源站层：契约在外，各源在里
 │   │   ├── base.py            #    L1 契约 · CrawlerAdapter 抽象接口（新增源站的唯一接入点）
@@ -180,6 +182,32 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 最多 2 次请求），任一章取到图就放行 —— 源站**部分章节没有数据是常见情况**
 （如 71419 的 1、2 话；接口分不清是数据缺失还是需付费，故不归因）。
 只有 `is_lock` 为真、或探测全空，才抛 `ComicRestricted` 拒绝。
+
+## 标签归一化（跨源统一为中文标签）
+
+不同源站各说各话 —— mangadex 全英文（`Comedy` / `Romance` / `Slice of Life`）、zaimanhua 用中文
+（`搞笑` / `爱情` / `校园`）、weebcentral 又是英文，甚至混入日文（`ゆり`）。不做归一化时同一概念在库里
+是**多行互不相干的标签**（`Comedy` 30 部、`搞笑` 9 部各算各的），既看不出真实规模，也没法按标签筛选。
+
+做法：`taxonomy.py` + `data/tag_synonyms.json`（「规范名 → 同义词」对照表），**在写入标签时查一次**：
+
+```python
+name = canonical_tag(raw)     # 命中换成中文规范名；未命中保持原文（不猜测、不丢弃）
+```
+
+因为统一发生在**写入侧**，所以搜索、排行、详情页、分类页自动一致，查询侧**没有任何翻译逻辑**
+（`list_comics` 的素材检索本就含 `t.name LIKE`，故「搜喜剧」能跨源命中）。
+
+**边界（刻意不做）**：不做机器翻译（错译一旦入库会被固化成"规范名"，比保留原文更难收拾）；
+形态类（`Web Comic` / `Full Color` / `Long Strip` / `Oneshot` / `Doujinshi`）、更新季（`2026春`）、
+敏感标签（`Loli` / `Shota` / `Incest` / `Sexual Violence`）与不明词（`AA`）**一律保留原文**。
+
+**历史数据**：迁移一次即可 —— `cd crawler-service && PYTHONPATH=src python ../tools/normalize_tags.py`
+（执行前会把 `tag` / `comic_tag` 全表导出到 `backup/` 以便回滚；幂等可重跑）。
+实测：标签 83 → 61 行、关联 397 → 393（少的 4 条是合并时去掉的重复关联），
+`喜剧` 43 部（= Comedy 30 + 搞笑 9 + 欢乐向 4）、`恋爱` 36（= Romance 27 + 爱情 9）。
+
+**维护**：遇到未归一的标签，往 `data/tag_synonyms.json` 加一行、重跑迁移即可（不必改代码）。
 
 ## 章节采样（首次只收最新一话 · 页面全部懒下载）
 

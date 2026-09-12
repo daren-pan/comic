@@ -35,6 +35,7 @@ _LAYER_PREFIXES: list[tuple[int, tuple[str, ...]]] = [
         f"{PKG_NAME}.http",
         f"{PKG_NAME}.fingerprint",
         f"{PKG_NAME}.paths",
+        f"{PKG_NAME}.taxonomy",
     )),
     (1, (
         f"{PKG_NAME}.sources.base",

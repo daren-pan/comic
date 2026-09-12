@@ -9,6 +9,7 @@
 |---|---|---|
 | `migrate_comic_tag_normalize.py` | 标签规范化迁移：旧 `comic_tag(comic_id, tag)` → `tag(id,name)` 字典表 + `comic_tag(comic_id, tag_id)` 关联表 | 是（保留 `comic_tag_old` 备份后重建） |
 | `backfill_comic_tag.py` | 按分隔符拆分 `comic.category`，回填标签到 `tag` + `comic_tag`（`category` 原串不动） | 是（先清该漫画旧关联再插） |
+| `normalize_tags.py` | **标签归一化**：把库内已有标签按 `data/tag_synonyms.json` 合并为统一中文规范名（跨源跨语言同义合并） | 是（可重跑；执行前完整备份 `tag`/`comic_tag` 到 `backup/`） |
 
 运行方式：
 
