@@ -111,11 +111,12 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 | 地址 | 说明 |
 |---|---|
 | http://127.0.0.1:8000/ | 前端站点（同源托管） |
-| http://127.0.0.1:8000/#/admin | 采集管理控制台（手动触发采集/懒转存、按源开关、`since`/`until` 控制转存范围；无需登录） |
+| http://127.0.0.1:8000/#/admin | 采集管理控制台（手动触发采集/懒转存/失效巡检、按源开关、`since`/`until` 控制转存范围；无需登录） |
 | http://127.0.0.1:8000/docs | FastAPI Swagger 文档 |
 | `GET /api/health` | 健康检查 + 库内统计 |
 | `GET /api/comics?category=&keyword=&sort=&page=` | 作品列表 |
 | `GET /api/comics/{id}` · `/chapters` | 详情 / 章节 |
+| `GET /api/sources/search?q=` | 搜索各源站（只读）：搜索页「其他来源」用它找站内没有的漫画 |
 | `GET /api/chapters/{id}/pages` | 分页图 |
 | `GET /api/covers/{id}` · `/api/images/{cid}/{chid}/{pno}` | 封面 / 分页图（真实文件优先，缺失 SVG 占位） |
 | `GET/PUT/DELETE /api/users/{uid}/favorites[/{cid}]` · `history` | 收藏 / 历史（匿名 userId，跨浏览器续读） |
