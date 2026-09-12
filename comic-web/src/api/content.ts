@@ -48,7 +48,7 @@ export function getComic(id: number): Promise<Comic | undefined> {
 /**
  * 获取某部漫画的全部章节（按 orderNo 升序）
  * @param comicId 漫画主键 id
- * @returns Chapter[]（每章含 id/title/pageCount/orderNo 等）
+ * @returns Chapter[]（每章含 id/title/orderNo 等）
  * @see GET /api/comics/{comicId}/chapters
  */
 export function getChapters(comicId: number): Promise<Chapter[]> {

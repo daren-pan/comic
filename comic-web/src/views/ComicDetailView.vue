@@ -103,7 +103,6 @@ function fmtTime(iso: string): string {
       >
         <span class="no">{{ i + 1 }}</span>
         <span class="name">{{ ch.title }}</span>
-        <span class="pages">{{ ch.pageCount }} 页</span>
       </button>
     </div>
   </div>
@@ -187,7 +186,6 @@ function fmtTime(iso: string): string {
   flex-shrink: 0;
 }
 .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text); }
-.pages { font-size: 12px; color: #b5aca2; }
 
 @media (max-width: 700px) {
   .hero { flex-direction: column; align-items: center; text-align: center; }

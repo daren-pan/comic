@@ -240,10 +240,12 @@ watch(() => route.path, () => {
 .nav-links a.on { color: var(--primary); background: var(--primary-soft); }
 
 .nav-right { display: flex; align-items: center; gap: 10px; }
-.search-box { display: flex; align-items: center; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 0 4px 0 14px; height: 36px; width: 200px; min-width: 130px; flex-shrink: 1; transition: border 0.15s; }
+.search-box { display: flex; align-items: center; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 0 4px 0 14px; height: 36px; width: 220px; min-width: 150px; flex-shrink: 1; transition: border 0.15s; }
 .search-box:focus-within { border-color: var(--primary); background: #fff; }
-.search-box input { border: none; outline: none; background: transparent; flex: 1; font-size: 13px; color: var(--text); }
-.search-box button { border: none; background: var(--primary); color: #fff; width: 28px; height: 28px; border-radius: 999px; cursor: pointer; font-size: 12px; }
+/* min-width:0 让 input 可以真正收缩（默认 auto 会按默认字符宽度撑住，把右侧按钮压扁）； */
+.search-box input { border: none; outline: none; background: transparent; flex: 1 1 auto; min-width: 0; font-size: 13px; color: var(--text); }
+/* 按钮固定 28×28 不被压缩，圆形图标居中 —— 否则窄容器下会被 flex 压成扁椭圆 */
+.search-box button { border: none; background: var(--primary); color: #fff; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 999px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; padding: 0; }
 
 .menu-btn { display: none; border: none; background: none; font-size: 20px; cursor: pointer; color: var(--text); }
 

@@ -25,7 +25,6 @@ export interface Chapter {
   id: number
   comicId: number
   title: string
-  pageCount: number
   orderNo: number
   createdAt: string
 }
@@ -96,10 +95,44 @@ export interface SyncStats {
 
 export interface AdminTask {
   id: string
-  type: 'sync' | 'transfer' | 'inspect'
+  type: 'sync' | 'transfer' | 'inspect' | 'import'
   status: 'running' | 'done' | 'failed'
   message: string
   result: Record<string, unknown> | null
   startedAt: string
   finishedAt: string | null
+}
+
+// ---------------- 源站搜索 / 按需导入 ----------------
+export interface SourceSearchItem {
+  source: string
+  sourceComicId: string
+  title: string
+  author: string
+  cover: string
+  status: string
+  latestChapterTitle: string
+  tags: string[]
+  comicId: number | null   // 非 null = 库内已收录，可直接打开
+  inLibrary: boolean
+}
+
+export interface SourceSearchGroup {
+  source: string
+  items: SourceSearchItem[]
+}
+
+export interface ImportResult {
+  comicId: number
+  title: string
+  author: string
+  source: string
+  sourceComicId: string
+  isNew: boolean
+  chapters: number          // 库内现有章节总数
+  newChapters: number
+  failed: number
+  alreadySameSource: boolean
+  crossSourceComicId: number | null
+  summary: string
 }

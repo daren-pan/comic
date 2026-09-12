@@ -327,7 +327,6 @@ watch(() => route.params.chapterId, (id) => {
             @click="goChapter(c.id)"
           >
             <span>{{ i + 1 }}. {{ c.title }}</span>
-            <small>{{ c.pageCount }}P</small>
           </button>
         </div>
       </div>
@@ -336,6 +335,15 @@ watch(() => route.params.chapterId, (id) => {
     <!-- ============ 竖排连播模式 ============ -->
     <div v-if="isVertical" class="stage vertical-stage">
       <div v-if="loading" class="center-hint">加载章节中…</div>
+      <!-- 源站这一话没有图片数据（page 清单为空）：给明确提示，别让人以为是加载中 -->
+      <div v-else-if="pages.length === 0" class="empty-chapter">
+        <p class="main">该话在源站暂无内容</p>
+        <p class="sub">源站这一话没有图片数据，换一话看看</p>
+        <div class="empty-btns">
+          <button class="btn ghost" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
+          <button class="btn" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
+        </div>
+      </div>
       <template v-else>
         <div v-if="imgLoading && pageNo === 1" class="page-loading">
           <div class="spinner"></div>
@@ -369,6 +377,14 @@ watch(() => route.params.chapterId, (id) => {
     <!-- ============ 左右滑动模式 ============ -->
     <div v-else class="stage horizontal-stage">
       <div v-if="loading" class="center-hint">加载章节中…</div>
+      <div v-else-if="pages.length === 0" class="empty-chapter">
+        <p class="main">该话在源站暂无内容</p>
+        <p class="sub">源站这一话没有图片数据，换一话看看</p>
+        <div class="empty-btns">
+          <button class="btn ghost" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
+          <button class="btn" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
+        </div>
+      </div>
       <template v-else>
         <div class="page-wrap">
           <img
@@ -563,7 +579,6 @@ watch(() => route.params.chapterId, (id) => {
 }
 .menu-item:hover { background: var(--primary-soft); }
 .menu-item.on { background: var(--primary); color: #fff; }
-.menu-item small { color: inherit; opacity: 0.6; }
 
 /* 阅读区 */
 .stage { height: 100%; position: relative; }
@@ -574,6 +589,14 @@ watch(() => route.params.chapterId, (id) => {
 }
 .center-hint { color: #bbb; font-size: 15px; text-align: center; padding: 60px; }
 .reader.light .center-hint { color: #888; }
+
+/* 源站该话没有图片数据（page 清单为空）时的空状态 */
+.empty-chapter { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 70px 24px; text-align: center; }
+.empty-chapter .main { margin: 0; font-size: 15px; color: #ddd; }
+.empty-chapter .sub { margin: 0; font-size: 13px; color: #999; }
+.empty-chapter .empty-btns { display: flex; gap: 12px; margin-top: 14px; }
+.reader.light .empty-chapter .main { color: #444; }
+.reader.light .empty-chapter .sub { color: #888; }
 
 .page-loading {
   display: flex;
