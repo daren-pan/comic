@@ -107,13 +107,30 @@ GET /api/app/v1/comic/chapter/{comic_id}/{chapter_id}
   懒转存已内置兜底（2026-09-07）：`lazy_transfer` 本地解析 URL `t` 预判过期，过期或下载
   失败时经适配器 `fetch_source_page_urls` 现场重新请求本接口重签 URL 再下载；无需手动重采。
 
-### 3.4 搜索（备用，未用于默认列表）
+### 3.4 搜索（**按需导入用**，2026-09-12 启用）
 
 ```
 GET /api/app/v1/search/index?keyword=..&source=0&page=1&size=20
 ```
 
-- 返回 `data.list`（与 3.1 同构），`id` 即作品ID（此处与 3.1 不同，需注意）
+- 返回 `data.list`（与 3.1 同构），**`id` 即作品 ID**（而 3.1 的作品 ID 在 `comic_id`、
+  其 `id` 恒为 0）—— 适配器用 `_row_to_brief(row, id_field="id")` 区分这两处语义。
+- 用途：搜索页「其他来源」+ 按需导入（`search_comics` / `parse_comic_ref`）。
+
+### 3.5 可读性判定与图片域名白名单（2026-09-12）
+
+- **⚠️ 详情接口的逐章 `canRead` 不可靠，别拿它判不可读**：实测「午夜心旋律」(71419)
+  详情里 131 章 `canRead` **全为 false**，但章节接口对**最新的 130 话**返回
+  `canRead=true / page_url 21 条` —— 该字段是未计算的默认值。
+  **可靠判据是章节接口本身**：探一章看 `page_url` 是否非空
+  （`scheduling/ondemand._probe_readable`：先探最新章、再退最老章，最多 2 次请求，任一可读即放行）。
+  适配器的 `restricted` 只认明确的 `is_lock`。
+- **源站可能部分章节没有数据**：71419 的 **1、2 话** `page_url` 就是空的
+  （已核对：是**源站没有这两话的数据**，与收费/限免无关），而 130 话有 21 页。
+  接口层面**无法区分「数据缺失」与「需付费」**，因此不做归因，只按「能否取到图」处理：
+  只要**任一章**能取到图就允许导入，取不到的章节届时回落占位图。
+- **`image_hosts = {"images.zaimanhua.com"}`**：正文图与封面都在该图床域（带 `sign+t`
+  短时效签名）。声明后，转存与读时穿透取图只允许下载该域，防止库内 URL 被当作任意请求跳板。
 
 ## 4. 章节号（chapter_no）取 key
 

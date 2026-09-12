@@ -72,6 +72,9 @@ class ZaimanhuaAdapter(CrawlerAdapter):
     source_name = "zaimanhua"
     base_url = BASE
     robots_allowed = True  # 学习用途：受控低频请求
+    capabilities = {"search", "ref"}  # 支持关键词搜索源站 + 解析作品链接/ID
+    # 正文图与封面都在独立图床域（sign+t 短时效签名），限定白名单防 SSRF
+    image_hosts = {"images.zaimanhua.com"}
 
     # ------------------------------------------------------------------
     # 列表页：首页「最近更新」标签 -> 前 MAX_PAGE 页
@@ -133,19 +136,39 @@ class ZaimanhuaAdapter(CrawlerAdapter):
                 )
 
         tags = self._tag_list(info.get("types")) or comic.tags
+        # 详情接口本身就带 title / cover / authors：当 brief 里缺失时（「按需导入」只给了
+        # 作品链接或 ID，没有列表页摘要）用详情字段补全 —— 有值仍以 brief 优先，
+        # 保证既有采集路径行为不变。
+        title = (comic.title or "").strip() or str(info.get("title") or "").strip()
+        author = (comic.author or "").strip() or self._tag_text(info.get("authors"))
+        cover_url = (comic.cover_url or "").strip() or str(info.get("cover") or "").strip()
+        latest = (comic.latest_chapter_title or "").strip() or str(
+            info.get("last_update_chapter_name") or ""
+        ).strip()
+        try:
+            restricted = int(info.get("is_lock") or 0) == 1
+        except (TypeError, ValueError):
+            restricted = False
+        # ⚠️ 详情接口的逐章 `canRead` **不可靠**：实测「午夜心旋律」(71419) 详情里
+        # 131 章 canRead 全为 false，而章节接口返回 canRead=true / page_url 21 条 ——
+        # 该字段是未计算的默认值，拿它判「不可读」会把正常作品误杀。
+        # 所以这里只认明确的 `is_lock`；「究竟读不读得了」交给 scheduling/ondemand
+        # 实测探测一章（`_probe_readable`）。
+
         return ComicDetail(
             source=self.source_name,
             source_comic_id=comic.source_comic_id,
-            title=comic.title,
-            author=comic.author,
-            cover_url=comic.cover_url,
+            title=title,
+            author=author,
+            cover_url=cover_url,
             status=self._tag_text(info.get("status")) or comic.status,
             category=self._tag_text(info.get("types")) or comic.category,
             tags=tags,
-            description=info.get("description") or comic.title,
-            latest_chapter_title=comic.latest_chapter_title,
+            description=info.get("description") or title,
+            latest_chapter_title=latest,
             detail_url=f"{BASE}{API_DETAIL.format(cid=comic.source_comic_id)}",
             chapters=chapters,
+            restricted=restricted,
         )
 
     # ------------------------------------------------------------------
@@ -187,12 +210,67 @@ class ZaimanhuaAdapter(CrawlerAdapter):
         return urls or None
 
     # ------------------------------------------------------------------
+    # 按需导入：关键词搜索 + 作品引用解析（只读，均不写库）
+    # ------------------------------------------------------------------
+    def search_comics(self, keyword: str, limit: int = 20) -> list[ComicBrief]:
+        """用源站搜索接口按书名/作者找作品（`/api/app/v1/search/index`）。
+
+        ⚠️ 与「最近更新」列表的差异：搜索响应里**作品 ID 在 `id` 字段**，
+        而 update/list 里作品 ID 在 `comic_id`（其 `id` 恒为 0）——故显式
+        指定 `id_field="id"`，避免取到 0。
+        """
+        kw = (keyword or "").strip()
+        if not kw:
+            return []
+        raw = self._api_get(API_SEARCH, {"keyword": kw, "source": 0, "page": 1, "size": limit}) or {}
+        data = raw.get("data") or {}
+        rows = data.get("list") if isinstance(data, dict) else data
+        if isinstance(rows, dict):  # 兜底：个别返回再包一层 list
+            rows = rows.get("list") or []
+        items: list[ComicBrief] = []
+        for row in (rows or [])[: max(1, limit)]:
+            if not isinstance(row, dict):
+                continue
+            brief = self._row_to_brief(row, id_field="id")
+            if brief.source_comic_id and brief.source_comic_id != "0":
+                items.append(brief)
+        return items
+
+    def parse_comic_ref(self, ref: str) -> str | None:
+        """从作品页链接或作品 ID 里取出 source_comic_id。
+
+        接受：纯数字 ID（如 ``18421``）、含 ``id=`` 的作品页链接、
+        路径末尾的长数字。**带域名但不是本站的链接直接拒绝**，避免把别的
+        源站链接误解析成本站作品。
+        """
+        s = (ref or "").strip()
+        if not s:
+            return None
+        if s.isdigit():
+            return s
+        if "://" in s and "zaimanhua" not in s:
+            return None
+        m = re.search(r"[?&]id=(\d+)", s)
+        if m:
+            return m.group(1)
+        m = re.search(r"/(\d{4,})(?:[/?#]|$)", s)
+        if m:
+            return m.group(1)
+        return None
+
+    # ------------------------------------------------------------------
     # 工具
     # ------------------------------------------------------------------
-    def _row_to_brief(self, row: dict[str, Any]) -> ComicBrief:
-        """最近更新列表行 -> ComicBrief。字段见 /app/v1/comic/update/list/0/{page} 响应。"""
-        # 注意：update/list 响应里作品 ID 在 comic_id 字段（id 恒为 0）
-        cid = str(row.get("comic_id") or row.get("id") or "").strip()
+    def _row_to_brief(self, row: dict[str, Any], id_field: str = "comic_id") -> ComicBrief:
+        """列表行 -> ComicBrief（字段见 /app/v1/comic/update/list/0/{page} 响应）。
+
+        id_field：作品 ID 所在字段名。列表接口用 `comic_id`（其 `id` 恒为 0），
+        搜索接口用 `id`（无 `comic_id`）——语义相反，故显式指定并互为兜底。
+        """
+        raw_id = row.get(id_field)
+        if raw_id in (None, "", 0, "0"):
+            raw_id = row.get("id" if id_field != "id" else "comic_id")
+        cid = str(raw_id or "").strip()
         title = (row.get("title") or "").strip()
         tags = self._tag_list(row.get("types"))
         # 源站最近更新时间（last_updatetime，Unix 秒级时间戳），用于增量窗口过滤

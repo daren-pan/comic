@@ -28,6 +28,15 @@ class CrawlerAdapter(ABC):
     source_name: str = ""
     base_url: str = ""
     robots_allowed: bool = True
+    # 能力声明（上层据此决定展示哪些入口，无需靠 hasattr 猜）：
+    #   "search" = 支持关键词搜索源站（见 search_comics）
+    #   "ref"    = 支持把作品页链接 / 作品 ID 解析为 source_comic_id（见 parse_comic_ref）
+    capabilities: set[str] = set()
+
+    # 允许下载的图片域名白名单：声明后，转存与「穿透取图」只允许下载这些域名，
+    # 避免库里的 URL 被当作任意请求的跳板（读图走网络时才需要，见 images/transfer）。
+    # 留空 = 不校验（适用于尚未梳理图床域名的源；图床与站点不同域的源应补上）。
+    image_hosts: set[str] = set()
 
     def __init__(self, http: "HttpFetcher") -> None:
         self.http = http
@@ -82,6 +91,27 @@ class CrawlerAdapter(ABC):
         无需覆写——其 source_url 长期可直接下载。
         带 sign 短时效签名的源（如 zaimanhua）应覆写为「重新请求源站章节
         接口让其重新签发 URL」，并尽量做同批章级缓存避免重复请求。
+        """
+        return None
+
+    # ------------------------------------------------------------------
+    # 可选接口：按需导入的两块能力（源站搜索 / 作品引用解析）
+    # ------------------------------------------------------------------
+    def search_comics(self, keyword: str, limit: int = 20) -> list[ComicBrief]:
+        """按关键词搜索源站，返回作品摘要列表（**只读**，不写库）。
+
+        默认不支持（返回空列表）：能否搜索取决于源站是否提供搜索接口。
+        支持搜索的源应在类上声明 ``capabilities = {"search", ...}``，
+        上层据此决定是否向用户展示「搜索其他来源」入口。
+        实现方需自行处理「搜索结果里作品 ID 的字段名与列表页不同」之类的差异。
+        """
+        return []
+
+    def parse_comic_ref(self, ref: str) -> str | None:
+        """把用户给的作品引用（作品页 URL / 作品 ID）解析为 ``source_comic_id``。
+
+        默认不支持（返回 None）；支持的源声明 ``capabilities = {"ref", ...}``。
+        仅在按需导入的次要入口（粘贴链接导入）用到——主入口是搜索。
         """
         return None
 

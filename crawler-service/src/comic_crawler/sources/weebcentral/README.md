@@ -5,6 +5,7 @@
 - 性质：英文漫画/韩漫聚合站（含官方授权连载 `official.lowee.us` 与扫描组分发 `scans.lastation.us`）
 - 合规状态：**学习用途 · 受控样本**（config.py `priority=backup` + 低频 3600s；单部少量章节、不发布、可按 `source=weebcentral` 清理）
 - 逆向结论：纯服务端渲染 + htmx 局部刷新，**匿名即可读**，无登录、无签名、无付费/VIP 门禁
+- 能力：列表 / 详情 / 章节图 + **关键词搜索**（`/search/data`，见 §⑤）+ 作品链接/ULID 解析，支持按需导入
 
 ## 关键机制（2026-09-09 实测确认）
 
@@ -39,9 +40,32 @@
 - ⚠️ 图床 `.png` 扩展名但实际字节可能是 **JPEG**（magic `ffd8ffe0`）——项目 `_read_image_file` 按魔数判类型，不受影响，但适配器不能靠扩展名判格式
 - 图床 URL **永久有效、无 Referer/签名限制** → **无需覆写 `fetch_source_page_urls`**（base 默认返回 None）
 
-### ⑤ 搜索（备用）
-- 快速搜索：`POST /search/simple?location=main`，表单字段 `text=<query>` → 返回系列结果
-- 全量搜索：`GET /search/data`（返回整页，需带表单字段）
+### ⑤ 搜索（2026-09-12 启用，用于搜索页「其他来源」与按需导入）
+
+**用 `GET /search/data?text=<关键词>&display_mode=Full Display`**（纯 GET，无需 HX-Request 头）。
+端点取自 `/search` 页「高级搜索」表单的 `hx-get`（该表单只有 `text` / `author` / `display_mode` 三个字段）。
+
+⚠️ **不要用 `/search/simple`**：那是输入框的「快速搜索」下拉提示（`hx-post` + `hx-trigger="input changed delay:500ms"`），
+只返回极少条 —— 实测 `eleceed` 仅 1 条，`/search/data` 才是完整结果集。
+
+**结果卡片**（`<article class="bg-base-300 …">`，桌面版 + 移动版各一份封面/标题）：
+- 系列链接：`/series/{ulid}/{slug}`（**ULID = source_comic_id**）
+- 标题：`.//div[contains(@class,'line-clamp')]`（兜底 `text-ellipsis`，再兜底封面 `img@alt` 去 " cover"）
+- 作者：`<strong>Author(s): </strong>` 后的 `<a>`（可多个）；状态：`Status:` 后的 `<span>`
+- 标签：`<strong>Tag(s): </strong>` 后的多个 `<span>`（**detail 页写作 `Tags(s)`**，故 XPath 用 `contains(text(),'Tag')` 兼容两者）
+- 封面：`https://temp.compsci88.com/cover/fallback/{ulid}.jpg`
+
+⚠️ **搜索卡片不含「最新章节 / 更新时间」**（只有 标题/封面/作者/状态/标签），故 `search_comics`
+返回的 `latest_chapter_title` 与 `source_updated_at` 留空 —— 这两个字段由详情接口补齐，不影响导入。
+
+**按需导入支持**：`capabilities = {"search", "ref"}`。
+- `parse_comic_ref`：接受纯 ULID（大小写皆可，统一大写）与 `/series/{ulid}/{slug}` 链接；**外站链接直接拒绝**。
+- `fetch_comic_detail` **不再依赖 `comic.detail_url`**（搜索命中/按需导入只给 ULID 时它是空的）——
+  缺链接时自行拼 `{BASE}/series/{ulid}`（站点不带 slug 也能打开），实测可正常取到 417 章完整目录。
+
+⚠️ **刻意不声明 `image_hosts`**：图床域名不固定（`scans.lastation.us` 扫描组 / `official.lowee.us` 官方授权 /
+`temp.compsci88.com` 封面 等），白名单写不全反而会让读时穿透取图被 `_host_allowed` 拒掉。
+故沿用「库内数据可信」的既有约定（与 mangadex 一致；zaimanhua 因图床固定才声明）。
 
 ## 模型映射
 | 源站对象 | 模型 | 说明 |

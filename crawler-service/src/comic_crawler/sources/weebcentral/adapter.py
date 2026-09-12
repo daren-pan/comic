@@ -45,6 +45,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 from parsel import Selector
 
@@ -65,8 +66,9 @@ HOME_PATH = "/"
 # htmx 端点（纯 GET 即可，无需 HX-Request 头）
 FULL_CHAPTER_LIST = "/series/{sid}/full-chapter-list"
 CHAPTER_IMAGES = "/chapters/{cid}/images?is_prev=False"
-# 快速搜索（POST /search/simple?location=main，表单字段 text=<query>）
-SEARCH_SIMPLE = "/search/simple"
+# 搜索：/search 页「高级搜索」表单的 htmx 端点（纯 GET，表单字段 text / author / display_mode）
+# ⚠️ 不要用 /search/simple —— 那是输入框的「快速搜索」下拉提示，只返回极少条（实测 "eleceed" 仅 1 条）
+SEARCH_DATA = "/search/data"
 
 # 系列 ULID：26 位大写 base32
 ULID_RE = re.compile(r"[0-9A-Z]{26}")
@@ -80,7 +82,7 @@ NO_NUM_BASE = 10000  # 无编号章节高位兜底，仿番外 10000+ 防冲突
 # 仅测试时可经 `cli run --source weebcentral --limit 1` 临时只抓最近 1 部（受控样本，勿写死为默认值）。
 MAX_ITEMS = 60        # 单次列表最多收录条数（首页最近更新区约 32 部，留余量）
 MAX_CHAPTERS = 2000   # 单部最多收录章节数（防极端长连载失控）
-STATUS_MAP = {"ongoing": "连载", "completed": "完结", "hiatus": "休载", "cancelled": "已取消"}
+STATUS_MAP = {"ongoing": "连载", "completed": "完结", "complete": "完结", "hiatus": "休载", "cancelled": "已取消"}
 
 
 def _utc(dt: datetime) -> datetime:
@@ -105,6 +107,11 @@ class WeebCentralAdapter(CrawlerAdapter):
     source_name = "weebcentral"
     base_url = BASE
     robots_allowed = True  # 学习用途：受控低频请求
+
+    capabilities = {"search", "ref"}  # 支持关键词搜索源站 + 解析作品链接/ULID
+    # 刻意**不声明** image_hosts：图床域名不固定（scans.lastation.us 扫描组 /
+    # official.lowee.us 官方授权 / temp.compsci88.com 封面 等），白名单写不全
+    # 反而会让读时穿透取图被 `_host_allowed` 拒掉。沿用「库内数据可信」的既有约定。
 
     # ------------------------------------------------------------------
     # 列表页：首页「Latest Updates」区块（约 32 部，无分页）
@@ -179,7 +186,11 @@ class WeebCentralAdapter(CrawlerAdapter):
     # 详情页：系列元数据 + 全章节列表（新 -> 旧）
     # ------------------------------------------------------------------
     def fetch_comic_detail(self, comic: ComicBrief) -> ComicDetail:
-        sel = self._fetch_selector(comic.detail_url)
+        # ⚠️ 不要直接用 comic.detail_url：按需导入/搜索命中时只给了 source_comic_id
+        # （ULID），detail_url 为空。站点 `/series/{ulid}` 不带 slug 也能正常打开，
+        # 故缺链接时自行拼——这样「只给 ID / 链接」两种入口都能取详情。
+        url = comic.detail_url or f"{BASE}/series/{comic.source_comic_id}"
+        sel = self._fetch_selector(url)
         title = self._series_title(sel) or comic.title
         author = self._series_authors(sel)
         status = self._series_status(sel) or comic.status
@@ -259,6 +270,98 @@ class WeebCentralAdapter(CrawlerAdapter):
             if src:
                 pages.append(PageInfo(page_no=no, source_url=src))
         return pages
+
+    # ------------------------------------------------------------------
+    # 搜索：/search 页「高级搜索」表单的 htmx 端点（/search/data，纯 GET）
+    # ------------------------------------------------------------------
+    def search_comics(self, keyword: str, limit: int = 20) -> list[ComicBrief]:
+        """按关键词搜索源站（`GET /search/data?text=<kw>&display_mode=Full Display`）。
+
+        端点取自 `/search` 页高级搜索表单的 `hx-get`（表单只有 `text` / `author` /
+        `display_mode` 三个字段）——**不要用 `/search/simple`**：那是输入框的
+        「快速搜索」下拉提示，只返回极少条。本端点一次返回该关键词的全部匹配
+        （纯服务端渲染，无需 HX-Request 头）。
+
+        搜索卡片**不含**「最新章节 / 更新时间」（只有 标题 / 封面 / 作者 / 状态 / 标签），
+        故 `latest_chapter_title` 与 `source_updated_at` 留空，由详情接口补齐。
+        """
+        kw = (keyword or "").strip()
+        if not kw:
+            return []
+        query = urlencode({"text": kw, "display_mode": "Full Display"})
+        sel = self._fetch_selector(f"{BASE}{SEARCH_DATA}?{query}")
+
+        items: list[ComicBrief] = []
+        for card in sel.xpath("//article[contains(@class,'bg-base-300')]"):
+            if len(items) >= max(1, limit):
+                break
+            brief = self._search_card_to_brief(card)
+            if brief is not None:
+                items.append(brief)
+        return items
+
+    def _search_card_to_brief(self, card: Selector) -> ComicBrief | None:
+        """搜索结果卡片 -> ComicBrief；字段缺失返回 None。
+
+        每张卡片里桌面版与移动版各有一份封面/标题（内容一致），取第一个命中即可。
+        """
+        href = card.xpath(".//a[contains(@href,'/series/')]/@href").get("") or ""
+        m = ULID_RE.search(href)
+        if not m:
+            return None
+        title = (
+            card.xpath(".//div[contains(@class,'line-clamp')]/text()").get("").strip()
+            or card.xpath(".//div[contains(@class,'text-ellipsis')]/text()").get("").strip()
+        )
+        if not title:  # 兜底：封面 img 的 alt（形如 "Eleceed cover"）
+            alt = card.xpath(".//img/@alt").get("") or ""
+            title = re.sub(r"\s*cover\s*$", "", alt.strip(), flags=re.I)
+        if not title:
+            return None
+        authors = [
+            a.strip()
+            for a in card.xpath(
+                ".//strong[contains(text(),'Author')]/following-sibling::span//a/text()"
+            ).getall()
+            if a.strip()
+        ]
+        tags = [
+            t.strip().rstrip(",").strip()
+            for t in card.xpath(
+                ".//strong[contains(text(),'Tag')]/following-sibling::span/text()"
+            ).getall()
+            if t.strip()
+        ]
+        raw_status = (
+            card.xpath(".//strong[contains(text(),'Status')]/following-sibling::span/text()")
+            .get("")
+            .strip()
+        )
+        return ComicBrief(
+            source=self.source_name,
+            source_comic_id=m.group(0),
+            title=title,
+            author=", ".join(authors),
+            cover_url=card.xpath(".//img/@src").get("").strip(),
+            status=STATUS_MAP.get(raw_status.lower(), raw_status or "连载"),
+            tags=[t for t in tags if t],
+            detail_url=href if href.startswith("http") else f"{BASE}{href}",
+        )
+
+    def parse_comic_ref(self, ref: str) -> str | None:
+        """从作品页链接或 ULID 里取出 source_comic_id。
+
+        接受：纯 ULID（26 位大写字母数字，如 ``01J76XY7E9FNDZ1DBBM6PBJPFK``）、
+        作品页链接 ``/series/{ulid}/{slug}``。**带域名但不是本站的链接直接拒绝**，
+        避免把别的源站链接误解析成本站作品。
+        """
+        s = (ref or "").strip()
+        if not s:
+            return None
+        if "://" in s and "weebcentral" not in s.lower():
+            return None
+        m = ULID_RE.search(s) or ULID_RE.search(s.upper())
+        return m.group(0) if m else None
 
     # ------------------------------------------------------------------
     # 工具

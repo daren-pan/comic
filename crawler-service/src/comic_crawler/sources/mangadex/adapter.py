@@ -89,6 +89,7 @@ class MangaDexAdapter(CrawlerAdapter):
     source_name = "mangadex"
     base_url = API_BASE
     robots_allowed = True  # API 有 AUP；本实现按"非商用 + 低频"遵守
+    capabilities = {"search", "ref"}  # 支持标题搜索 + 解析作品链接/UUID
 
     # ------------------------------------------------------------------
     # 漫画级列表：按"最新上传章节"倒序（源站更新驱动增量）
@@ -175,7 +176,10 @@ class MangaDexAdapter(CrawlerAdapter):
         # ⚠️ MangaDex 的 tag 在 attributes.tags（非 relationships，includes[]=tag 无效）
         tags = self._tags(attrs)
 
-        chapters = self._fetch_feed(comic.source_comic_id)
+        # 语言按「该作品实际可用的译本」兜底：只看 zh/en 会让官方授权作品拿到 0 章节（见 _fetch_feed）
+        chapters = self._fetch_feed(
+            comic.source_comic_id, attrs.get("availableTranslatedLanguages")
+        )
         # 授权/官方数字版作品的章节图片托管在 MD 之外（at-home data 为空）——
         # 探测章节可读性，把「最新一话中有图可读」的章节放到最前，避免首采 0 页。
         chapters = self._readable_head(chapters)
@@ -212,10 +216,18 @@ class MangaDexAdapter(CrawlerAdapter):
                 break
         return chapters
 
-    def _fetch_feed(self, manga_id: str) -> list[ChapterBrief]:
-        """章节 feed（指定语言升序 -> 再反转成"最新在前"供调度采样）。"""
+    def _fetch_feed(self, manga_id: str, available_langs: list[str] | None = None) -> list[ChapterBrief]:
+        """章节 feed（依次试各语言，命中即停 -> 再反转成"最新在前"供调度采样）。
+
+        ⚠️ **语言不能只看 zh/en**：官方授权作品常把 zh/en 章节设为 **external**
+        （只有官方站链接、MD 不托管图片，被 `includeExternalUrl=0` 正确排除），
+        真正有图的往往是其它语言的扫描组译本。实测「杜鹃的婚约」
+        (4e7a4a0f-…)：zh 0 条、en 0 条（8 条全是 kmanga.kodansha.com 外链），
+        而 pt-br 77 条 + es 66 条有图 —— 只试 zh/en 会拿到 0 章节，导入被判「取不到图」。
+        故语言顺序为：zh -> en -> 该作品实际可用的其它语言。
+        """
         chapters: list[ChapterBrief] = []
-        for lang in (FIRST_LANG, FALLBACK_LANG):
+        for lang in self._pick_langs(available_langs):
             params = {
                 "translatedLanguage[]": [lang],
                 "contentRating[]": list(CONTENT_RATINGS),  # MD feed 端点必填（范围见常量）
@@ -233,6 +245,19 @@ class MangaDexAdapter(CrawlerAdapter):
                 break
         # 调度器约定 detail.chapters 为「新 -> 旧」（最新话在前）
         return list(reversed(chapters))
+
+    @staticmethod
+    def _pick_langs(available_langs: list[str] | None) -> list[str]:
+        """要依次尝试的译本语言（zh 优先 -> en -> 作品实际可用的其它语言）。
+
+        `availableTranslatedLanguages` 未知（None/空）时退回原行为，只试 zh/en。
+        """
+        avail = [l for l in (available_langs or []) if l]
+        if not avail:
+            return [FIRST_LANG, FALLBACK_LANG]
+        ordered = [l for l in (FIRST_LANG, FALLBACK_LANG) if l in avail]
+        ordered += [l for l in avail if l not in ordered]
+        return ordered or [FIRST_LANG, FALLBACK_LANG]
 
     def _parse_feed(self, rows: list[dict]) -> list[ChapterBrief]:
         out: list[ChapterBrief] = []
@@ -271,6 +296,68 @@ class MangaDexAdapter(CrawlerAdapter):
     ) -> list[str] | None:
         """现场重拉：向 at-home 重新分发整章图片 URL（懒转存重试用）。"""
         return self._at_home_page_urls(source_chapter_id)
+
+    # ------------------------------------------------------------------
+    # 按需导入：标题搜索 + 作品链接解析（只读，均不写库）
+    # ------------------------------------------------------------------
+    def search_comics(self, keyword: str, limit: int = 20) -> list[ComicBrief]:
+        """按标题搜索作品（v5 `/manga?title=`）—— 供搜索页「其他来源」用。
+
+        与列表接口的差别：**不逐部查「最新章上传时间」**（那会让搜索多出 N 次请求），
+        直接用元数据 `updatedAt` 作展示时间，搜索场景够用。
+
+        ⚠️ 只传 title/limit/includes：实测加 `availableTranslatedLanguage[]=zh` 会让
+        搜索**直接返回 0 条**（该参数在搜索语境下的过滤语义与预期不同），
+        `hasAvailableChapters` 同样不必带 —— 让搜索尽量宽，命中后由用户自己挑。
+        """
+        kw = (keyword or "").strip()
+        if not kw:
+            return []
+        params = {
+            "title": kw,
+            "limit": max(1, min(limit, 20)),
+            "includes[]": ["cover_art", "author"],
+        }
+        raw = self._api_get("/manga", params) or {}
+        items: list[ComicBrief] = []
+        for m in raw.get("data") or []:
+            if self._is_excluded(m):
+                continue
+            attrs = m.get("attributes") or {}
+            title = self._comic_title(attrs)
+            if not title:
+                continue
+            mid = str(m.get("id") or "")
+            items.append(
+                ComicBrief(
+                    source=self.source_name,
+                    source_comic_id=mid,
+                    title=title,
+                    author=self._authors(m.get("relationships") or []),
+                    cover_url=self._cover_from_relationships(m),
+                    status=self._status_text(attrs.get("status")),
+                    category="",
+                    tags=self._tags(attrs),
+                    latest_chapter_title="",
+                    detail_url=f"https://mangadex.org/title/{mid}",
+                    source_updated_at=self._parse_dt(attrs.get("updatedAt")),
+                )
+            )
+        return items
+
+    def parse_comic_ref(self, ref: str) -> str | None:
+        """从 mangadex 作品页链接或 UUID 里取出 manga id（带外站域名则拒绝）。"""
+        s = (ref or "").strip()
+        if not s:
+            return None
+        if "://" in s and "mangadex.org" not in s:
+            return None
+        m = re.search(r"/title/([0-9a-fA-F-]{32,36})", s)
+        if m:
+            return m.group(1)
+        if re.fullmatch(r"[0-9a-fA-F-]{32,36}", s):
+            return s
+        return None
 
     def _at_home_page_urls(self, chapter_id: str) -> list[str]:
         if not chapter_id:

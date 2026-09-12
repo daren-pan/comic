@@ -7,7 +7,9 @@
 - fetch_comic_detail：系列元数据（title/author/status/tags/description/cover）+ 全章节
   列表解析（标题清洗去 " Last Read"、新 -> 旧顺序）；
 - _chapter_no：Chapter/Episode/Season-Episode/Volume/小数/无编号 边界；
-- fetch_chapter_pages：/images 端点返回的完整 <img> 列表（含非 lastation.us 的图床）。
+- fetch_chapter_pages：/images 端点返回的完整 <img> 列表（含非 lastation.us 的图床）；
+- search_comics / _search_card_to_brief：/search/data 结果卡片解析（标题/作者/状态/标签/封面）；
+- parse_comic_ref：作品链接 / 纯 ULID / 小写 ULID / 外站链接拒绝。
 
 运行：python -m unittest discover -s tests -v（需 PYTHONPATH=src）
 """
@@ -143,6 +145,57 @@ IMAGES_HTML = """<section id="chapter-images" class="w-full flex-1 flex flex-col
 </section>"""
 
 
+# ---------------------------------------------------------------------------
+# Fixture：/search/data 高级搜索结果（2 条；第 2 条状态为 Complete 覆盖映射兜底）
+# ---------------------------------------------------------------------------
+SEARCH_HTML = """
+<div id="search-results">
+  <article class="bg-base-300 flex gap-4 p-4">
+    <section class="w-full lg:w-[25%] xl:w-[20%]">
+      <a href="https://weebcentral.com/series/01J76XYD3Q2Q7HYYMB3FSDPSKC/Eleceed">
+        <article class="hidden lg:block w-full aspect-4/6 overflow-hidden">
+          <picture>
+            <source srcset="https://temp.compsci88.com/cover/normal/01J76XYD3Q2Q7HYYMB3FSDPSKC.webp" type="image/webp" />
+            <img src="https://temp.compsci88.com/cover/fallback/01J76XYD3Q2Q7HYYMB3FSDPSKC.jpg" alt="Eleceed cover" />
+          </picture>
+        </article>
+      </a>
+    </section>
+    <section class="hidden lg:block lg:w-[75%] xl:w-[80%]">
+      <div class="text-lg font-semibold flex items-center gap-1">
+        <div class="flex-1 overflow-hidden text-ellipsis leading-normal line-clamp-2">Eleceed</div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <div><strong class="opacity-70">Status: </strong><span>Ongoing</span></div>
+        <div><strong class="opacity-70">Author(s): </strong><span><a href="/search?author=Son+JeHo" class="link">Son JeHo</a>, <a href="/search?author=Zhena" class="link">Zhena</a></span></div>
+        <div class="opacity-70"><strong>Tag(s): </strong><span>Action,</span> <span>Comedy,</span> <span>Shounen</span></div>
+      </div>
+    </section>
+  </article>
+  <article class="bg-base-300 flex gap-4 p-4">
+    <section class="w-full lg:w-[25%] xl:w-[20%]">
+      <a href="https://weebcentral.com/series/01J76XYH1QAAAAAAAAAAAAAAAA/One-Piece---Shokugeki-no-Sanji">
+        <article class="hidden lg:block w-full aspect-4/6 overflow-hidden">
+          <picture>
+            <img src="https://temp.compsci88.com/cover/fallback/01J76XYH1QAAAAAAAAAAAAAAAA.jpg" alt="One Piece cover" />
+          </picture>
+        </article>
+      </a>
+    </section>
+    <section class="hidden lg:block lg:w-[75%] xl:w-[80%]">
+      <div class="text-lg font-semibold flex items-center gap-1">
+        <div class="flex-1 overflow-hidden text-ellipsis leading-normal line-clamp-2">One Piece - Shokugeki no Sanji</div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <div><strong class="opacity-70">Status: </strong><span>Complete</span></div>
+        <div><strong class="opacity-70">Author(s): </strong><span><a href="/search?author=ODA+Eiichiro">ODA Eiichiro</a></span></div>
+        <div class="opacity-70"><strong>Tag(s): </strong><span>Adventure,</span> <span>Comedy</span></div>
+      </div>
+    </section>
+  </article>
+</div>
+"""
+
 class _FakeSelector:
     """按 URL 路径分发 fixture 的 _fetch_selector 替身。"""
 
@@ -153,7 +206,9 @@ class _FakeSelector:
 
     def __call__(self, url: str) -> Selector:
         self.calls.append(url)
-        if "/full-chapter-list" in url:
+        if "/search/data" in url:
+            html = self.mapping.get("search", "")
+        elif "/full-chapter-list" in url:
             html = self.mapping.get("full-chapter-list", "")
         elif "/images" in url:
             html = self.mapping.get("images", "")
@@ -185,6 +240,73 @@ class TestWeebCentralAdapter(unittest.TestCase):
         )
         self.assertTrue(brief.cover_url.startswith("https://temp.compsci88.com/cover/"))
         self.assertEqual(brief.detail_url, "https://weebcentral.com/series/01JQBT895JGB6HPH5AA1G719DX/whos-that-longhaired-senior-")
+
+    # ------------------------------------------------------------------
+    def test_search_comics(self):
+        """搜索结果卡片 -> ComicBrief：标题/作者/状态/标签/封面/链接；请求参数正确。"""
+        fake = _FakeSelector({"search": SEARCH_HTML})
+        self.ad._fetch_selector = fake
+        items = self.ad.search_comics("eleceed", limit=10)
+        self.assertEqual(len(items), 2)
+        first = items[0]
+        self.assertEqual(first.source, "weebcentral")
+        self.assertEqual(first.source_comic_id, "01J76XYD3Q2Q7HYYMB3FSDPSKC")
+        self.assertEqual(first.title, "Eleceed")
+        self.assertEqual(first.author, "Son JeHo, Zhena")
+        self.assertEqual(first.status, "连载")
+        self.assertEqual(first.tags, ["Action", "Comedy", "Shounen"])
+        self.assertTrue(first.cover_url.endswith("01J76XYD3Q2Q7HYYMB3FSDPSKC.jpg"))
+        self.assertEqual(
+            first.detail_url,
+            "https://weebcentral.com/series/01J76XYD3Q2Q7HYYMB3FSDPSKC/Eleceed",
+        )
+        # 搜索结果没有「最新章节 / 更新时间」（由详情接口补齐）
+        self.assertEqual(first.latest_chapter_title, "")
+        self.assertIsNone(first.source_updated_at)
+        # 第二条：Status=Complete 也映射为「完结」
+        self.assertEqual(items[1].status, "完结")
+        self.assertEqual(items[1].tags, ["Adventure", "Comedy"])
+        # 端点与参数：走 /search/data（不是 /search/simple），关键词经 urlencode
+        self.assertEqual(len(fake.calls), 1)
+        self.assertIn("/search/data?", fake.calls[0])
+        self.assertIn("text=eleceed", fake.calls[0])
+        self.assertIn("display_mode=Full+Display", fake.calls[0])
+
+    def test_search_comics_limit_and_empty_keyword(self):
+        self.ad._fetch_selector = _FakeSelector({"search": SEARCH_HTML})
+        self.assertEqual(len(self.ad.search_comics("eleceed", limit=1)), 1)
+        # 空关键词不请求源站
+        fake = _FakeSelector({"search": SEARCH_HTML})
+        self.ad._fetch_selector = fake
+        self.assertEqual(self.ad.search_comics("   "), [])
+        self.assertEqual(fake.calls, [])
+
+    def test_parse_comic_ref(self):
+        self.assertEqual(
+            self.ad.parse_comic_ref("https://weebcentral.com/series/01J76XYD3Q2Q7HYYMB3FSDPSKC/Eleceed"),
+            "01J76XYD3Q2Q7HYYMB3FSDPSKC",
+        )
+        self.assertEqual(self.ad.parse_comic_ref("01J76XYD3Q2Q7HYYMB3FSDPSKC"), "01J76XYD3Q2Q7HYYMB3FSDPSKC")
+        self.assertEqual(self.ad.parse_comic_ref("01j76xyd3q2q7hyymb3fsdpskc"), "01J76XYD3Q2Q7HYYMB3FSDPSKC")
+        # 外站链接 / 空 / 不含 ULID 的文本一律拒绝或返回 None
+        self.assertIsNone(self.ad.parse_comic_ref("https://mangadex.org/title/abc-def"))
+        self.assertIsNone(self.ad.parse_comic_ref(""))
+        self.assertIsNone(self.ad.parse_comic_ref("eleceed"))
+
+    def test_fetch_detail_without_detail_url(self):
+        """按需导入只给 source_comic_id（无 detail_url）时，自行拼 /series/{ulid}。"""
+        fake = _FakeSelector({"series": SERIES_HTML, "full-chapter-list": FULL_CHAPTER_HTML})
+        self.ad._fetch_selector = fake
+        from comic_crawler.models import ComicBrief
+
+        detail = self.ad.fetch_comic_detail(
+            ComicBrief(source="weebcentral", source_comic_id="01J76XYD3Q2Q7HYYMB3FSDPSKC", title="")
+        )
+        # 未传 detail_url 也能解析到详情（标题来自 SERIES_HTML 的 og:title）
+        self.assertEqual(detail.title, "Who's That Long-Haired Senior?")
+        self.assertTrue(detail.chapters)
+        self.assertTrue(fake.calls)
+        self.assertIn("/series/01J76XYD3Q2Q7HYYMB3FSDPSKC", fake.calls[0])
 
     def test_fetch_list_no_since(self):
         self.ad._fetch_selector = _FakeSelector({"home": HOME_HTML})

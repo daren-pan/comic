@@ -105,11 +105,12 @@ class _FakeApi:
     """按 path 分发 fixture 的 _api_get 替身。"""
 
     def __init__(self, list_resp=None, list_pages=None, detail_resp=None, feed_resp=None,
-                 home_resp=None, chapter_by_manga=None) -> None:
+                 home_resp=None, chapter_by_manga=None, feed_by_lang=None) -> None:
         self.list_resp = list_resp
         self.list_pages = list_pages or {}   # {page_no: /manga 响应}，按 offset 推导
         self.detail_resp = detail_resp
         self.feed_resp = feed_resp
+        self.feed_by_lang = feed_by_lang or {}   # {lang: feed 响应}，验证多语言依次兜底
         self.home_resp = home_resp
         self.chapter_by_manga = chapter_by_manga or {}
         self.calls: list[tuple[str, dict | None]] = []
@@ -125,6 +126,10 @@ class _FakeApi:
         if path == "/chapter":
             return self.chapter_by_manga.get((params or {}).get("manga"))
         if path.startswith("/manga/") and path.endswith("/feed"):
+            if self.feed_by_lang:
+                langs = (params or {}).get("translatedLanguage[]") or []
+                lang = langs[0] if isinstance(langs, list) and langs else langs
+                return self.feed_by_lang.get(lang) or {"data": []}
             return self.feed_resp
         if "/at-home/" in path:
             return self.home_resp
@@ -264,6 +269,59 @@ class TestMangaDexAdapter(unittest.TestCase):
         )
         # 标题：无显式标题用 chapter 原始串
         self.assertEqual(detail.chapters[0].title, "小剧场")
+
+    def test_pick_langs(self):
+        """语言顺序：zh -> en -> 作品实际可用的其它语言（未知时退回 zh/en）。"""
+        pick = MangaDexAdapter._pick_langs
+        self.assertEqual(pick(None), ["zh", "en"])
+        self.assertEqual(pick([]), ["zh", "en"])
+        self.assertEqual(pick(["en", "zh", "ja"]), ["zh", "en", "ja"])
+        # 无 zh：en 仍优先，再补其它语言（官方授权作品的常见形态）
+        self.assertEqual(pick(["pt-br", "es", "en"]), ["en", "pt-br", "es"])
+
+    def test_fetch_detail_falls_back_to_other_language(self):
+        """zh/en 都取不到章节时，退到该作品实际可用的其它语言（回归：杜鹃的婚约 0 章）。
+
+        实测场景：官方授权作品的 zh/en 章节只有站外链接（MD 不托管图片、被
+        includeExternalUrl=0 排除），可读的却是 pt-br/es 扫描组译本。
+        """
+        detail_resp = {
+            "data": {
+                "id": "m9",
+                "attributes": {
+                    "title": {"zh": "杜鹃的婚约"},
+                    "availableTranslatedLanguages": ["pt-br", "en"],
+                    "status": "ongoing",
+                },
+                "relationships": [],
+            }
+        }
+        fake = _FakeApi(
+            detail_resp=detail_resp,
+            home_resp=AT_HOME_RESP,   # 首章可读 -> _readable_head 直接返回，不再多探测
+            feed_by_lang={
+                "zh": {"data": []},
+                "en": {"data": []},
+                "pt-br": {"data": [
+                    {"id": "c1", "attributes": {"volume": None, "chapter": "1", "title": "", "translatedLanguage": "pt-br"}},
+                ]},
+            },
+        )
+        self.ad._api_get = fake
+        from comic_crawler.models import ComicBrief
+
+        detail = self.ad.fetch_comic_detail(
+            ComicBrief(source="mangadex", source_comic_id="m9", title="")
+        )
+        self.assertEqual(len(detail.chapters), 1)
+        self.assertEqual(detail.chapters[0].source_chapter_id, "c1")
+        # 语言尝试顺序：该作品无 zh 译本 -> 先 en（空）再 pt-br（命中）
+        feed_langs = [
+            ((p or {}).get("translatedLanguage[]") or [None])[0]
+            for path, p in fake.calls
+            if path.endswith("/feed")
+        ]
+        self.assertEqual(feed_langs, ["en", "pt-br"])
 
     def test_fetch_chapter_pages(self):
         self.ad._api_get = _FakeApi(home_resp=AT_HOME_RESP)

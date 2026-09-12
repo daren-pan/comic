@@ -13,7 +13,7 @@
 |---|---|
 | 漫画级列表（按最新上传章节倒序） | `GET /manga?order[latestUploadedChapter]=desc&hasAvailableChapters=true&availableTranslatedLanguage[]=zh&limit=25&offset=0`（不带分级；列表「翻页至窗口边界」，见下） |
 | 漫画详情 | `GET /manga/{id}?includes[]=cover_art&includes[]=author&includes[]=artist` |
-| 章节 feed | `GET /manga/{id}/feed?translatedLanguage[]=zh&order[volume]=asc&order[chapter]=asc&includeExternalUrl=0&limit=500`（⚠️ 布尔参数须用 `0/1`，`false` 会 400） |
+| 章节 feed | `GET /manga/{id}/feed?translatedLanguage[]=<见「语言策略」>&order[volume]=asc&order[chapter]=asc&includeExternalUrl=0&limit=500`（⚠️ 布尔参数须用 `0/1`，`false` 会 400） |
 | 最新章时间 | `GET /chapter?manga={id}&order[publishAt]=desc&limit=1` → 取 `publishAt` |
 | 章节图分发 | `GET /at-home/server/{chapter_id}` → 顶层 `{baseUrl, chapter:{hash,data[]}}`（**无外层 `data`**，见下 §⚠️） |
 | 封面 | `https://uploads.mangadex.org/covers/{manga_id}/{fileName}`（顺带 cover_art 关系给出） |
@@ -25,7 +25,7 @@
 |---|---|---|
 | `order[latestUploadedChapter]` | `desc` | 按最新上传章节倒序（「最近更新」语义）；也可 `order[followedCount]/rating/year/createdAt` 换排序 |
 | `hasAvailableChapters` | `true` | 只留有可读章节的漫画 |
-| `availableTranslatedLanguage[]` | `zh` | 译本语言过滤（多值：zh/en/ja…）；本实现经 feed 层再回退 en |
+| `availableTranslatedLanguage[]` | `zh` | 译本语言过滤（多值：zh/en/ja…）；feed 层另按 `availableTranslatedLanguages` 做三级兜底（见「语言策略」） |
 | `originalLanguage[]` | — | 原作语言过滤（未用） |
 | `includes[]` | `cover_art` | 顺带返回的关系（cover_art/author/artist/tag） |
 | `contentRating[]` | **已去掉** | safe/suggestive/erotica/pornographic 分级过滤（2026-09-08 移除） |
@@ -52,7 +52,7 @@
 ### ④ GET /manga/{id}/feed —— 章节 feed
 | 参数 | 本实现取值 | 说明 |
 |---|---|---|
-| `translatedLanguage[]` | `zh`（空→重试 en） | 译本语言；本实现 zh→en 回退 |
+| `translatedLanguage[]` | 依次 zh → en → 其它可用语言 | 译本语言；**命中即停**（逐语言请求，见「语言策略」） |
 | `contentRating[]` | 全部 4 值 | ⚠️ **必填**，缺省 400。取值：`safe`/`suggestive`/`erotica`/`pornographic`（**返回范围 = 声明范围**）；改分级只改代码常量 `CONTENT_RATINGS` 即可 |
 | `order[volume]` / `order[chapter]` | `asc` | 按卷/话升序取全表，解析后反转成「最新在前」 |
 | `includeExternalUrl` / `includeFuturePublishAt` | `0` | 布尔须用 `0/1`（`false` 400） |
@@ -94,7 +94,7 @@
 - **可读性探测（`_readable_head`）**：detail 时向前探测若干章 at-home 图数，把「真正有图
   可读」的最新章放到 chapters 首位——规避个别无图/站外托管章被当成最新话导致首采 0 页。
 
-## 语言策略（优先中文 · 英文兜底，2026-09-08 明确）
+## 语言策略（中文优先 · 英文兜底 · 其它语言再兜底，2026-09-12 修订）
 
 MangaDex 里「同一话中英双语」与「多语言字段」是两层概念，处理方式不同，因此分为
 **列表层**与**字段层**两个口径：
@@ -102,7 +102,7 @@ MangaDex 里「同一话中英双语」与「多语言字段」是两层概念�
 | 层次 | 策略 | 实现位置 |
 |---|---|---|
 | 漫画列表（最近更新） | **只收中文译本**：`availableTranslatedLanguage[]=["zh"]`，无中文译本的英文漫画**不进入**该源 | `fetch_comic_list` |
-| 章节 feed | **中文优先 · 英文兜底**：`translatedLanguage[]` 先 zh、空则 en | `_fetch_feed` |
+| 章节 feed | **zh 优先 → en → 该作品实际可用的其它语言**（逐语言请求，命中即停） | `_fetch_feed` / `_pick_langs` |
 | 标题 | **中文优先 · 英文兜底**：主 `title` zh→en→任意；再扫 `altTitles` 的 zh → (en/zh-hk/zh-cn) → 最终 main | `_comic_title` |
 | 描述 | **中文优先 · 英文兜底**：`description.zh` → `description.en` → 空（再回退为标题） | `_description` |
 
@@ -111,18 +111,40 @@ MD 的"同一话中英双语"本质是**两条独立 chapter 记录**（不同 i
 适配器**不合并，整部只取一个语言**：
 
 ```python
-for lang in ("zh", "en"):          # zh 优先，en 兜底
+for lang in self._pick_langs(attrs.get("availableTranslatedLanguages")):
     params["translatedLanguage[]"] = [lang]
     raw = self._api_get(f"/manga/{manga_id}/feed", params)
     rows = raw.get("data") or []
     if rows:
         chapters = self._parse_feed(rows)
-        break                       # 拿到 zh 立即 break，不再请求 en
+        break                       # 拿到有数据的语言立即 break，不再继续请求
 ```
 
 结果：同一部漫画内，有中文则**只留中文**（英文版在请求层被过滤，不会作为另一章
-重复入库，`_chapter_key` 卷×1000+话×10 保持唯一）；无中文才整体回退英文。
-列表层同理用 `availableTranslatedLanguage[]=["zh"]`，只列有中译本的漫画。
+重复入库，`_chapter_key` 卷×1000+话×10 保持唯一）；无中文退英文；**zh/en 都取不到时
+再退该作品的其它语言**。列表层同理用 `availableTranslatedLanguage[]=["zh"]`，只列有中译本的漫画。
+
+### ⚠️ 为什么章节 feed 不能只看 zh/en（2026-09-12 实测踩坑）
+
+**官方授权作品**（如「杜鹃的婚约」`4e7a4a0f-8391-4069-839b-de2352297dab`）的
+zh/en 章节往往是 **external 外链**（指向 `kmanga.kodansha.com` 等官方阅读站，
+**MD 不托管图片**），被 `includeExternalUrl=0` 正确排除后：
+
+| 查询 | 条数 |
+|---|---|
+| `translatedLanguage[]=zh` | **0** |
+| `translatedLanguage[]=en` | **0**（该作品 8 条 en 章节全是外链） |
+| `includeExternalUrl=1`（不过滤） | 8 条，**全是 external**（无图可读） |
+| 该作品实际可读 | **pt-br 77 条 + es 66 条**（扫描组译本，MD 托管有图） |
+
+若只试 zh/en，`fetch_comic_detail` 会返回 **0 章节** → 按需导入的
+`_probe_readable` 探测失败 → 判为「源站取不到图」而拒绝导入；
+但用户登 MD 站点**确实能看到章节列表**（看到的是那些外链章节）——
+**症状（有数据却读不了）与根因（可读版本在别的语言）方向相反，极易误判为「MD 有问题」**。
+
+故 `_pick_langs()` 在 zh/en 之后补上 `availableTranslatedLanguages` 中的其它语言：
+`[zh if avail] + [en if avail] + [其余 avail...]`，逐个请求直到拿到非空 feed。
+代价：命中即停，正常作品仍是 1 次请求；只有 zh/en 都空时才多试 1~2 次。
 
 ### 字段级多语言（title / description 是单个"多 key 对象"）
 标题、描述**不是**分语言的独立记录，而是同一对象的多个 key
