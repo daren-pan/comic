@@ -1,8 +1,8 @@
 """采集管理台接口（运维用，免登录）。
 
 能力：列出数据源 / 开关采集 / 手动触发采集 / 手动触发懒转存（转存完成后自动封面自愈）
-/ 手动触发失效巡检（转存 + 全表校验已转存对象、缺失则恢复）。
-采集 / 转存 / 巡检耗时，统一交给 `services.tasks` 后台线程执行，返回 `taskId` 供前端轮询。
+/ 手动触发失效巡检（转存 + 全表校验已转存对象、缺失则恢复）/ 按需导入单部作品。
+采集 / 转存 / 巡检 / 导入耗时，统一交给 `services.tasks` 后台线程执行，返回 `taskId` 供前端轮询。
 """
 from __future__ import annotations
 
@@ -12,8 +12,13 @@ from fastapi import APIRouter, HTTPException
 
 from core.db import db  # noqa: F401  —— 先导入以完成 sys.path 引导
 from core.responses import ok
-from schemas import AdminInspectBody, AdminSyncBody, AdminTransferBody
-from services import sources, tasks
+from schemas import (
+    AdminImportBody,
+    AdminInspectBody,
+    AdminSyncBody,
+    AdminTransferBody,
+)
+from services import ondemand, sources, tasks
 from services.images import admin_image_store
 
 from comic_crawler.storage.mysql import MySQLStorage
@@ -101,6 +106,36 @@ def admin_inspect(body: AdminInspectBody):
 
     task_id = tasks.new_task_id("inspect")
     tasks.run_task(task_id, "inspect", job)
+    return ok({"taskId": task_id})
+
+
+@router.post("/api/admin/import")
+def admin_import(body: AdminImportBody):
+    """按需导入一部作品（后台线程执行，返回 `taskId` 供前端轮询）。
+
+    与「采集」的区别：采集只能碰到源站「最近更新」榜上的作品；本接口按用户
+    指定（关键词 / 作品链接 / 作品 ID）收录**榜单之外**的作品，并**全量收目录**
+    （而不是只收最新 1 话）。导入**不下载正文图**：只写书目 + 全量章节 + 封面，
+    正文图在用户阅读该话时按需取回并顺手落盘（见 services/ondemand）。
+
+    失败原因（源站搜不到 / 付费锁定 / 源不支持搜索）会写进任务 message，
+    前端消息中心直接显示，不需要额外错误通道。
+    """
+
+    def job():
+        storage = MySQLStorage()
+        result = ondemand.import_one(
+            body.source,
+            keyword=body.keyword,
+            ref=body.ref,
+            source_comic_id=body.source_comic_id,
+            first_chapters=body.first_chapters,
+        )
+        # 导入不登记页清单（1~2 秒完成）；页清单与页数都留到用户打开某一话时按需产生。
+        return {**result, "pagesByStatus": storage.count_pages_by_status()}
+
+    task_id = tasks.new_task_id("import")
+    tasks.run_task(task_id, "import", job)
     return ok({"taskId": task_id})
 
 

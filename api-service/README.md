@@ -55,16 +55,18 @@ api-service/
 | `GET /api/categories` | 分类与作品数（含"全部"） | 浏览服务 |
 | `GET /api/comics?category=&keyword=&sort=updated\|views&page=&page_size=` | 作品列表：分类/关键词/排序/分页（`sort=views` = 按热度倒序，**同分再按最近更新时间倒序**） | `GET /api/comics` |
 | `GET /api/comics/{id}` | 作品详情（**浏览次数 +1 落库**后返回，返回的 `heat` 含本次访问） | `GET /api/comics/{id}` |
-| `GET /api/comics/{id}/chapters` | 章节列表（orderNo 升序 + 页数） | `GET /api/comics/{id}/chapters` |
-| `GET /api/chapters/{id}/pages` | 分页图片（返回本服务图片 URL） | `GET /api/chapters/{id}/pages` |
+| `GET /api/comics/{id}/chapters` | 章节列表（orderNo 升序；**不含页数**，见 crawler-service README） | `GET /api/comics/{id}/chapters` |
+| `GET /api/chapters/{id}/pages` | 分页图片列表；**库内还没有页清单时现场登记一次**（按需导入的作品导入时不登记页，首次打开这一话才产生清单） | `GET /api/chapters/{id}/pages` |
 | `GET /api/covers/{id}` | 封面（真实文件优先，缺失生成 SVG） | 图片服务 |
-| `GET /api/images/{comic_id}/{chapter_id}/{page_no}` | 分页图（OSS 文件优先，缺失生成 SVG 占位） | 图片服务 |
+| `GET /api/images/{comic_id}/{chapter_id}/{page_no}` | 分页图**三级兜底**：本地图库命中 → **穿透源站取回这一张并顺手落盘**（下次走本地）→ 都失败才给 SVG 占位。所以「未转存」的图用户也能立刻看到，不用等整话下载 | 图片服务 |
+| `GET /api/sources/search?q=&source=&limit=` | **搜索源站**（只读、不写库），按源分组返回；命中项带 `inLibrary`/`comicId`，供前端显示「已收录，直接打开」或「导入并阅读」。单源失败静默跳过，5 分钟结果缓存 | 搜索页「其他来源」 |
 | `GET/PUT/DELETE /api/users/{user_id}/favorites[/{comic_id}]` | 收藏查询/添加/取消（`PUT` 幂等） | 用户中心 |
 | `GET/PUT /api/users/{user_id}/history` · `DELETE /api/users/{user_id}/history/{comic_id}` | 阅读历史：查询（含作品+章节信息）/写入进度/删除 | 用户中心 |
 | `GET /api/admin/sources` · `POST /api/admin/sources/{name}/toggle` | 数据源列表（enabled/库内数/上次同步）/ 开关采集（持久化 `source_state.json`） | 采集管理控制台 |
 | `POST /api/admin/sync` | 手动触发采集，body `{source, mode, since, limit}`，返回 `taskId`（后台线程执行） | 采集管理控制台 |
 | `POST /api/admin/transfer` | 手动触发懒转存，body `{source, since, until, limit?}`（`limit` 留空=窗口内全部），返回 `taskId` | 采集管理控制台 |
 | `POST /api/admin/inspect` | 手动触发**全库**失效巡检，body `{source?, since, until}`（`source` 可选，管理台不传 = 全库），返回 `taskId` | 采集管理控制台 |
+| `POST /api/admin/import` | **按需导入单部作品**，body `{source, keyword?\|ref?\|source_comic_id?}`（三选一定位），返回 `taskId`。与采集相反：收录**榜单之外**的作品、**全量收目录**、**不下载正文图**。失败原因（站内搜不到 / 源站取不到图）写在任务 `message` 里 | 搜索页 / 管理台 |
 | `GET /api/admin/tasks[/{task_id}]` | 后台任务状态轮询（running/done/failed + 结果统计） | 采集管理控制台 |
 
 > 匿名用户模型：前端首次访问生成 `userId`（localStorage 持久化），收藏与历史按用户隔离；
@@ -115,5 +117,8 @@ crawler-service（采集/去重/入库）→ MySQL → api-service（RESTful API
 
 已接入真实源站（需联网采集，见 crawler-service/README.md）：**再漫画 zaimanhua（主源，H5 通道，
 学习用受控样本）**、**MangaDex（v5 API，学习用受控样本，config 中 `enabled=False`，
-仅手动 `run --source mangadex`）**、**WeebCentral（学习用受控样本）**。图片经懒转存后，
-`/api/covers/{id}`、`/api/images/{cid}/{chid}/{pno}` 即返回**真实图片字节**（非 SVG 占位）。
+仅手动 `run --source mangadex`）**、**WeebCentral（学习用受控样本）**。图片有**两条**取回路径：① 后台懒转存 / 巡检批量预转（`/api/admin/transfer`）；
+② **读时穿透** —— `/api/images/...` 本地没有就现场从源站取回这一张并落盘（签名过期会自动重签），
+所以「未转存」的图在用户点开时也能立刻显示，不需要先等一整话下载完。
+自 2026-09-12 起 `/api/covers/{id}`、`/api/images/{cid}/{chid}/{pno}` 返回的都是**真实图片字节**（非 SVG 占位），
+只有在源站也取不到时才回退占位图。

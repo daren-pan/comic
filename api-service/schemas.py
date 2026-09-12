@@ -49,3 +49,23 @@ class AdminInspectBody(BaseModel):
     source: str | None = None
     since: str | None = None
     until: str | None = None
+
+
+class AdminImportBody(BaseModel):
+    """按需导入入参：收录一部用户指定的作品（三选一提供定位方式）。
+
+    - `keyword`：按书名/关键词让源站搜索，取其第一条作为目标（主入口）；
+    - `ref`：作品页链接或作品 ID（适配器 parse_comic_ref 解析，次入口）；
+    - `source_comic_id`：直接指定源站作品 ID（最精确）。
+
+    `first_chapters` 留空 = **全量收目录**（按需导入的默认语义）；给数字则只收最新 N 话。
+    导入**不下载正文图**：只写书目 + 全量章节 + 封面，正文图在阅读时按需取回。
+    """
+
+    source: str
+    keyword: str | None = None
+    ref: str | None = None
+    source_comic_id: str | None = None
+    first_chapters: int | None = None
+
+

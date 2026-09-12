@@ -1,15 +1,37 @@
 """领域对象序列化：数据库蛇形字段 → 前端驼峰契约。
 
-这一层**只做形状转换**，不查库（`comic` 的标签需实时 JOIN，故 `to_comic` 会读一次
-`db.get_comic_tags`，这是唯一例外）。
+这一层**只做形状转换**。唯一需要查库的地方是作品标签（走 `comic_tag` 关联表，
+不在 `comic` 行里）：
+
+- **列表接口**先调 `attach_tags(rows)` 批量注入 `row["tags"]`（一条 SQL 取全部），
+  `to_comic` 直接读注入值 —— 否则逐部查询 + 逐次建连接会让接口随条数线性变慢；
+- **单条接口**（详情）不注入，`to_comic` 回退到单次 `db.get_comic_tags()`（代价可忽略）。
 """
 from __future__ import annotations
 
 from core.db import db
 
 
+def attach_tags(rows: list[dict]) -> list[dict]:
+    """给一批作品行**批量**注入 `tags`，返回同一列表（原地写入，便于链式调用）。
+
+    原实现对每部作品单独 `db.get_comic_tags()`，而存储层每次调用都新建 MySQL 连接：
+    实测 `/api/comics` 12 条约 350ms、50 条约 1.29s，随条数线性增长。这里压成一条
+    `WHERE comic_id IN (...)`，N 次往返 → 1 次。
+    """
+    if not rows:
+        return rows
+    mapping = db.get_comic_tags_bulk([int(r["id"]) for r in rows])
+    for r in rows:
+        r["tags"] = mapping.get(int(r["id"]), [])
+    return rows
+
+
 def to_comic(row: dict) -> dict:
     status = row["status"] if row["status"] in ("连载中", "已完结") else "连载中"
+    tags = row.get("tags")
+    if tags is None:                      # 未被 attach_tags 注入（单条接口）→ 回退单次查询
+        tags = db.get_comic_tags(row["id"])
     return {
         "id": row["id"],
         "title": row["title"],
@@ -25,7 +47,7 @@ def to_comic(row: dict) -> dict:
         "heat": int(row["heat"]),                       # 热度分：1000 + 浏览 + 2×收藏
         "updatedAt": row["sync_time"],
         "sources": [s for s in (row.get("source") or "").split(",") if s] or ["unknown"],
-        "tags": db.get_comic_tags(row["id"]),
+        "tags": tags,
     }
 
 
@@ -34,7 +56,6 @@ def to_chapter(row: dict) -> dict:
         "id": row["id"],
         "comicId": row["comic_id"],
         "title": row["title"],
-        "pageCount": row.get("page_count", 0),
         "orderNo": row["chapter_no"],
         "createdAt": row["sync_time"],
     }

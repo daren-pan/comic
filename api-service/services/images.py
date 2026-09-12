@@ -20,6 +20,21 @@ _IMG_MAGIC: list[tuple[bytes, str]] = [
 ]
 
 
+def sniff_image(data: bytes) -> str | None:
+    """按**魔数**判断图片 MIME（不信任扩展名）；不是已知图片格式返回 None。
+
+    读本地文件与「穿透取图」从源站拿回的字节都走这里判型 —— 源站扩展名常与
+    实际格式不符（如 weebcentral 的 `.png` 实为 JPEG）。
+    """
+    for magic, mime in _IMG_MAGIC:
+        if data.startswith(magic):
+            return mime
+    head = data[:512].lstrip().lower()
+    if head.startswith(b"<svg") or head.startswith(b"<?xml"):
+        return "image/svg+xml"
+    return None
+
+
 def resolve_image_root() -> Path:
     """定位图库根目录 —— 直接采用采集器的**唯一真源** `default_store_root()`。
 
@@ -59,14 +74,8 @@ def read_image_file(candidate: str) -> tuple[bytes, str] | None:
     if not path.is_file():
         return None
     data = path.read_bytes()
-    for magic, mime in _IMG_MAGIC:
-        if data.startswith(magic):
-            return data, mime
-    # SVG 文本
-    head = data[:512].lstrip().lower()
-    if head.startswith(b"<svg") or head.startswith(b"<?xml"):
-        return data, "image/svg+xml"
-    return None
+    mime = sniff_image(data)          # 与「穿透取图」共用同一套魔数判定
+    return (data, mime) if mime else None
 
 
 def admin_image_store():

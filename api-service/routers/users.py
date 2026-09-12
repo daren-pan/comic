@@ -7,7 +7,7 @@ from core.db import db, users
 from core.responses import ok
 from core.security import get_current_user
 from schemas import HistoryPut
-from serializers import to_comic
+from serializers import attach_tags, to_comic
 
 router = APIRouter(tags=["users"])
 
@@ -17,12 +17,10 @@ router = APIRouter(tags=["users"])
 @router.get("/api/users/{user_id}/favorites")
 def favorites(user_id: str, user: dict = Depends(get_current_user)):
     user_id = str(user["id"])
-    items = []
-    for cid in users.list_favorites(user_id):
-        row = db.get_comic(cid)
-        if row:
-            items.append(to_comic(row))
-    return ok(items)
+    rows = [db.get_comic(cid) for cid in users.list_favorites(user_id)]
+    rows = [r for r in rows if r]
+    attach_tags(rows)                     # 批量注入 tags（见 serializers.attach_tags）
+    return ok([to_comic(r) for r in rows])
 
 
 @router.get("/api/users/{user_id}/favorites/{comic_id}")
@@ -48,20 +46,26 @@ def remove_favorite(user_id: str, comic_id: int, user: dict = Depends(get_curren
 
 @router.get("/api/users/{user_id}/history")
 def history(user_id: str):
-    items = []
+    entries: list[tuple[dict, dict]] = []
+    comic_rows: list[dict] = []
     for r in users.list_history(user_id):
         comic = db.get_comic(r["comic_id"])
         if not comic:
             continue
-        items.append({
+        comic_rows.append(comic)
+        entries.append((r, comic))
+    attach_tags(comic_rows)               # 批量注入 tags（见 serializers.attach_tags）
+    return ok([
+        {
             "comicId": r["comic_id"],
             "chapterId": r["chapter_id"],
             "pageNo": r["page_no"],
             "readAt": r["read_at"],
             "chapterTitle": r["chapter_title"],
             "comic": to_comic(comic),
-        })
-    return ok(items)
+        }
+        for r, comic in entries
+    ])
 
 
 @router.put("/api/users/{user_id}/history")
