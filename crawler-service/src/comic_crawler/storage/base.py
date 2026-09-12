@@ -28,6 +28,16 @@ class Storage(ABC):
         """跨站指纹查作品 ID，None 表示新作品。"""
 
     @abstractmethod
+    def get_comic_id_by_source(self, source: str, source_comic_id: str) -> int | None:
+        """按 `(源, 源作品 ID)` 精确查作品 ID（`uk_source_comic` 唯一键），None = 未收录。
+
+        与上一条的区别：指纹是**跨源**判重（同一部作品在别的源收过也算命中），
+        本方法是**同源精确**判重 —— 按需导入前用它回答「这部作品在本源是不是
+        已经收过了」，不受跨源合并影响。两者都用，才能既不重复收录、又能提示
+        「已收录（来自其他来源）」。
+        """
+
+    @abstractmethod
     def upsert_comic(self, detail: ComicDetail, fingerprint: str) -> tuple[int, bool]:
         """写入/更新作品，返回 (comic_id, is_new)。"""
 
@@ -127,12 +137,33 @@ class Storage(ABC):
         """章节分页图片。"""
 
     @abstractmethod
+    def get_page_context(self, chapter_id: int, page_no: int) -> dict | None:
+        """**单页 + 所属章节/作品的完整上下文**（一条 SQL，供「穿透取图」使用）。
+
+        返回：page_id / page_no / source_url / oss_url / cached_status /
+        comic_id / source / source_comic_id / chapter_id / source_chapter_id。
+
+        为什么单独提供：读图是**逐张**请求（一话约 20 张），若由调用方分别查
+        chapter 与 comic 再拼装，每张图会多出 2 次查询（一话 40 次），
+        正好是刚修掉的那类 N+1。
+        """
+
+    @abstractmethod
     def get_categories(self) -> list[dict]:
         """分类与作品数。"""
 
     @abstractmethod
     def get_comic_tags(self, comic_id: int) -> list[str]:
         """作品标签列表（按 comic_tag 表）。"""
+
+    @abstractmethod
+    def get_comic_tags_bulk(self, comic_ids: list[int]) -> dict[int, list[str]]:
+        """**一次**取多部作品的标签 → `{comic_id: [name, ...]}`（无标签的作品不出现在结果中）。
+
+        为什么单独提供：列表接口若对每部作品各查一次，代价 = 「一次查询 + 一次建连接」
+        × 条数，实测让 `/api/comics` 随条数**线性变慢**（12 条 350ms、50 条 1.29s）。
+        批量版是一条 `WHERE comic_id IN (...)`，把 N 次往返压成 1 次。
+        """
 
     @abstractmethod
     def set_comic_cover(self, comic_id: int, cover_url: str) -> None:

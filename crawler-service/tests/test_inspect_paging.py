@@ -77,6 +77,12 @@ class PagingStorage(Storage):
     def get_comic_id_by_fingerprint(self, fingerprint: str):
         return None
 
+    def get_comic_id_by_source(self, source: str, source_comic_id: str):
+        return None
+
+    def get_page_context(self, chapter_id: int, page_no: int):
+        return None
+
     def upsert_comic(self, detail, fingerprint: str):
         return 0, True
 
@@ -118,6 +124,9 @@ class PagingStorage(Storage):
 
     def get_comic_tags(self, comic_id: int) -> list:
         return []
+
+    def get_comic_tags_bulk(self, comic_ids: list[int]) -> dict:
+        return {}
 
     def set_comic_cover(self, comic_id: int, cover_url: str) -> None:
         pass

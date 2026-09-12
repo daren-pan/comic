@@ -128,16 +128,29 @@ def _process_batch(
 
 
 def _upsert_detail(
-    adapter: CrawlerAdapter, storage: Storage, detail: "ComicDetail", fp: str, stats: SyncStats
+    adapter: CrawlerAdapter,
+    storage: Storage,
+    detail: "ComicDetail",
+    fp: str,
+    stats: SyncStats,
+    first_chapters: int | None = FIRST_CHAPTERS,
+    register_pages: bool = True,
 ) -> None:
-    """详情 + 章节 + 页面入库（新漫画收录与已收录补章共用）。
+    """详情 + 章节 + 页面入库（采集收录、采集补章、按需导入共用）。
 
     章节采样策略（避免每轮对全卷逐章请求，解决"太慢"）：
-    - 新漫画（库内尚无该作品章节）：只入库连载卷最新 FIRST_CHAPTERS（=1）话；
-    - 已收录漫画（库内已有章节）：只入库源站里 chapter_no 大于库内最大 chapter_no 的新章节，
+    - **按需导入**（`first_chapters=None`）：补齐库内**缺失的所有章节**（不只是比库内最大值
+      更新的那些）—— 库里可能只有采集时收的最新 1 话，而用户要的是完整目录；
+    - 新漫画（库内尚无该作品章节）：只入库连载卷最新 `first_chapters` 话（采集默认 1 话）；
+    - 已收录漫画（库内已有章节）：只入库 chapter_no 大于库内最大值的新章节，
       其余已同步章节仅更新元数据、不重复抓分页。
+
     页面一律「懒下载」：入库只登记源站 URL（cached_status=未转存），图片字节不主动下载，
-    由失效巡检 lazy_transfer 或用户阅读访问时按需转存（见 image_service）。
+    由失效巡检 lazy_transfer / 读某话时的穿透兜底按需转存（见 images/transfer.py）。
+
+    register_pages：是否登记各章节的页清单（默认 True = 采集用）。**按需导入传 False**
+    —— 连页清单都不登记，导入 100 话只需 1 次请求（而不是 100 次章节请求），
+    页清单等用户真正打开那一话时再生登记。
     """
     comic_id, is_new = storage.upsert_comic(detail, fp)
     if is_new:
@@ -156,22 +169,32 @@ def _upsert_detail(
     existing_nos = {int(ch["chapter_no"]) for ch in storage.get_chapters(comic_id)}
     existing_max_no = max(existing_nos) if existing_nos else 0
     # detail.chapters 按源站返回（新 -> 旧）：
-    # - 新漫画（库内无章节）：只取最新 FIRST_CHAPTERS（=1，初次只收最新一话）；
+    # - 按需导入（first_chapters=None）：**补齐库内缺的所有章节**——不只是比库内最大的
+    #   更新的那些。库里可能只有采集时收的最新 1 话，用户要的是完整目录；
+    # - 新漫画（库内无章节）：只取最新 first_chapters 话（采集默认 1 话）；
     # - 老漫画（库内已有章节）：取所有 chapter_no 大于库内最大 chapter_no 的新章节（增量）。
-    if existing_nos:
+    if first_chapters is None:
+        sampled = [c for c in detail.chapters if c.chapter_no not in existing_nos]
+    elif existing_nos:
         sampled = [c for c in detail.chapters if c.chapter_no > existing_max_no]
     else:
-        sampled = detail.chapters[:FIRST_CHAPTERS]
+        sampled = detail.chapters[:first_chapters]
 
     for chapter in sampled:
         chapter_id, chapter_new = storage.upsert_chapter(comic_id, chapter)
         if chapter_new:
             stats.new_chapters += 1
+        if not register_pages:
+            # 按需导入：只入目录，**页清单留到用户真正打开这一话时再登记**
+            # （见 api-service/services/ondemand.ensure_chapter_pages）。
+            # 这样导入 100 话只需要 1 次请求，而不是 100 次。
+            continue
         try:
             pages = adapter.fetch_chapter_pages(detail, chapter)
             if pages:
                 # 懒下载：只登记页面源站 URL（cached_status=未转存），图片字节不主动下载，
-                # 由失效巡检 lazy_transfer / 阅读访问按需转存（image_service）。
+                # 由失效巡检 lazy_transfer / 读图时的穿透兜底按需转存
+                # （见 images/transfer.fetch_page_bytes）。
                 storage.upsert_pages(chapter_id, pages)
         except Exception:
             # 页面登记失败不阻塞整部漫画入库，仅记录并继续

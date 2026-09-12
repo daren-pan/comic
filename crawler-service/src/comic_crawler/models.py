@@ -59,6 +59,9 @@ class ComicDetail(ComicBrief):
 
     description: str = ""
     chapters: list[ChapterBrief] = field(default_factory=list)
+    # 付费/锁定内容标记（源站标明 is_lock/is_fee 等）：按合规红线不得收录与转存，
+    # 按需导入遇到时直接拒绝（见 scheduling/ondemand.import_comic）。
+    restricted: bool = False
 
 
 @dataclass(slots=True)

@@ -45,6 +45,17 @@ class MySQLStorage(Storage):
                 row = cur.fetchone()
         return int(row["id"]) if row else None
 
+    def get_comic_id_by_source(self, source: str, source_comic_id: str) -> int | None:
+        """按 (源, 源作品 ID) 精确查（走 uk_source_comic）—— 同源判重，供按需导入用。"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM comic WHERE source = %s AND source_comic_id = %s",
+                    (source, str(source_comic_id)),
+                )
+                row = cur.fetchone()
+        return int(row["id"]) if row else None
+
     @staticmethod
     def _tags_from(detail: ComicDetail) -> list[str]:
         """取标签列表：优先 detail.tags；为空则用 category 拆分（兼容未填 tags 的源）。
@@ -439,12 +450,10 @@ class MySQLStorage(Storage):
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT ch.*, c.title AS comic_title, c.id AS comic_id,
-                              COUNT(p.id) AS page_count
+                    """SELECT ch.*, c.title AS comic_title, c.id AS comic_id
                        FROM chapter ch
                        JOIN comic c ON c.id = ch.comic_id
-                       LEFT JOIN page p ON p.chapter_id = ch.id
-                       WHERE ch.id = %s GROUP BY ch.id""",
+                       WHERE ch.id = %s""",
                     (chapter_id,),
                 )
                 return cur.fetchone()
@@ -458,6 +467,22 @@ class MySQLStorage(Storage):
                     (chapter_id,),
                 )
                 return list(cur.fetchall())
+
+    def get_page_context(self, chapter_id: int, page_no: int) -> dict | None:
+        """单页 + 所属章节/作品上下文（穿透取图用，避免逐张图再查 chapter/comic）。"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT p.id AS page_id, p.page_no, p.source_url, p.oss_url, p.cached_status,
+                              c.id AS comic_id, c.source, c.source_comic_id,
+                              ch.id AS chapter_id, ch.source_chapter_id
+                       FROM page p
+                       JOIN chapter ch ON p.chapter_id = ch.id
+                       JOIN comic c ON ch.comic_id = c.id
+                       WHERE p.chapter_id = %s AND p.page_no = %s""",
+                    (chapter_id, page_no),
+                )
+                return cur.fetchone()
 
     def get_categories(self) -> list[dict]:
         # 基于关联表 JOIN 标签字典表聚合：每个标签计为"分类"
@@ -480,3 +505,21 @@ class MySQLStorage(Storage):
                     (comic_id,),
                 )
                 return [r["name"] for r in cur.fetchall()]
+
+    def get_comic_tags_bulk(self, comic_ids: list[int]) -> dict[int, list[str]]:
+        """一次取多部作品的标签（列表接口用，避免逐部查询 + 逐次建连接的 N+1）。"""
+        if not comic_ids:
+            return {}
+        placeholders = ", ".join(["%s"] * len(comic_ids))
+        sql = f"""SELECT ct.comic_id AS comic_id, t.name AS name
+                  FROM comic_tag ct
+                  JOIN tag t ON t.id = ct.tag_id
+                  WHERE ct.comic_id IN ({placeholders})
+                  ORDER BY ct.comic_id ASC, t.name ASC"""
+        out: dict[int, list[str]] = {}
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, tuple(comic_ids))
+                for r in cur.fetchall():
+                    out.setdefault(int(r["comic_id"]), []).append(r["name"])
+        return out

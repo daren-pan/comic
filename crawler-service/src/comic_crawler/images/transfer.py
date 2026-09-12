@@ -102,6 +102,115 @@ def _url_expired(source_url: str, now: float | None = None) -> bool:
     return expires < (time.time() if now is None else now)
 
 
+def _fresh_url(adapter: object, row: dict) -> str | None:
+    """现场重拉整章 URL，按 page_no 取出这一页的新地址（签名过期时用）。"""
+    fn = getattr(adapter, "fetch_source_page_urls", None)
+    if fn is None:
+        return None
+    try:
+        urls = fn(row.get("source_comic_id"), row.get("source_chapter_id"))
+    except Exception as exc:
+        logger.warning("重拉章节 URL 失败 source=%s: %s", row.get("source"), exc)
+        return None
+    if not urls:
+        return None
+    try:
+        no = int(row["page_no"])
+    except (TypeError, ValueError):
+        no = 1
+    return urls[no - 1] if 1 <= no <= len(urls) else None
+
+
+def _build_adapter(adapter_provider: Callable[[str], object] | None, source: str) -> object | None:
+    """按源名取适配器实例；没有 provider 或创建失败则返回 None（退化为"只能直接下载"）。"""
+    if not adapter_provider or not source:
+        return None
+    try:
+        return adapter_provider(source)
+    except Exception as exc:
+        logger.warning("创建适配器失败 source=%s: %s", source, exc)
+        return None
+
+
+def _host_allowed(url: str, adapter: object | None) -> bool:
+    """图片域名白名单校验（防止把库里的 URL 当任意请求跳板）。
+
+    适配器未声明 ``image_hosts`` 时不校验（沿用「库内数据可信」的既有约定）；
+    声明了的源只允许下载白名单域名，避免重定向/篡改 URL 打到内网地址。
+    """
+    hosts = getattr(adapter, "image_hosts", None) or set()
+    if not hosts:
+        return True
+    try:
+        return httpx.URL(url).host in hosts
+    except Exception:
+        return False
+
+
+def fetch_page_bytes(
+    storage: Storage,
+    image_store: ImageStore,
+    row: dict,
+    *,
+    adapter_provider: Callable[[str], object] | None = None,
+    downloader: Callable[[str, str], bytes] | None = None,
+) -> bytes | None:
+    """读某页时本地还没有图 → 现场从源站取回，**顺手落盘**后再返回（「边看边转」）。
+
+    用户等待时间因此只等于「源站响应一张图」，而不是「整话下载完」：
+
+    - 成功：写入图库 + 回填 `cached_status='已转存'` → 返回字节（下次访问走本地）；
+    - 失败：返回 None（调用方回退 SVG 占位图），状态保持「未转存」，下次访问再试。
+
+    下载策略与 `lazy_transfer` 完全一致（复用同一套函数）：登记 URL 未过期就直接用；
+    已过期或下载失败 → 现场重拉整章 URL 让源站重新签发 → 再试一次。
+    """
+    downloader = downloader or default_downloader
+    key = build_image_key(row["comic_id"], row["chapter_id"], row["page_no"])
+    adapter = _build_adapter(adapter_provider, str(row.get("source") or ""))
+
+    data = _download_one(row.get("source_url"), key, adapter, row, downloader)
+    if data is None:
+        logger.warning(
+            "穿透取图失败 page_id=%s source=%s（URL 过期且无法重拉）",
+            row.get("page_id"), row.get("source"),
+        )
+        return None
+
+    try:
+        image_store.put(key, data)
+        storage.mark_page_cached(row["page_id"], key)
+    except Exception as exc:
+        # 落盘/回填失败不应影响本次阅读：图片字节照常返回给用户，状态留给下次重试
+        logger.warning("穿透取图落盘失败 page_id=%s: %s", row.get("page_id"), exc)
+    return data
+
+
+def _download_one(
+    url: str | None,
+    key: str,
+    adapter: object | None,
+    row: dict,
+    downloader: Callable[[str, str], bytes],
+) -> bytes | None:
+    """单页下载：登记 URL 未过期且域名合规则直接用；否则现场重拉整章再试。"""
+    if url and not _url_expired(url) and _host_allowed(url, adapter):
+        try:
+            return downloader(url, key)
+        except Exception:
+            pass  # 落到重拉分支：多为 403（签名被判失效）
+    if adapter is None:
+        return None
+    fresh = _fresh_url(adapter, row)
+    if not fresh or not _host_allowed(fresh, adapter):
+        return None
+    try:
+        return downloader(fresh, key)
+    except Exception as exc:
+        logger.warning("重拉后下载仍失败 page_no=%s: %s", row.get("page_no"), exc)
+        return None
+
+
 def lazy_transfer(
     storage: Storage,
     image_store: ImageStore,
@@ -144,24 +253,6 @@ def lazy_transfer(
             except Exception:
                 ad_cache[source] = None
         return ad_cache[source]
-
-    def _fresh_url(ad: object, row: dict) -> str | None:
-        """现场重拉整章 URL 后按 page_no 取新地址。"""
-        fn = getattr(ad, "fetch_source_page_urls", None)
-        if fn is None:
-            return None
-        try:
-            urls = fn(row.get("source_comic_id"), row.get("source_chapter_id"))
-        except Exception as exc:
-            logger.warning("重拉章节 URL 失败 source=%s: %s", row.get("source"), exc)
-            return None
-        if not urls:
-            return None
-        try:
-            no = int(row["page_no"])
-        except (TypeError, ValueError):
-            no = 1
-        return urls[no - 1] if 1 <= no <= len(urls) else None
 
     def _try_download(url: str | None, key: str) -> bytes | None:
         if not url:

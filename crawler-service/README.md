@@ -33,9 +33,10 @@ crawler-service/
 │   │       └── user_store.py  #      MySQLUserStore：用户/收藏/阅读历史
 │   ├── images/                # 图片层：契约 + 本地实现 + 懒转存
 │   │   ├── store.py           #    ImageStore 抽象 + 本地模拟 OSS + default_store_root() 图库根
-│   │   └── transfer.py        #    懒转存（未转存 → 下载 → 上传 → 状态机）+ 封面落盘
+│   │   └── transfer.py        #    懒转存 + 读时穿透取图（本地没有就现场取回并顺手落盘）+ 封面落盘
 │   └── scheduling/            # 编排层：何时跑 / 跑一次做什么
 │       ├── sync.py            #    采集主流程：增量轮询 / 全量扫描
+│       ├── ondemand.py        #    按需导入：收录用户指定的单部作品（搜索 / 链接 / ID）
 │       ├── heal.py            #    失效巡检 + 封面自愈
 │       └── scheduler.py       #    轮询式定时调度（增量 / 每日全量 / 每小时巡检）
 ├── tests/                     # 单元测试（含 test_layering.py 分层守卫）
@@ -132,13 +133,53 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 
 3. **声明配置**：改该子包 `__init__.py` 的 `SOURCES = [SourceConfig(name="<新源名>", ...)]`
    （频率/启停**就近维护在这里**，不再集中到 `config.py`）；
-4. **登记**：在 `sources/__init__.py` 的 `_SOURCE_PACKAGES` 加一项 —— 完成。
+4. **登记**：在 `sources/__init__.py` 的 `_SOURCE_PACKAGES` 加一项；
+5. **可选能力**（按目标站实际支持情况声明，上层据此决定给不给入口）：
+
+   - `capabilities = {"search", "ref"}` —— 支持关键词搜索（覆写 `search_comics`）
+     与作品链接/ID 解析（覆写 `parse_comic_ref`）。两者齐备后，搜索页才会出现
+     「其他来源」与「导入并阅读」；
+   - `image_hosts = {"图床域名"}` —— 允许下载的图片域名白名单（转存与穿透取图都校验，
+     防 SSRF）。图床与站点不同域的源务必补上。
 
 子包固定 4 件套：`__init__.py`（导出 + SOURCES）、`adapter.py`（解析）、
 `README.md`（接口/请求头/限流/已知坑）、`fixtures/`（离线样例，可选）。
 
 跨站重复作品由 `fingerprint.py` 自动合并（标题归一化 + 作者 → sha1 前 16 位，
 命中同一指纹只保留一条记录）。
+
+## 按需导入（用户指定看哪一部）
+
+采集只能碰到源站「最近更新」榜上的作品；**按需导入**正好相反 —— 用户给出**
+一部作品（关键词 / 作品链接 / 作品 ID），把它收进库。入口是搜索页的
+「其他来源 → 导入并阅读」，或直接 `POST /api/admin/import`。
+
+| 环节 | 行为 | 请求数 |
+|---|---|---|
+| 详情 | 拿书目 + **全部章节** | 1 |
+| 书目 | 写 `comic` 1 行（幂等：指纹 + `(源, 源作品 ID)` 双唯一键） | — |
+| 章节 | **全量收目录**（`first_chapters=None`，且补齐库内缺的那几话） | — |
+| 页清单 | **一页都不登记**（`register_pages=False`） | 0 |
+| 图片 | **一张都不下载**（封面除外，落 `covers/{id}.jpg`） | 1 |
+
+所以导入 100 话也只花 1~2 次请求、约 2 秒。页清单与图片都在用户**真正打开那一话**
+时才产生：`/api/chapters/{id}/pages` 现场登记页清单（`api-service/services/ondemand.py`），
+`/api/images/...` 本地没有就**穿透源站取回这一张、顺手落盘**
+（`images/transfer.fetch_page_bytes`）—— 用户等待只等于「源站响应一张图」，
+而不是「整话下载完」。
+
+**不保存也不展示章节页数**：源站只有「单话章节接口」能给出页数（`picnum`），**没有任何批量途径**
+（列表 / 详情 / 搜索接口都不带页数，实测确认），逐话拉取既慢、又会被源站软限流（密集请求返回空）。
+因此 `GET /api/comics/{id}/chapters` 只返回章节元数据，**不含页数**；
+`get_chapters` / `get_chapter` 也不再做 `COUNT(page)` 统计（少一次 JOIN，接口更快）。
+页清单本身仍然按需产生：用户打开某一话时才登记（`ensure_chapter_pages`），图片由穿透过取回。
+
+**不可读内容会被拒绝，但判据必须可靠**：详情接口的逐章 `canRead` **不可信**
+（实测「午夜心旋律」详情里 131 章全为 false，实际最新话可读 21 页 —— 那是未计算的默认值），
+所以 `import_comic` 改为**实测探测**（`_probe_readable`：先探最新章、再退最老章，
+最多 2 次请求），任一章取到图就放行 —— 源站**部分章节没有数据是常见情况**
+（如 71419 的 1、2 话；接口分不清是数据缺失还是需付费，故不归因）。
+只有 `is_lock` 为真、或探测全空，才抛 `ComicRestricted` 拒绝。
 
 ## 章节采样（首次只收最新一话 · 页面全部懒下载）
 

@@ -3,12 +3,21 @@
 | 文件 | 职责 |
 |---|---|
 | `sync.py` | 采集主流程：增量轮询 / 全量扫描（`incremental_sync` / `full_sync`） |
+| `ondemand.py` | 按需导入：收录用户指定的单部作品（`import_comic`） |
 | `heal.py` | 失效巡检与封面自愈（`inspect_sync` / `heal_covers`） |
 | `scheduler.py` | 本地轮询式定时调度（`SyncScheduler.tick()`） |
 
 本层**单向依赖**下面的通用层、源站层与存储层，不被它们反向引用。
 """
 from .heal import heal_covers, inspect_sync
+from .ondemand import (
+    ComicNotFound,
+    ComicRestricted,
+    OnDemandError,
+    UnsupportedCapability,
+    import_comic,
+    resolve_brief,
+)
 from .scheduler import SyncScheduler
 from .sync import FIRST_CHAPTERS, MAX_PAGES_PER_SYNC, SyncSession, full_sync, incremental_sync
 
@@ -17,6 +26,12 @@ __all__ = [
     "full_sync",
     "SyncSession",
     "SyncScheduler",
+    "import_comic",
+    "resolve_brief",
+    "OnDemandError",
+    "ComicNotFound",
+    "ComicRestricted",
+    "UnsupportedCapability",
     "inspect_sync",
     "heal_covers",
     "MAX_PAGES_PER_SYNC",
