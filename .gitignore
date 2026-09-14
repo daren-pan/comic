@@ -39,7 +39,14 @@ backup/
 
 # ---- 开发/探测残留（不随仓库分发） ----
 _zmh_probe/
-.workbuddy/
+
+# ---- AI 协作配置 .workbuddy/（默认忽略）----
+# 入库共享：skills/ 全目录 + memory/MEMORY.md；日志（memory/*.md）仍忽略
+.workbuddy/*
+!.workbuddy/skills/
+!.workbuddy/memory/
+.workbuddy/memory/*
+!.workbuddy/memory/MEMORY.md
 
 # ---- 编辑器 / 系统 ----
 .idea/
