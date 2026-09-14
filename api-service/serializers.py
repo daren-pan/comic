@@ -6,6 +6,9 @@
 - **列表接口**先调 `attach_tags(rows)` 批量注入 `row["tags"]`（一条 SQL 取全部），
   `to_comic` 直接读注入值 —— 否则逐部查询 + 逐次建连接会让接口随条数线性变慢；
 - **单条接口**（详情）不注入，`to_comic` 回退到单次 `db.get_comic_tags()`（代价可忽略）。
+
+⚠️ 作品**来源是单个**（`source`，不是数组）：同一部作品全库只有一行、只记首个收录源，
+详见 `storage/mysql/comic_store.upsert_comic`。
 """
 from __future__ import annotations
 
@@ -46,7 +49,7 @@ def to_comic(row: dict) -> dict:
         "favoriteCount": int(row.get("favorite_count") or 0),
         "heat": int(row["heat"]),                       # 热度分：1000 + 浏览 + 2×收藏
         "updatedAt": row["sync_time"],
-        "sources": [s for s in (row.get("source") or "").split(",") if s] or ["unknown"],
+        "source": row.get("source") or "unknown",      # 收录来源：同一部作品只记首个收录源
         "tags": tags,
     }
 

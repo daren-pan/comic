@@ -17,8 +17,10 @@ router = APIRouter(tags=["users"])
 @router.get("/api/users/{user_id}/favorites")
 def favorites(user_id: str, user: dict = Depends(get_current_user)):
     user_id = str(user["id"])
-    rows = [db.get_comic(cid) for cid in users.list_favorites(user_id)]
-    rows = [r for r in rows if r]
+    ids = users.list_favorites(user_id)        # 已按收藏时间倒序
+    # 一次取回全部作品行（投影同 get_comic）；逐条 get_comic 会让接口随收藏数线性变慢
+    mapping = db.get_comics_by_ids(ids)
+    rows = [mapping[i] for i in ids if i in mapping]   # 按收藏顺序；作品已不存在则跳过
     attach_tags(rows)                     # 批量注入 tags（见 serializers.attach_tags）
     return ok([to_comic(r) for r in rows])
 
@@ -46,15 +48,11 @@ def remove_favorite(user_id: str, comic_id: int, user: dict = Depends(get_curren
 
 @router.get("/api/users/{user_id}/history")
 def history(user_id: str):
-    entries: list[tuple[dict, dict]] = []
-    comic_rows: list[dict] = []
-    for r in users.list_history(user_id):
-        comic = db.get_comic(r["comic_id"])
-        if not comic:
-            continue
-        comic_rows.append(comic)
-        entries.append((r, comic))
-    attach_tags(comic_rows)               # 批量注入 tags（见 serializers.attach_tags）
+    # 历史记录本身已按阅读时间倒序；这里补上作品行 —— 一次批量取回，避免逐条 get_comic
+    entries = users.list_history(user_id)
+    mapping = db.get_comics_by_ids([r["comic_id"] for r in entries])
+    entries = [r for r in entries if r["comic_id"] in mapping]   # 作品已不存在则跳过
+    attach_tags([mapping[r["comic_id"]] for r in entries])       # 批量注入 tags
     return ok([
         {
             "comicId": r["comic_id"],
@@ -62,9 +60,9 @@ def history(user_id: str):
             "pageNo": r["page_no"],
             "readAt": r["read_at"],
             "chapterTitle": r["chapter_title"],
-            "comic": to_comic(comic),
+            "comic": to_comic(mapping[r["comic_id"]]),
         }
-        for r, comic in entries
+        for r in entries
     ])
 
 

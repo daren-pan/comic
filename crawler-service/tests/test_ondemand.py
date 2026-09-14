@@ -24,12 +24,16 @@ from comic_crawler.storage.base import Storage
 class FakeStorage(Storage):
     """内存存储：只记录 upsert 足迹，供断言（不连库）。"""
 
-    def __init__(self, *, chapters=None, same_source_id=None, fingerprint_id=None):
+    def __init__(self, *, chapters=None, same_source_id=None, fingerprint_id=None,
+                 stored_source=None):
         self.chapters = list(chapters or [])       # 库内已有章节
         self.same_source_id = same_source_id       # 同源已收录时的 comic_id
         self.fingerprint_id = fingerprint_id       # 跨源已收录时的 comic_id
+        self.stored_source = stored_source         # 库内那一行记录的源（判「是否跨源」）
         self.upserted_chapters: list = []
         self.page_writes = 0                       # upsert_pages 被调用次数
+        self.batch_writes = 0                      # upsert_chapters 被调用次数（应为 1，不是 N）
+        self.last_batch: list = []                 # 最后一次批量写入的章节号
 
     # --- 判重 ---
     def get_comic_id_by_source(self, source, source_comic_id):
@@ -37,6 +41,19 @@ class FakeStorage(Storage):
 
     def get_comic_id_by_fingerprint(self, fingerprint):
         return self.fingerprint_id
+
+    # --- 章节写入：覆写批量版，记录"整批只调一次"，再委托默认实现逐章记足迹 ---
+    def upsert_chapters(self, comic_id, chapters):
+        self.batch_writes += 1
+        self.last_batch = [c.chapter_no for c in chapters]
+        return super().upsert_chapters(comic_id, chapters)
+
+    # --- 源归属（同一部作品只记首个收录源） ---
+    def get_comics_by_ids(self, comic_ids):
+        return {}
+
+    def get_comic_source(self, comic_id):
+        return self.stored_source
 
     # --- 写入 ---
     def upsert_comic(self, detail, fingerprint):
@@ -253,6 +270,35 @@ class TestImportComic(unittest.TestCase):
 
         self.assertTrue(result["alreadySameSource"])
         self.assertEqual(result["comicId"], 123)
+
+    def test_cross_source_import_does_not_write_second_source(self):
+        """同一部作品已由别的源收录 → **不记录第二个源**（章节一条都不写，并回报保留的源）。"""
+        db = FakeStorage(same_source_id=123, stored_source="mangadex")
+        ad = FakeAdapter(detail=_detail([1, 2, 3]))
+        result = import_comic(ad, db, source_comic_id="42")
+
+        self.assertEqual(db.upserted_chapters, [])       # ← 关键：第二个源的章节不写入
+        self.assertEqual(result["keptSource"], "mangadex")
+        self.assertEqual(result["newChapters"], 0)
+
+    def test_same_source_import_still_fills_chapters(self):
+        """同源重复导入不受护栏影响：仍按增量补齐章节（keptSource 为空）。"""
+        db = FakeStorage(same_source_id=123, stored_source="fake")
+        ad = FakeAdapter(detail=_detail([1, 2, 3]))
+        result = import_comic(ad, db, source_comic_id="42")
+
+        self.assertEqual([c.chapter_no for c in db.upserted_chapters], [1, 2, 3])
+        self.assertIsNone(result["keptSource"])
+
+    def test_chapters_written_in_one_batch(self):
+        """整卷章节**一次批量**写库：只调一次 upsert_chapters（不是逐章 N 次建连接）。"""
+        db = FakeStorage()
+        ad = FakeAdapter(detail=_detail([1, 2, 3, 4, 5]))
+        import_comic(ad, db, source_comic_id="42")
+
+        self.assertEqual(db.batch_writes, 1)          # ← 关键：一次，不是 5 次
+        self.assertEqual(db.last_batch, [1, 2, 3, 4, 5])
+        self.assertEqual(len(db.upserted_chapters), 5)
 
     def test_probe_blocks_when_no_pages(self):
         """详情未标受限、但实测一章取不到图 → 仍拒绝（避免收进空壳作品）。"""

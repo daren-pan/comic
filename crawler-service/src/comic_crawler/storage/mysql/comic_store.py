@@ -17,6 +17,15 @@ from ...taxonomy import canonical_tag
 from ..base import Storage
 from ._util import _DSN, _as_dt, _now, _until_bound, heat_sql, logger
 
+# 作品行的统一投影：`list_comics` / `get_comic` / `get_comics_by_ids` 共用同一份，
+# 避免改了一处忘另一处。计数一律 DISTINCT —— 与 chapter / favorite 的 JOIN 会放大行数。
+_COMIC_COLS = (
+    "c.*, "
+    "COUNT(DISTINCT ch.id) AS chapter_count, "
+    "COUNT(DISTINCT f.user_id) AS favorite_count, "
+    f"{heat_sql()} AS heat"
+)
+
 
 class MySQLStorage(Storage):
     """MySQL 实现（Storage 契约）。每个调用使用独立连接（线程安全），autocommit 提交。"""
@@ -103,6 +112,18 @@ class MySQLStorage(Storage):
             )
 
     def upsert_comic(self, detail: ComicDetail, fingerprint: str) -> tuple[int, bool]:
+        """收录/更新一部作品 → `(comic_id, is_new)`。
+
+        **判重两级**：① `fingerprint`（书名+作者，**跨源**）→ 同一部作品全库只有一行；
+        ② `(source, source_comic_id)` → 同源内精确判重。
+
+        ⚠️ **源归属：同一部作品只记「首个收录源」，不记录第二个源**（用户 2026-09-14 明确）。
+        两条 UPDATE 分支都**刻意不改 `source` / `source_comic_id`** —— 指纹命中说明这部作品
+        已由别的源收过，此时以库内那一行为准；本次来源的元数据只用来刷新标题/简介等字段。
+        连带约束：章节归属由 `comic.source` 推导（`chapter` 表**没有** source 列），
+        所以第二个源的章节也不能写进来，否则读图时会用错适配器 —— 护栏在
+        `scheduling/sync._upsert_detail`（源不一致直接跳过章节写入）。
+        """
         now = _now()
         tags = self._tags_from(detail)
         with self._conn() as conn:
@@ -110,6 +131,7 @@ class MySQLStorage(Storage):
                 cur.execute("SELECT id FROM comic WHERE fingerprint = %s", (fingerprint,))
                 row = cur.fetchone()
                 if row:
+                    # 跨源命中：只刷元数据，**不动 source / source_comic_id**（见 docstring）
                     cur.execute(
                         """UPDATE comic SET title=%s, author=%s, status=%s, category=%s,
                            description=%s, latest_chapter_title=%s, sync_time=%s WHERE id=%s""",
@@ -127,6 +149,7 @@ class MySQLStorage(Storage):
                 )
                 row = cur.fetchone()
                 if row:
+                    # 同源已收录（此前是用指纹没命中时收进来的）：补指纹，source 本来就是这个源
                     cur.execute(
                         """UPDATE comic SET title=%s, author=%s, cover_url=%s, status=%s,
                            category=%s, description=%s, fingerprint=%s,
@@ -177,6 +200,47 @@ class MySQLStorage(Storage):
                     (comic_id, chapter.chapter_no, chapter.title, chapter.source_chapter_id, now),
                 )
                 return int(cur.lastrowid), True
+
+    def upsert_chapters(
+        self, comic_id: int, chapters: list[ChapterBrief]
+    ) -> list[tuple[int, bool]]:
+        """批量写章节：整批只建**一条连接**（语义与逐章 `upsert_chapter` 完全一致）。
+
+        省掉的是 N 次建连接（实测单次建连接 ≈ 20ms 量级）：库里已有的章节号**一次 SELECT**
+        取回，之后逐条 UPDATE / INSERT。按需导入整卷目录时，这是主要开销所在。
+        返回与入参**同序**的 `[(chapter_id, is_new), ...]`。
+        """
+        if not chapters:
+            return []
+        now = _now()
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, chapter_no FROM chapter WHERE comic_id = %s", (comic_id,)
+                )
+                existing = {int(r["chapter_no"]): int(r["id"]) for r in cur.fetchall()}
+                out: list[tuple[int, bool]] = []
+                for chapter in chapters:
+                    no = int(chapter.chapter_no)
+                    cid = existing.get(no)
+                    if cid is not None:
+                        cur.execute(
+                            "UPDATE chapter SET title=%s, source_chapter_id=%s, sync_time=%s"
+                            " WHERE id=%s",
+                            (chapter.title, chapter.source_chapter_id, now, cid),
+                        )
+                        out.append((cid, False))
+                        continue
+                    cur.execute(
+                        """INSERT INTO chapter (comic_id, chapter_no, title, source_chapter_id, sync_time)
+                           VALUES (%s,%s,%s,%s,%s)""",
+                        (comic_id, chapter.chapter_no, chapter.title,
+                         chapter.source_chapter_id, now),
+                    )
+                    new_id = int(cur.lastrowid)
+                    existing[no] = new_id          # 入参若含重复 chapter_no，第二条按更新处理
+                    out.append((new_id, True))
+                return out
 
     def upsert_pages(self, chapter_id: int, pages: list[PageInfo]) -> int:
         with self._conn() as conn:
@@ -372,9 +436,7 @@ class MySQLStorage(Storage):
         page: int = 1,
         page_size: int = 12,
     ) -> tuple[list[dict], int]:
-        sql = f"""SELECT c.*, COUNT(DISTINCT ch.id) AS chapter_count,
-                         COUNT(DISTINCT f.user_id) AS favorite_count,
-                         {heat_sql()} AS heat
+        sql = f"""SELECT {_COMIC_COLS}
                  FROM comic c
                  LEFT JOIN chapter ch ON ch.comic_id = c.id
                  LEFT JOIN comic_tag ct ON ct.comic_id = c.id
@@ -408,10 +470,7 @@ class MySQLStorage(Storage):
         return rows, total
 
     def get_comic(self, comic_id: int) -> dict | None:
-        # COUNT(DISTINCT ch.id)：与 favorite 的 JOIN 会放大行数，非 DISTINCT 会算重复
-        sql = f"""SELECT c.*, COUNT(DISTINCT ch.id) AS chapter_count,
-                         COUNT(DISTINCT f.user_id) AS favorite_count,
-                         {heat_sql()} AS heat
+        sql = f"""SELECT {_COMIC_COLS}
                   FROM comic c
                   LEFT JOIN chapter ch ON ch.comic_id = c.id
                   LEFT JOIN favorite f ON f.comic_id = c.id
@@ -421,6 +480,43 @@ class MySQLStorage(Storage):
                 cur.execute(sql, (comic_id,))
                 row = cur.fetchone()
         return row
+
+    def get_comics_by_ids(self, comic_ids: list[int]) -> dict[int, dict]:
+        """**一次**取多部作品的行（投影与 `get_comic` 完全一致）→ `{comic_id: row}`。
+
+        为什么单独提供：收藏 / 历史这类"先拿到一批 id 再取作品"的列表接口，若逐条调
+        `get_comic`，代价 = 「一次查询 + 一次建连接」× N —— 与标签 N+1 同一类问题
+        （见 `serializers.attach_tags`）。这里压成一条 `WHERE c.id IN (...)`。
+
+        **不保证返回顺序**（也不为不存在的 id 补占位）：调用方按自己的 id 顺序取用，
+        取不到的即视为作品已不存在，自行跳过。
+        """
+        if not comic_ids:
+            return {}
+        ids = [int(i) for i in comic_ids]
+        placeholders = ", ".join(["%s"] * len(ids))
+        sql = f"""SELECT {_COMIC_COLS}
+                  FROM comic c
+                  LEFT JOIN chapter ch ON ch.comic_id = c.id
+                  LEFT JOIN favorite f ON f.comic_id = c.id
+                  WHERE c.id IN ({placeholders}) GROUP BY c.id"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, ids)
+                rows = list(cur.fetchall())
+        return {int(r["id"]): r for r in rows}
+
+    def get_comic_source(self, comic_id: int) -> str | None:
+        """作品的收录源（`comic.source`，None = 不存在）。
+
+        用于「同一部作品只记首个收录源」的判定：指纹命中时拿库内那一行的源，
+        与本次来源比较（见 `scheduling/sync._upsert_detail`）。
+        """
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT source FROM comic WHERE id = %s", (comic_id,))
+                row = cur.fetchone()
+        return row["source"] if row else None
 
     def increment_comic_views(self, comic_id: int) -> bool:
         """浏览次数 +1（落库，重启不丢）。返回是否命中该漫画（False = 不存在）。"""

@@ -78,7 +78,7 @@ function fmtTime(iso: string): string {
         </p>
         <p class="hero-line">作者：{{ comic.author }}</p>
         <p class="hero-line">章节：{{ chapterCount }} 话 · 热度 {{ comic.heat.toLocaleString() }} · 更新 {{ fmtTime(comic.updatedAt) }}</p>
-        <p class="hero-line sources">数据来源：<em v-for="s in comic.sources" :key="s">{{ s }}</em></p>
+        <p class="hero-line sources">数据来源：<em>{{ comic.source }}</em></p>
         <div class="actions">
           <button class="btn" @click="sortedChapters.length && read(sortedChapters[0])">▶ 开始阅读</button>
           <button class="btn ghost" :class="{ active: fav }" @click="onFav">

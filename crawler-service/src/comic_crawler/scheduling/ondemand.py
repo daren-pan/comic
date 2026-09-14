@@ -133,6 +133,8 @@ def import_comic(
     first_chapters：新作品入库的章节数；默认 None = **全量收目录**。
     重复导入是幂等的：`upsert_comic` 先按跨源指纹、再按 (源, 源作品 ID) 判重，
     命中则更新元数据、不新增行，章节也只补 chapter_no 更大的新章。
+    ⚠️ 若库内已有该作品、但**收录源不同**，本次来源的章节不会被写入（同一部作品只记
+    首个收录源），结果里 `keptSource` 会给出库内保留的那个源名。
     """
     brief = resolve_brief(
         adapter, keyword=keyword, ref=ref, source_comic_id=source_comic_id
@@ -168,7 +170,9 @@ def import_comic(
             started_at=datetime.now().isoformat(timespec="seconds"),
             total_seen=1,
         )
-        _upsert_detail(
+        # 返回值非 None = 库内已有该作品且收录源不同 → 本次来源的章节未被写入
+        # （同一部作品只记首个收录源，见 sync._upsert_detail）
+        kept_source = _upsert_detail(
             adapter,
             storage,
             detail,
@@ -202,6 +206,8 @@ def import_comic(
         "crossSourceComicId": (
             existing_cross if existing_cross and existing_cross != comic_id else None
         ),
+        # 非 None = 库内已有该作品且来源不同 → 本次来源的章节未写入（只记首个收录源）
+        "keptSource": kept_source,
         "summary": stats.summary(),
     }
 

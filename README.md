@@ -45,6 +45,11 @@ comic/
 
 ### 方案：MySQL 完整版（项目唯一存储方案）
 
+> ⚠️ **端口 3307 由 Docker 提供**：本机 `127.0.0.1:3307` 是 Docker 容器 `ruoyi-mysql`
+> （映射 `0.0.0.0:3307->3306`），**不是**本机 MySQL 服务（那个是 3306）。
+> 启动前后端前先确认 **Docker Desktop 已运行**、`docker ps` 里 `ruoyi-mysql` 为 `Up`，
+> 否则后端连库失败。
+
 ```bash
 # 1. 初始化数据库结构（幂等；注意会 DROP 目标库同名表）
 mysql -h127.0.0.1 -P3307 -uroot -ppassword --default-character-set=utf8mb4 < crawler-service/sql/mysql_schema.sql

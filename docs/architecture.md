@@ -51,6 +51,11 @@
 
 - **站内唯一**：`source_id + 源站内容ID` 建唯一记录，重复抓取幂等覆盖；
 - **跨站合并**：标题归一化（去空格/符号、同义映射）生成 `fingerprint`，`fingerprint + author` 命中则合并为同一作品，避免同一漫画重复入库存多份；
+  - **源归属：同一部作品只记「首个收录源」**，不记录第二个源。指纹命中时只刷新标题/简介等元数据，
+    不改 `comic.source`；**第二个源的章节也不写入** —— 章节归属由 `comic.source` 推导
+    （`chapter` 表没有 source 列），混入第二个源的章节会让读图用错适配器（图床域名、签名规则都对不上）。
+    实现：`storage/mysql/comic_store.upsert_comic`（不改 source）+ `scheduling/sync._upsert_detail`（跨源跳过章节写入）。
+    真要做「同作品多源并存」，需要另加 `comic_source` 关联表并把章节的源落到章节级 —— 本项目**刻意不做**。
 - **章节去重**：`comic_id + chapter_no` 联合唯一；`content_hash` 用于内容变更检测（源站修图后可感知并重抓）。
 
 ### 2.4 反爬处理（合规框架内）

@@ -20,13 +20,16 @@ CREATE TABLE IF NOT EXISTS comic (
     source_comic_id VARCHAR(128) NOT NULL,
     latest_chapter_title VARCHAR(255) NOT NULL DEFAULT '',
     -- views: 累计浏览次数（详情页每次访问 +1，落库）。
-    -- 热度不落库，由 (1000 + views*1 + 收藏数*2) 实时计算，见 mysql_storage.HEAT_* / heat_sql()。
+    -- 热度不落库，由 (1000 + views*1 + 收藏数*2) 实时计算，见 storage/mysql/_util.py 的 HEAT_* / heat_sql()。
     views INT NOT NULL DEFAULT 0,
     sync_time DATETIME NOT NULL,
     -- addtime: 首次收录时间（第一次同步写入，之后不再更新）；sync_time 为最近一次同步时间
     addtime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_fingerprint (fingerprint),
-    UNIQUE KEY uk_source_comic (source, source_comic_id)
+    UNIQUE KEY uk_source_comic (source, source_comic_id),
+    -- 列表默认按最近更新倒序（sort=updated），无索引则每次列表页都 filesort；
+    -- 大数据量下这是最常走的排序路径，必须有索引（见 AGENTS.md「硬性约定·性能」）。
+    KEY idx_comic_sync (sync_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS chapter (
@@ -49,6 +52,9 @@ CREATE TABLE IF NOT EXISTS page (
     oss_url VARCHAR(1024) NOT NULL DEFAULT '',
     cached_status VARCHAR(16) NOT NULL DEFAULT '未转存',
     KEY idx_chapter_id (chapter_id),
+    -- 转存 / 失效巡检每次都按 cached_status='未转存' 筛（page 是全库最大的表），
+    -- 无索引即全表扫；带上 id 以便配合键集分页（after_id）走索引。
+    KEY idx_page_cached (cached_status, id),
     CONSTRAINT fk_page_chapter FOREIGN KEY (chapter_id) REFERENCES chapter(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 

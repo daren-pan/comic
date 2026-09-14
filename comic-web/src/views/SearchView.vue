@@ -90,7 +90,10 @@ async function onImport(item: SourceSearchItem) {
   notice.value = `正在从 ${item.source} 导入《${item.title}》…`
   try {
     const r = await importAndWait({ source: item.source, sourceComicId: item.sourceComicId })
-    notice.value = `已导入《${r.title}》，共 ${r.chapters} 话，正在打开…`
+    // keptSource 非空 = 库内已有这部作品（来自别的源）→ 本次来源的章节不会写入
+    notice.value = r.keptSource
+      ? `《${r.title}》已由 ${r.keptSource} 收录，本次不再重复写入（正在打开…）`
+      : `已导入《${r.title}》，共 ${r.chapters} 话，正在打开…`
     router.push(`/comic/${r.comicId}`)
   } catch (e) {
     notice.value = ''

@@ -1,7 +1,9 @@
-# 项目长期备忘（comic 聚合平台）
+# AGENTS.md —— 项目约定（comic 聚合平台）
 
-> 只放架构骨架 / 模块边界 / 常用命令 / 硬性约定。细节见各模块 README、`docs/` 或 `新增爬虫源` 技能。日志写 `.workbuddy/memory/YYYY-MM-DD.md`。
-> **与仓库根 [`AGENTS.md`](../AGENTS.md) 保持同步**（那份给读代码的 AI / 新人看，本文件是 AI 协作助手自动加载的副本；**改任一份都要改另一份**）。
+> **给读这个仓库的 AI / 新人看的第一份文件。**
+> 内容与 [`.workbuddy/memory/MEMORY.md`](.workbuddy/memory/MEMORY.md) **保持同步**（那份是 AI 协作助手自动加载的副本；**改任一份都要改另一份**）。
+> 只放架构骨架 / 模块边界 / 常用命令 / 硬性约定；细节见各模块 README、`docs/` 或 `新增爬虫源` 技能。
+> 每日工作日志写 `.workbuddy/memory/YYYY-MM-DD.md`。
 
 ## 架构总览
 三层服务 + 单一 MySQL（Docker 容器 `ruoyi-mysql` :3307）。文件层级：

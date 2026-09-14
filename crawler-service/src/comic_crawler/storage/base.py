@@ -45,6 +45,21 @@ class Storage(ABC):
     def upsert_chapter(self, comic_id: int, chapter: ChapterBrief) -> tuple[int, bool]:
         """写入/更新章节，返回 (chapter_id, is_new)。"""
 
+    def upsert_chapters(
+        self, comic_id: int, chapters: list[ChapterBrief]
+    ) -> list[tuple[int, bool]]:
+        """**一次**写入多章，返回与入参**同序**的 `[(chapter_id, is_new), ...]`。
+
+        为什么要有批量版：采集收录 / 补章 / 按需导入都是"一次拿到一批章节"，
+        逐章调 `upsert_chapter` 会变成「N 次查询 + **N 次建连接**」——
+        存储层每个方法各建一条连接，按需导入 100 话就是约 100 次连接开销，
+        正属于「代价随数据量线性增长」的写法（见 AGENTS.md「硬性约定·性能」）。
+
+        **默认实现**：逐章委托 `upsert_chapter`（保持契约向后兼容，实现方按需覆写）。
+        `MySQLStorage` 覆写为只建**一条连接**的批量版本（连接是 autocommit，逐条语句各自提交）。
+        """
+        return [self.upsert_chapter(comic_id, c) for c in chapters]
+
     @abstractmethod
     def upsert_pages(self, chapter_id: int, pages: list[PageInfo]) -> int:
         """写入分页图片（按 chapter_id 先清后插），返回页数。"""
@@ -123,6 +138,19 @@ class Storage(ABC):
     @abstractmethod
     def get_comic(self, comic_id: int) -> dict | None:
         """作品详情。"""
+
+    @abstractmethod
+    def get_comics_by_ids(self, comic_ids: list[int]) -> dict[int, dict]:
+        """**一次**取多部作品的行（投影同 `get_comic`）→ `{comic_id: row}`。
+
+        为什么单独提供：收藏 / 历史等"先拿到一批 id 再取作品"的列表接口，逐条调
+        `get_comic` 会造成 N+1（每次调用都新建连接），与 `get_comic_tags_bulk` 同一理由。
+        **不保证顺序**，也不为不存在的 id 补占位 —— 调用方按自己的 id 顺序取用。
+        """
+
+    @abstractmethod
+    def get_comic_source(self, comic_id: int) -> str | None:
+        """作品的收录源（None = 不存在）。用于「同一部作品只记首个收录源」的判定。"""
 
     @abstractmethod
     def get_chapters(self, comic_id: int) -> list[dict]:

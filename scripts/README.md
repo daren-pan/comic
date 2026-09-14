@@ -62,3 +62,7 @@ build/deploy/
 > 日常开发请**不要**用这里的启动脚本，改用热重载：
 > `cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --port 8000`
 > 以及 `cd comic-web && npm run dev`（5173，带 HMR）。
+>
+> **前置依赖**：数据库在 Docker 容器 `ruoyi-mysql`（`127.0.0.1:3307`，**不是**本机 3306）。
+> 起服务前先确认 Docker Desktop 已运行、`docker ps` 中 `ruoyi-mysql` 为 `Up`，否则后端连不上库。
+> 日志统一写根 `logs/`（`api.log` / `vite.log`）。

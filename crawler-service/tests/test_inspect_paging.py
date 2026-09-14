@@ -83,6 +83,12 @@ class PagingStorage(Storage):
     def get_page_context(self, chapter_id: int, page_no: int):
         return None
 
+    def get_comics_by_ids(self, comic_ids: list[int]) -> dict:
+        return {}
+
+    def get_comic_source(self, comic_id: int):
+        return None
+
     def upsert_comic(self, detail, fingerprint: str):
         return 0, True
 
