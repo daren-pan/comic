@@ -97,7 +97,12 @@ def _search_one(name: str, keyword: str, limit: int) -> list[dict]:
         items = [_to_item(name, b) for b in briefs]
     except Exception as exc:
         # 单源失败静默降级：前端仍能看到站内结果与其他源的结果
-        logger.warning("源站搜索失败 source=%s keyword=%s: %s", name, keyword, exc)
+        logger.warning(
+            "源站搜索失败 source=%s keyword=%s: %s", name, keyword, exc,
+            extra={"log_fields": {
+                "event": "search.fail", "source": name, "reason": str(exc),
+            }},
+        )
         return []
     with _SEARCH_LOCK:
         if len(_SEARCH_CACHE) >= _SEARCH_MAX_ENTRIES:
@@ -190,11 +195,23 @@ def ensure_chapter_pages(chapter_id: int) -> int:
         if pages:
             db.upsert_pages(chapter_id, pages)
             logger.info(
-                "读时登记页清单 chapter_id=%s source=%s 共 %d 页", chapter_id, source, len(pages)
+                "读时登记页清单 chapter_id=%s source=%s 共 %d 页",
+                chapter_id, source, len(pages),
+                extra={"log_fields": {
+                    "event": "read.pages", "source": source,
+                    "comic_id": comic.get("id"), "comic_title": comic.get("title") or "",
+                    "chapter_id": chapter_id, "chapter_title": chapter.get("title") or "",
+                    "pages": len(pages),
+                }},
             )
         return len(pages)
     except Exception as exc:
-        logger.warning("读时登记页清单失败 chapter_id=%s: %s", chapter_id, exc)
+        logger.warning(
+            "读时登记页清单失败 chapter_id=%s: %s", chapter_id, exc,
+            extra={"log_fields": {
+                "event": "read.fail", "chapter_id": chapter_id, "reason": str(exc),
+            }},
+        )
         return 0
 
 
@@ -209,7 +226,13 @@ def fetch_page_online(chapter_id: int, page_no: int) -> bytes | None:
     try:
         return fetch_page_bytes(db, admin_image_store(), row, adapter_provider=create_adapter)
     except Exception as exc:
-        logger.warning("穿透取图失败 chapter=%s page=%s: %s", chapter_id, page_no, exc)
+        logger.warning(
+            "穿透取图失败 chapter=%s page=%s: %s", chapter_id, page_no, exc,
+            extra={"log_fields": {
+                "event": "read.fail", "chapter_id": chapter_id,
+                "pages": 1, "reason": str(exc),
+            }},
+        )
         return None
 
 

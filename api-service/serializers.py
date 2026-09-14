@@ -81,3 +81,4 @@ def user_out(user) -> dict:
         "nickname": user["nickname"] or user["username"],
         "createdAt": user["created_at"],
     }
+

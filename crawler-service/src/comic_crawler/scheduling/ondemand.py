@@ -189,7 +189,13 @@ def import_comic(
         adapter.source_name, brief.source_comic_id
     )
     chapters = len(storage.get_chapters(comic_id)) if comic_id else 0
-    logger.info("按需导入完成 comic_id=%s「%s」章节 %d", comic_id, detail.title, chapters)
+    logger.info(
+        "按需导入完成 comic_id=%s「%s」章节 %d", comic_id, detail.title, chapters,
+        extra={"log_fields": {
+            "event": "import.done", "source": adapter.source_name,
+            "comic_id": comic_id, "comic_title": detail.title, "pages": chapters,
+        }},
+    )
 
     return {
         "comicId": comic_id,

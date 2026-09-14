@@ -28,3 +28,7 @@ DIST_DIR = APP_DIR / "dist" if (APP_DIR / "dist").is_dir() else ROOT / "comic-we
 
 # 管理台「数据源开关」状态的持久化文件（重启不丢）
 SOURCE_STATE_FILE = APP_DIR / "source_state.json"
+
+# 运行日志目录：采集 / 转存 / 巡检的明细都写在这里，管理台「日志」弹窗读的就是同一份文件
+# （见 services/logs.py；文件名由启动命令的重定向决定，约定为 api.log）
+LOG_DIR = ROOT / "logs"

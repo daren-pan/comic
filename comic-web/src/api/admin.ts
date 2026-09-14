@@ -1,8 +1,15 @@
 // 采集管理接口（运维控制台）—— 无需登录，本地演示
 // 职责：列出数据源 / 开关采集 / 手动触发采集（增量|全量 + since/limit）/
 //      手动触发懒转存（source/since/until/limit）/
-//      手动触发失效巡检（source/since/until）/ 查询后台任务状态。
-import type { AdminTask, SourceInfo } from '../types'
+//      手动触发失效巡检（source/since/until）/ 查询后台任务状态 / 读取运行日志末尾。
+import type {
+  AdminTask,
+  LogOptions,
+  LogQuery,
+  LogQueryResult,
+  LogRecord,
+  SourceInfo,
+} from '../types'
 import { request } from './request'
 
 /**
@@ -84,4 +91,37 @@ export function getAdminTask(taskId: string): Promise<AdminTask> {
  */
 export function getAdminTasks(): Promise<AdminTask[]> {
   return request<AdminTask[]>('/api/admin/tasks')
+}
+
+/**
+ * 查询运行日志（`log_record` 表）—— 按级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / 时间窗筛。
+ * 日志由后端 logging Handler 在打日志时自动落库，所以内容与 `logs/api.log` 里的业务日志一致。
+ * @see GET /api/admin/logs
+ */
+export function getLogRecords(params: LogQuery): Promise<LogQueryResult> {
+  return request<LogQueryResult>('/api/admin/logs', { params })
+}
+
+/**
+ * 单条日志详情（含异常堆栈全文；列表接口不带堆栈）
+ * @see GET /api/admin/logs/{id}
+ */
+export function getLogDetail(id: number): Promise<LogRecord> {
+  return request<LogRecord>(`/api/admin/logs/${id}`)
+}
+
+/**
+ * 日志查询页的筛选候选值（级别 / 事件类型）
+ * @see GET /api/admin/logs/options
+ */
+export function getLogOptions(): Promise<LogOptions> {
+  return request<LogOptions>('/api/admin/logs/options')
+}
+
+/**
+ * 删除 N 天前的日志（保留策略的手动入口；后端不做自动清理）
+ * @see POST /api/admin/logs/purge
+ */
+export function purgeLogs(days: number): Promise<{ deleted: number }> {
+  return request('/api/admin/logs/purge', { method: 'POST', params: { days } })
 }

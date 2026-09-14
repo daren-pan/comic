@@ -125,3 +125,38 @@ CREATE TABLE IF NOT EXISTS history (
     KEY idx_user_read (user_id, read_at),
     CONSTRAINT fk_hist_comic FOREIGN KEY (comic_id) REFERENCES comic(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ---------------------------------------------------------------------------
+-- 运行日志（逐条落库）。与 sync_log 的分工：sync_log 是**任务级统计**（每源每次跑一行汇总），
+-- 本表是**逐条日志**，给管理台「日志查询」页按条件筛（级别/源站/作品/章节/任务/时间/关键字）。
+-- 写入方：`comic_crawler.storage.mysql.log_handler`（后台线程 + 批量 executemany，
+-- 不是每条一次连接 —— 见 AGENTS.md「硬性约定·性能」）；读取方：api-service 的 services/logs.py。
+-- 前 5 个「通用字段」所有日志都有；其后是业务字段，由调用方通过
+-- `extra={"log_fields": {...}}` 提供（拿不到就留空，不影响入库）。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS log_record (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    -- 时间用 DATETIME（项目约定时间列一律 DATETIME）；同秒多条靠 id 兜底排序
+    created_at DATETIME NOT NULL,
+    level VARCHAR(8) NOT NULL DEFAULT '',
+    logger VARCHAR(64) NOT NULL DEFAULT '',
+    message TEXT,
+    task_id VARCHAR(64) NOT NULL DEFAULT '',
+    task_type VARCHAR(16) NOT NULL DEFAULT '',
+    exc_type VARCHAR(64) NOT NULL DEFAULT '',
+    exc_text TEXT,
+    source VARCHAR(64) NOT NULL DEFAULT '',
+    comic_id INT NULL,
+    comic_title VARCHAR(255) NOT NULL DEFAULT '',
+    chapter_id INT NULL,
+    chapter_title VARCHAR(255) NOT NULL DEFAULT '',
+    endpoint VARCHAR(255) NOT NULL DEFAULT '',
+    pages INT NULL,
+    reason VARCHAR(255) NOT NULL DEFAULT '',
+    event VARCHAR(32) NOT NULL DEFAULT '',
+    KEY idx_log_created (created_at),
+    KEY idx_log_level_created (level, created_at),
+    KEY idx_log_source_created (source, created_at),
+    KEY idx_log_task (task_id),
+    KEY idx_log_comic (comic_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

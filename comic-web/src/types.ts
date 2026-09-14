@@ -103,6 +103,54 @@ export interface AdminTask {
   finishedAt: string | null
 }
 
+/** 运行日志（`log_record` 表）—— 管理台「日志查询」页 */
+export interface LogRecord {
+  id: number
+  createdAt: string
+  level: string
+  logger: string
+  message: string
+  taskId: string
+  taskType: string
+  excType: string
+  source: string
+  comicId: number | null
+  comicTitle: string
+  chapterId: number | null
+  chapterTitle: string
+  endpoint: string
+  pages: number | null
+  reason: string
+  event: string
+  excText?: string       // 只有详情接口带（列表接口不带堆栈全文）
+}
+
+export interface LogQuery {
+  level?: string
+  source?: string
+  event?: string
+  taskId?: string
+  comicId?: number | null
+  keyword?: string
+  since?: string         // yyyy-MM-dd
+  until?: string         // yyyy-MM-dd（含当天）
+  page?: number
+  pageSize?: number
+}
+
+export interface LogQueryResult {
+  items: LogRecord[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/** 日志查询页的筛选候选值 */
+export interface LogOptions {
+  levels: string[]
+  events: string[]
+}
+
 // ---------------- 源站搜索 / 按需导入 ----------------
 export interface SourceSearchItem {
   source: string

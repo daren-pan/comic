@@ -209,6 +209,10 @@ class ZaimanhuaAdapter(CrawlerAdapter):
         cache[key] = urls
         return urls or None
 
+    def chapter_api_path(self, comic_id: str, chapter_id: str) -> str:
+        """重拉页地址时实际调用的源站接口（**仅供日志「接口」列**，便于一眼定位失败来源）。"""
+        return f"{BASE}{API_CHAPTER.format(cid=comic_id, chid=chapter_id)}"
+
     # ------------------------------------------------------------------
     # 按需导入：关键词搜索 + 作品引用解析（只读，均不写库）
     # ------------------------------------------------------------------

@@ -364,8 +364,8 @@ class MySQLStorage(Storage):
             with conn.cursor() as cur:
                 cur.execute(
                     f"""SELECT p.id AS page_id, p.page_no, p.source_url, p.oss_url, p.cached_status,
-                              c.comic_id, c.id AS chapter_id, c.source_chapter_id,
-                              co.source, co.source_comic_id
+                              c.comic_id, c.id AS chapter_id, c.source_chapter_id, c.title AS chapter_title,
+                              co.source, co.source_comic_id, co.title AS comic_title
                        FROM page p
                        JOIN chapter c ON p.chapter_id = c.id
                        JOIN comic co ON c.comic_id = co.id
@@ -567,13 +567,17 @@ class MySQLStorage(Storage):
                 return list(cur.fetchall())
 
     def get_page_context(self, chapter_id: int, page_no: int) -> dict | None:
-        """单页 + 所属章节/作品上下文（穿透取图用，避免逐张图再查 chapter/comic）。"""
+        """单页 + 所属章节/作品上下文（穿透取图用，避免逐张图再查 chapter/comic）。
+
+        除 id / URL / 状态外还带 **comic_title 与 chapter_title** —— 失败日志要能直接写出
+        「哪部作品哪一话」，否则只有 page_id 根本定位不到（见 images/transfer 的失败日志格式）。
+        """
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """SELECT p.id AS page_id, p.page_no, p.source_url, p.oss_url, p.cached_status,
-                              c.id AS comic_id, c.source, c.source_comic_id,
-                              ch.id AS chapter_id, ch.source_chapter_id
+                              c.id AS comic_id, c.source, c.source_comic_id, c.title AS comic_title,
+                              ch.id AS chapter_id, ch.source_chapter_id, ch.title AS chapter_title
                        FROM page p
                        JOIN chapter ch ON p.chapter_id = ch.id
                        JOIN comic c ON ch.comic_id = c.id

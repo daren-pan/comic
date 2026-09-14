@@ -97,7 +97,10 @@ def inspect_sync(
         if len(rows) < SCAN_BATCH:
             break
 
-    logger.info("失效巡检完成: %s", stats)
+    logger.info(
+        "失效巡检完成: %s", stats,
+        extra={"log_fields": {"event": "inspect.done", "source": source or ""}},
+    )
     return stats
 
 
@@ -160,7 +163,10 @@ def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> di
         try:
             adapter.pre_fetch()
         except Exception:
-            logger.exception("封面自愈 pre_fetch 失败 source=%s", src)
+            logger.exception(
+                "封面自愈 pre_fetch 失败 source=%s", src,
+                extra={"log_fields": {"event": "inspect.fail", "source": src}},
+            )
         try:
             for row in srows:
                 url = _refetch_cover_url(adapter, row)
@@ -175,9 +181,15 @@ def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> di
             try:
                 adapter.post_fetch()
             except Exception:
-                logger.exception("封面自愈 post_fetch 失败 source=%s", src)
+                logger.exception(
+                    "封面自愈 post_fetch 失败 source=%s", src,
+                    extra={"log_fields": {"event": "inspect.fail", "source": src}},
+                )
 
-    logger.info("封面自愈完成: %s", stats)
+    logger.info(
+        "封面自愈完成: %s", stats,
+        extra={"log_fields": {"event": "cover.heal", "pages": stats.get("healed", 0)}},
+    )
     return stats
 
 
@@ -194,6 +206,14 @@ def _refetch_cover_url(adapter: CrawlerAdapter, row: dict) -> str:
         detail = adapter.fetch_comic_detail(brief)
         return detail.cover_url or ""
     except Exception:
-        logger.warning("封面回源失败 comic_id=%s source=%s", row.get("id"), row.get("source"), exc_info=True)
+        logger.warning(
+            "封面回源失败 comic_id=%s source=%s", row.get("id"), row.get("source"),
+            exc_info=True,
+            extra={"log_fields": {
+                "event": "cover.heal", "source": row.get("source"),
+                "comic_id": row.get("id"), "comic_title": row.get("title") or "",
+                "reason": "封面回源失败",
+            }},
+        )
         return ""
 

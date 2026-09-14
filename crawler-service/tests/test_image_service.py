@@ -202,5 +202,89 @@ class TestLazyTransferRefresh(unittest.TestCase):
         self.assertEqual(stats["transferred"], 1)
 
 
+class _NoRefreshAdapter:
+    """不支持重拉的适配器（没有 fetch_source_page_urls）。"""
+
+    source_name = "fake"
+
+
+class TestFailureLogFormat(unittest.TestCase):
+    """失败日志格式：`源 | 接口 | 漫画 | 章节 | 页数 | 原因`，且**同章同原因只写一行**。
+
+    背景：原先只写 `page_id=xxx source=xxx` —— 光看日志定位不到是哪部作品哪一话；
+    而一话几十页往往同原因一起失败，逐页写会刷出几十条重复行
+    （线上实测：99 条失败其实只有 4 个章节）。
+    """
+
+    def setUp(self) -> None:
+        self.store = FakeImageStore()
+
+    def _rows(self, count: int, **over) -> list[dict]:
+        return [
+            _row(page_id=i, page_no=i, source_url=f"https://img.x/p{i}.jpg?t={PAST}", **over)
+            for i in range(1, count + 1)
+        ]
+
+    def _run(self, rows: list[dict], adapter=None) -> dict:
+        def dl(url: str, key: str) -> bytes:
+            raise RuntimeError("boom")  # 一律下载失败 → 走重拉分支
+
+        return lazy_transfer(
+            FakeStorage(rows),
+            self.store,
+            downloader=dl,
+            adapter_provider=(lambda name: adapter) if adapter is not None else None,
+        )
+
+    def _fail_lines(self, rows: list[dict], adapter=None) -> list[str]:
+        with self.assertLogs("comic_crawler.images.transfer", level="WARNING") as cm:
+            self._run(rows, adapter)
+        return [m for m in cm.output if "转存失败" in m]
+
+    def test_one_line_per_chapter_with_all_columns(self):
+        """5 页同章失败 → 只 1 行，且六列齐全。"""
+        ad = FakeAdapter([])  # 重拉返回空 = 源站侧无内容
+        ad.chapter_api_path = lambda cid, chid: f"/api/chapter/{cid}/{chid}"
+        lines = self._fail_lines(self._rows(5, comic_title="午夜心旋律", chapter_title="第03话"), ad)
+
+        self.assertEqual(len(lines), 1)  # ← 关键：不是 5 行
+        for piece in (
+            "fake",                              # 源
+            "/api/chapter/100/200",              # 接口
+            "《午夜心旋律》",                      # 漫画
+            "第03话",                             # 章节
+            "5 页（第 1~5 页）",                   # 页数
+            "重拉返回 0 页（源站侧无内容）",         # 原因
+        ):
+            self.assertIn(piece, lines[0])
+
+    def test_falls_back_to_ids_and_dash_without_titles(self):
+        """行里没有标题（旧数据/其他调用方）→ 退回用 id，接口缺失显示 `-`。"""
+        lines = self._fail_lines(self._rows(2), FakeAdapter([]))
+        self.assertIn("《comic#10》", lines[0])
+        self.assertIn("chapter#20", lines[0])
+        self.assertIn(" | - | ", lines[0])
+
+    def test_reason_says_unsupported_source(self):
+        lines = self._fail_lines(self._rows(1), _NoRefreshAdapter())
+        self.assertIn("该源不支持重拉", lines[0])
+
+    def test_reason_says_not_enough_pages(self):
+        """重拉拿到了清单但页数不够（要第 3 页，只有 1 页）→ 明确说出来。"""
+        row = _row(page_no=3, source_url=f"https://img.x/p.jpg?t={PAST}")
+        lines = self._fail_lines([row], FakeAdapter(["https://img.x/only.jpg"]))
+        self.assertIn("重拉只返回 1 页，不足第 3 页", lines[0])
+
+    def test_different_chapters_get_separate_lines(self):
+        """不同章节各写一行（不会把整部作品糊成一条）。"""
+        rows = self._rows(2, comic_title="午夜心旋律", chapter_title="第03话")
+        rows += [
+            _row(page_id=9, page_no=1, source_url=f"https://img.x/q.jpg?t={PAST}",
+                 chapter_id=21, chapter_title="第14话", comic_title="午夜心旋律")
+        ]
+        lines = self._fail_lines(rows, FakeAdapter([]))
+        self.assertEqual(len(lines), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

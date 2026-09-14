@@ -12,6 +12,9 @@ import threading
 import time
 from datetime import datetime
 
+from core import config  # noqa: F401  —— 先完成 sys.path 引导（使 comic_crawler 可导入）
+from comic_crawler import logctx
+
 _logger = logging.getLogger("comic.admin")
 
 _TASKS: dict[str, dict] = {}
@@ -39,6 +42,9 @@ def run_task(task_id: str, task_type: str, fn) -> None:
     }
 
     def _runner():
+        # 把「当前任务」绑到本线程的日志上下文：之后这个线程里打的日志都会自动带上
+        # task_id / task_type，落到 log_record 表供管理台「按任务查」（见 comic_crawler.logctx）
+        logctx.bind_task(task_id, task_type)
         try:
             result = fn()
             _TASKS[task_id].update(
@@ -46,7 +52,10 @@ def run_task(task_id: str, task_type: str, fn) -> None:
                 finishedAt=datetime.now().isoformat(timespec="seconds"),
             )
         except Exception as exc:
-            _logger.exception("后台任务 %s 失败", task_id)
+            _logger.exception(
+                "后台任务 %s 失败", task_id,
+                extra={"log_fields": {"event": "task.fail"}},
+            )
             _TASKS[task_id].update(
                 status="failed", message=str(exc), result=None,
                 finishedAt=datetime.now().isoformat(timespec="seconds"),

@@ -107,6 +107,8 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 
 **表结构约定**（DDL 见 `sql/mysql_schema.sql`）：
 
+- **运行日志**（`log_record`）：逐条落库，由 `storage/mysql/log_handler.py`（logging Handler，后台线程 + 批量 `executemany`）写入，供 api-service 的「日志查询」页筛；与 `sync_log`（任务级统计）分工不同，后者保留。
+
 - **时间列一律用 `DATETIME`**：`chapter/comic.sync_time`、`comic.addtime`、`sync_log.started_at`/`finished_at`、`favorite.created_at`、`history.read_at`、`user.created_at`。**不要用 `VARCHAR` 存 ISO 串**——字符串比较/排序/时区语义都是坑（2026-09-10 已由 `varchar(32)` 统一迁移为 `DATETIME`，写入侧 `_now()` 直接给 `datetime`）；
 - 标签走 `tag` + `comic_tag` 关联表（`comic.category` 保留源站原始串）；
 - 封面 / 分页图只存**图库内相对 key**（`covers/26.jpg`、`comic/26/34/001.jpg`）；

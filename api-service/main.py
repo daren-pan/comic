@@ -25,7 +25,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from core.config import DIST_DIR  # 必须最先导入：内部完成 sys.path 引导
+from core.logging_setup import setup as setup_logging
 from routers import admin, auth, public, users
+
+# 日志：自家日志加时间戳 + 轮询/探活接口不进访问日志（见 core/logging_setup.py）
+setup_logging()
 
 app = FastAPI(title="漫阅 Comic API", version="0.1.0")
 app.add_middleware(

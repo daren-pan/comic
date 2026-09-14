@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
@@ -102,23 +103,65 @@ def _url_expired(source_url: str, now: float | None = None) -> bool:
     return expires < (time.time() if now is None else now)
 
 
-def _fresh_url(adapter: object, row: dict) -> str | None:
-    """现场重拉整章 URL，按 page_no 取出这一页的新地址（签名过期时用）。"""
+def _fresh_url(adapter: object, row: dict) -> tuple[str | None, str]:
+    """现场重拉整章 URL，按 page_no 取出这一页 → `(新地址, 失败原因)`。
+
+    失败原因（供日志直接说明"为什么转不了"）：
+    - `该源不支持重拉` / `重拉接口报错（异常类型）` / `重拉返回 0 页（源站侧无内容）`
+      / `重拉只返回 N 页，不足第 M 页`。
+    注意：**不在本函数里写日志**，由调用方汇总成一行（避免逐页刷屏，见 `lazy_transfer`）。
+    """
     fn = getattr(adapter, "fetch_source_page_urls", None)
     if fn is None:
-        return None
+        return None, "该源不支持重拉"
     try:
         urls = fn(row.get("source_comic_id"), row.get("source_chapter_id"))
     except Exception as exc:
-        logger.warning("重拉章节 URL 失败 source=%s: %s", row.get("source"), exc)
-        return None
+        return None, f"重拉接口报错（{type(exc).__name__}: {exc}）"
     if not urls:
-        return None
+        return None, "重拉返回 0 页（源站侧无内容）"
     try:
         no = int(row["page_no"])
     except (TypeError, ValueError):
         no = 1
-    return urls[no - 1] if 1 <= no <= len(urls) else None
+    if not (1 <= no <= len(urls)):
+        return None, f"重拉只返回 {len(urls)} 页，不足第 {no} 页"
+    return urls[no - 1], ""
+
+
+def _endpoint_of(adapter: object | None, row: dict) -> str:
+    """重拉时实际调用的源站章节接口路径（适配器可选用 `chapter_api_path` 提供）。
+
+    适配器没提供时返回空串（日志里显示 `-`）—— 不影响功能，只是少一列定位信息。
+    """
+    fn = getattr(adapter, "chapter_api_path", None)
+    if not callable(fn):
+        return ""
+    try:
+        return str(fn(row.get("source_comic_id"), row.get("source_chapter_id")) or "")
+    except Exception:
+        return ""
+
+
+def _fail_body(row: dict, adapter: object | None, reason: str, count_label: str) -> str:
+    """失败日志正文，固定列序：`源 | 接口 | 漫画 | 章节 | 页数 | 原因`。
+
+    为什么要这么排：原先只写 `page_id=xxx source=xxx`，光看日志**定位不到是哪部作品哪一话**
+    —— 出了 99 条失败也说不清影响面。时间由日志格式器统一加（见 api-service/main.py），
+    故正文里不重复写时间。
+    """
+    comic = str(row.get("comic_title") or f"comic#{row.get('comic_id')}")
+    chapter = str(row.get("chapter_title") or f"chapter#{row.get('chapter_id')}")
+    return " | ".join(
+        [
+            str(row.get("source") or "?"),
+            _endpoint_of(adapter, row) or "-",
+            f"《{comic}》",
+            chapter,
+            count_label,
+            reason,
+        ]
+    )
 
 
 def _build_adapter(adapter_provider: Callable[[str], object] | None, source: str) -> object | None:
@@ -169,11 +212,22 @@ def fetch_page_bytes(
     key = build_image_key(row["comic_id"], row["chapter_id"], row["page_no"])
     adapter = _build_adapter(adapter_provider, str(row.get("source") or ""))
 
-    data = _download_one(row.get("source_url"), key, adapter, row, downloader)
+    data, reason = _download_one(row.get("source_url"), key, adapter, row, downloader)
     if data is None:
         logger.warning(
-            "穿透取图失败 page_id=%s source=%s（URL 过期且无法重拉）",
-            row.get("page_id"), row.get("source"),
+            "穿透取图失败 | %s",
+            _fail_body(row, adapter, reason, f"第 {row.get('page_no')} 页"),
+            extra={"log_fields": {
+                "event": "read.fail",
+                "source": row.get("source"),
+                "comic_id": row.get("comic_id"),
+                "comic_title": row.get("comic_title"),
+                "chapter_id": row.get("chapter_id"),
+                "chapter_title": row.get("chapter_title"),
+                "endpoint": _endpoint_of(adapter, row),
+                "pages": 1,
+                "reason": reason,
+            }},
         )
         return None
 
@@ -192,23 +246,34 @@ def _download_one(
     adapter: object | None,
     row: dict,
     downloader: Callable[[str, str], bytes],
-) -> bytes | None:
-    """单页下载：登记 URL 未过期且域名合规则直接用；否则现场重拉整章再试。"""
-    if url and not _url_expired(url) and _host_allowed(url, adapter):
+) -> tuple[bytes | None, str]:
+    """单页下载 → `(字节, 失败原因)`（成功时原因为空串）。
+
+    未过期且域名合规 → 直接用登记 URL；失败（多为 403，签名被判失效）或已过期
+    → 现场重拉整章让源站重新签发，再试一次。失败原因逐层拼起来交给调用方写日志。
+    """
+    if not url:
+        first = "该页无登记 URL"
+    elif _url_expired(url):
+        first = "登记 URL 已过期"
+    elif not _host_allowed(url, adapter):
+        return None, "登记 URL 不在图床白名单内"
+    else:
         try:
-            return downloader(url, key)
-        except Exception:
-            pass  # 落到重拉分支：多为 403（签名被判失效）
+            return downloader(url, key), ""
+        except Exception as exc:  # 落到重拉分支：多为 403
+            first = f"登记 URL 下载失败（{type(exc).__name__}: {exc}）"
     if adapter is None:
-        return None
-    fresh = _fresh_url(adapter, row)
-    if not fresh or not _host_allowed(fresh, adapter):
-        return None
+        return None, f"{first}；且无重拉能力（适配器不可用）"
+    fresh, why = _fresh_url(adapter, row)
+    if not fresh:
+        return None, f"{first}；{why}"
+    if not _host_allowed(fresh, adapter):
+        return None, f"{first}；重拉地址不在图床白名单内"
     try:
-        return downloader(fresh, key)
+        return downloader(fresh, key), ""
     except Exception as exc:
-        logger.warning("重拉后下载仍失败 page_no=%s: %s", row.get("page_no"), exc)
-        return None
+        return None, f"重拉后下载仍失败（{type(exc).__name__}: {exc}）"
 
 
 def lazy_transfer(
@@ -254,13 +319,30 @@ def lazy_transfer(
                 ad_cache[source] = None
         return ad_cache[source]
 
-    def _try_download(url: str | None, key: str) -> bytes | None:
-        if not url:
-            return None
-        try:
-            return downloader(url, key)
-        except Exception:
-            return None
+    # 失败明细**按「源 / 作品 / 章节 / 原因」聚合**后再写日志：一话失败往往是整话几十页
+    # 一起失败（同一原因），逐页刷屏的话 99 条里看不出是哪部作品哪一话。
+    fails: dict[tuple, dict] = {}
+    lock = threading.Lock()
+
+    def _record_fail(row: dict, adapter: object | None, reason: str) -> None:
+        key = (
+            str(row.get("source") or ""),
+            str(row.get("comic_id")),
+            str(row.get("chapter_id")),
+            reason,
+        )
+        no = row.get("page_no") or 0
+        with lock:
+            rec = fails.get(key)
+            if rec is None:
+                fails[key] = {
+                    "row": row, "adapter": adapter, "reason": reason,
+                    "pages": 1, "min_no": no, "max_no": no,
+                }
+                return
+            rec["pages"] += 1
+            rec["min_no"] = min(rec["min_no"], no)
+            rec["max_no"] = max(rec["max_no"], no)
 
     def _transfer_one(row: dict) -> str:
         """处理单张页：判断过期 -> 下载（必要时现场重拉）-> 写图库/回填状态。
@@ -271,18 +353,11 @@ def lazy_transfer(
         try:
             stats["checked"] += 1
             key = build_image_key(row["comic_id"], row["chapter_id"], row["page_no"])
-            # 1) t 未过期才直接用登记 URL 下载
-            data = None if _url_expired(row.get("source_url") or "") else _try_download(row.get("source_url"), key)
-            # 2) 过期或下载失败 -> 现场重拉兜底
-            if data is None:
-                ad = _adapter(str(row.get("source") or ""))
-                if ad is not None:
-                    data = _try_download(_fresh_url(ad, row), key)
+            ad = _adapter(str(row.get("source") or ""))
+            data, reason = _download_one(row.get("source_url"), key, ad, row, downloader)
             if data is None:
                 stats["failed"] += 1
-                logger.warning(
-                    "转存失败 page_id=%s source=%s（URL 过期且无法重拉）", row["page_id"], row.get("source")
-                )
+                _record_fail(row, ad, reason)
                 return "fail"
             image_store.put(key, data)  # 上传对象；put 返回的 URL 不落库
             # DB 回填图库内相对 key（对象键语义），与机器/项目路径解耦，
@@ -292,7 +367,7 @@ def lazy_transfer(
             return "ok"
         except Exception as exc:
             stats["failed"] += 1
-            logger.warning("转存失败 page_id=%s: %s", row["page_id"], exc)
+            _record_fail(row, None, f"处理异常（{type(exc).__name__}: {exc}）")
             return "fail"
 
     rows = storage.list_uncached_pages(limit=limit, since=since, until=until, source=source)
@@ -302,5 +377,40 @@ def lazy_transfer(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(_transfer_one, rows))
 
-    logger.info("懒转存完成: %s", stats)
+    # 失败明细：每次运行**每章每原因各一行**（不再逐页刷屏）
+    # 同时带上结构化字段（extra）—— 落进 log_record 表后，管理台能按
+    # 作品 / 章节 / 源站 / 原因 直接筛，而不是让人拿关键字去 message 里捞。
+    for rec in fails.values():
+        row = rec["row"]
+        span = (
+            f"{rec['pages']} 页（第 {rec['min_no']}~{rec['max_no']} 页）"
+            if rec["min_no"] != rec["max_no"]
+            else f"{rec['pages']} 页"
+        )
+        logger.warning(
+            "转存失败 | %s",
+            _fail_body(row, rec["adapter"], rec["reason"], span),
+            extra={"log_fields": {
+                "event": "transfer.fail",
+                "source": row.get("source"),
+                "comic_id": row.get("comic_id"),
+                "comic_title": row.get("comic_title"),
+                "chapter_id": row.get("chapter_id"),
+                "chapter_title": row.get("chapter_title"),
+                "endpoint": _endpoint_of(rec["adapter"], row),
+                "pages": rec["pages"],
+                "reason": rec["reason"],
+            }},
+        )
+
+    logger.info(
+        "懒转存完成: %s（失败章节 %d 个）",
+        stats,
+        len(fails),
+        extra={"log_fields": {
+            "event": "transfer.done",
+            "source": source or "",
+            "pages": stats["transferred"],
+        }},
+    )
     return stats

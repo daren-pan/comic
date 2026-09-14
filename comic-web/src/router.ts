@@ -13,6 +13,7 @@ export const router = createRouter({
     { path: '/me', name: 'me', component: () => import('./views/MeView.vue') },
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue') },
     { path: '/admin', name: 'admin', component: () => import('./views/AdminView.vue') },
+    { path: '/admin/logs', name: 'logs', component: () => import('./views/LogsView.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
   scrollBehavior() {

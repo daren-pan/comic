@@ -1,7 +1,8 @@
 """采集管理台接口（运维用，免登录）。
 
 能力：列出数据源 / 开关采集 / 手动触发采集 / 手动触发懒转存（转存完成后自动封面自愈）
-/ 手动触发失效巡检（转存 + 全表校验已转存对象、缺失则恢复）/ 按需导入单部作品。
+/ 手动触发失效巡检（转存 + 全表校验已转存对象、缺失则恢复）/ 按需导入单部作品
+/ 读取运行日志末尾（与 `logs/api.log` 同一份文件，供管理台「日志」弹窗）。
 采集 / 转存 / 巡检 / 导入耗时，统一交给 `services.tasks` 后台线程执行，返回 `taskId` 供前端轮询。
 """
 from __future__ import annotations
@@ -18,7 +19,7 @@ from schemas import (
     AdminSyncBody,
     AdminTransferBody,
 )
-from services import ondemand, sources, tasks
+from services import logs, ondemand, sources, tasks
 from services.images import admin_image_store
 
 from comic_crawler.storage.mysql import MySQLStorage
@@ -150,3 +151,52 @@ def admin_task(task_id: str):
     if not t:
         raise HTTPException(status_code=404, detail="task not found")
     return ok(t)
+
+
+@router.get("/api/admin/logs/options")
+def admin_log_options():
+    """日志查询页的筛选候选值（级别 / 事件类型）。"""
+    return ok(logs.options())
+
+
+@router.post("/api/admin/logs/purge")
+def admin_logs_purge(days: int = 30):
+    """删除 `days` 天前的日志（保留策略的手动入口；默认不做自动清理）。"""
+    return ok({"deleted": logs.purge(days)})
+
+
+@router.get("/api/admin/logs")
+def admin_logs(
+    level: str | None = None,
+    source: str | None = None,
+    event: str | None = None,
+    task_id: str | None = None,
+    comic_id: int | None = None,
+    keyword: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    with_exc: bool = False,
+):
+    """运行日志查询（`log_record` 表）：级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / 时间窗 + 分页。
+
+    日志由 logging Handler 在打日志时自动落库（见 crawler 的 `log_handler`），
+    所以这里查到的就是 api.log 里那些业务日志，只是**能按条件筛**、且不再需要前端轮询。
+    """
+    return ok(
+        logs.query(
+            level=level, source=source, event=event, task_id=task_id, comic_id=comic_id,
+            keyword=keyword, since=since, until=until,
+            page=page, page_size=page_size, with_exc=with_exc,
+        )
+    )
+
+
+@router.get("/api/admin/logs/{log_id}")
+def admin_log_detail(log_id: int):
+    """单条日志（含异常堆栈全文）。"""
+    row = logs.detail(log_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="log not found")
+    return ok(row)

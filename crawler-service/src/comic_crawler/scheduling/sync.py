@@ -68,7 +68,10 @@ def incremental_sync(
         since = datetime.fromisoformat(since) if isinstance(since, str) else since
     else:
         since = watermark
-    logger.info("开始 %s 同步: %s（since=%s limit=%s）", mode, adapter, since, limit)
+    logger.info(
+        "开始 %s 同步: %s（since=%s limit=%s）", mode, adapter, since, limit,
+        extra={"log_fields": {"event": "sync.start", "source": adapter.source_name}},
+    )
 
     adapter.pre_fetch()
     try:
@@ -90,7 +93,13 @@ def incremental_sync(
         adapter.post_fetch()
 
     storage.log_sync(adapter.source_name, mode, stats)
-    logger.info(stats.summary())
+    logger.info(
+        stats.summary(),
+        extra={"log_fields": {
+            "event": "sync.done", "source": stats.source,
+            "pages": stats.new_chapters,
+        }},
+    )
     return stats
 
 
@@ -123,7 +132,13 @@ def _process_batch(
             _upsert_detail(adapter, storage, detail, fp, stats)
         except Exception:
             stats.failed += 1
-            logger.exception("处理漫画 %s 失败", brief.title)
+            logger.exception(
+                "处理漫画 %s 失败", brief.title,
+                extra={"log_fields": {
+                    "event": "sync.fail", "source": adapter.source_name,
+                    "comic_title": brief.title,
+                }},
+            )
     return processed
 
 

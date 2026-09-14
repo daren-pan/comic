@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   getAdminSources,
   toggleAdminSource,
@@ -32,6 +33,13 @@ const inspecting = ref(false)
 
 // 任务结果一律写入全局消息中心（顶栏 🔔 展开可见，离开本页也会继续跟踪到结束）
 const msgStore = useMessageStore()
+const router = useRouter()
+
+// 「采集/转存日志」入口：跳到独立的日志查询页（/#/admin/logs）
+// 日志已落库（log_record 表），查询页支持按级别/源站/事件/作品/任务/时间/关键字筛，故不再需要弹窗轮询
+function openLogs() {
+  router.push('/admin/logs')
+}
 
 function fmtTime(iso: string | null): string {
   if (!iso) return '—'
@@ -135,7 +143,11 @@ onMounted(load)
 
 <template>
   <div>
-    <h2 class="section-title">采集管理</h2>
+    <!-- 标题行：右侧放「采集/转存日志」入口（跳转日志查询页） -->
+    <div class="title-row">
+      <h2 class="section-title">采集管理</h2>
+      <button class="btn ghost" @click="openLogs">📄 采集/转存日志</button>
+    </div>
     <p class="lead">
       手动触发各数据源的采集与懒转存；关闭的源将拒绝触发采集。
       转存会把所选时间范围内的未转存页<b>全部转存</b>（起止留空=全部）。
@@ -229,11 +241,23 @@ onMounted(load)
         </div>
       </div>
     </template>
+
   </div>
 </template>
 
 <style scoped>
-.lead { color: var(--text-2); font-size: 14px; margin: -8px 0 16px; }
+/* 标题行：标题 + 右侧「采集/转存日志」入口（外层间距由本行统一控制，故标题自身 margin 归零） */
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 28px 0 6px;
+}
+.title-row .section-title { margin: 0; }
+.title-row .btn { margin-left: auto; }   /* 按钮靠右，与标题同一行 */
+
+.lead { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
 .lead b { color: var(--primary-dark); }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
@@ -276,4 +300,5 @@ onMounted(load)
 .slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
 .switch input:checked + .slider { background: var(--primary); }
 .switch input:checked + .slider::before { transform: translateX(20px); }
+
 </style>

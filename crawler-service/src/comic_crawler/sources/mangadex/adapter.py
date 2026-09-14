@@ -297,6 +297,10 @@ class MangaDexAdapter(CrawlerAdapter):
         """现场重拉：向 at-home 重新分发整章图片 URL（懒转存重试用）。"""
         return self._at_home_page_urls(source_chapter_id)
 
+    def chapter_api_path(self, comic_id: str, chapter_id: str) -> str:
+        """重拉页地址时实际调用的源站接口（**仅供日志「接口」列**，便于一眼定位失败来源）。"""
+        return f"{API_BASE}/at-home/server/{chapter_id}"
+
     # ------------------------------------------------------------------
     # 按需导入：标题搜索 + 作品链接解析（只读，均不写库）
     # ------------------------------------------------------------------

@@ -30,6 +30,7 @@ api-service/
 │   ├── config.py       #   路径常量 + sys.path 引导（必须最先导入）
 │   ├── db.py           #   存储句柄单例：db（漫画侧）/ users（用户中心）
 │   ├── security.py     #   认证：bcrypt + JWT + get_current_user 依赖
+│   ├── logging_setup.py #   日志初始化：自家日志加时间戳 + 轮询/探活接口不进访问日志
 │   └── responses.py    #   统一响应 ok() = {code, message, data}
 ├── schemas.py          # 请求体模型（Pydantic）
 ├── serializers.py      # 领域对象 → 前端驼峰契约（to_comic/to_chapter/to_page/user_out）
@@ -68,6 +69,10 @@ api-service/
 | `POST /api/admin/inspect` | 手动触发**全库**失效巡检，body `{source?, since, until}`（`source` 可选，管理台不传 = 全库），返回 `taskId` | 采集管理控制台 |
 | `POST /api/admin/import` | **按需导入单部作品**，body `{source, keyword?\|ref?\|source_comic_id?}`（三选一定位），返回 `taskId`。与采集相反：收录**榜单之外**的作品、**全量收目录**、**不下载正文图**。失败原因（站内搜不到 / 源站取不到图）写在任务 `message` 里 | 搜索页 / 管理台 |
 | `GET /api/admin/tasks[/{task_id}]` | 后台任务状态轮询（running/done/failed + 结果统计） | 采集管理控制台 |
+| `GET /api/admin/logs` | **运行日志查询**（`log_record` 表）：级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / `since`·`until`（含当天）+ 分页 | 管理台「日志查询」页 |
+| `GET /api/admin/logs/{id}` | 单条日志（含异常堆栈全文；列表接口不带） | 同上（点开某行） |
+| `GET /api/admin/logs/options` | 筛选候选值（级别 / 事件类型） | 同上 |
+| `POST /api/admin/logs/purge?days=` | 删除 N 天前的日志（保留策略的手动入口） | 同上（「清理 30 天前」） |
 
 > 匿名用户模型：前端首次访问生成 `userId`（localStorage 持久化），收藏与历史按用户隔离；
 > 服务端历史支持**跨浏览器续读**（换设备/浏览器登录同一 userId 即可继续上次阅读）。
