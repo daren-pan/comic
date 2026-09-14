@@ -1,5 +1,5 @@
 ---
-name: add-comic-source
+name: 新增爬虫源
 description: >-
   新增漫画爬虫源的完整接入流程。当用户要"加一个新源/接入新站点/添加爬虫源"
   时触发。覆盖：建子包、写 adapter、注册、声明能力、写 README、验证。

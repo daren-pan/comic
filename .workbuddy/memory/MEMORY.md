@@ -1,6 +1,6 @@
 # 项目长期备忘（comic 聚合平台）
 
-> 只放架构骨架 / 模块边界 / 常用命令。细节见各模块 README、`docs/` 或 `add-comic-source` 技能。日志写 `.workbuddy/memory/YYYY-MM-DD.md`。
+> 只放架构骨架 / 模块边界 / 常用命令。细节见各模块 README、`docs/` 或 `新增爬虫源` 技能。日志写 `.workbuddy/memory/YYYY-MM-DD.md`。
 
 ## 架构总览
 三层服务 + 单一 MySQL（Docker 容器 `ruoyi-mysql` :3307）。文件层级：
@@ -29,7 +29,7 @@ comic/
 ```
 
 ## 模块边界
-- **源站接入**：`sources/{name}/` 4 件套自包含；新增源详见 `add-comic-source` 技能。已接入 zaimanhua（主源）/ mangadex / weebcentral。
+- **源站接入**：`sources/{name}/` 4 件套自包含；新增源详见 `新增爬虫源` 技能。已接入 zaimanhua（主源）/ mangadex / weebcentral。
 - **存储**：唯一 MySQL；增量 = 时间窗口。
 - **图库**：唯一 `images.store.default_store_root()`，引用只存相对 key。
 - **按需导入 / 管理台**：逻辑集中 `api-service/services/ondemand.py`；管理台 `/api/admin/*`，前端 `/#/admin` 免登录。
