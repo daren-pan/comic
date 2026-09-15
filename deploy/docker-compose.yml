@@ -82,11 +82,10 @@ services:
     build:
       context: ./api
     restart: unless-stopped
-    # 密钥放 deploy/.env（已 gitignore）。required:false —— 文件缺失也能起，
-    # 但 x-app-env 里的 ${...:?} 守卫会明确指出缺哪个变量，不会静默用上演示默认值。
-    env_file:
-      - path: ./.env
-        required: false
+    # 密钥**不通过 env_file 注入**：compose 会自动读取同目录的 `deploy/.env`（已 gitignore）做
+    # 变量插值，`x-app-env` 里的 `${...:?}` 守卫保证缺了就报错、不会静默用上演示默认值。
+    # 用 env_file 的副作用是把 .env 里的**所有**键塞进容器 —— 包括本容器根本不需要的
+    # `MYSQL_ROOT_PASSWORD` / `MYSQL_HOST_PORT` / `HTTP_PORT`（多一份口令副本，且语义含糊）。
     environment: *app-env
     volumes:
       # 整个 /data bind 到宿主的**运行时数据目录**（默认 ../crawler-service/data，与本地直跑
@@ -127,9 +126,6 @@ services:
     build:
       context: ./crawler
     restart: unless-stopped
-    env_file:
-      - path: ./.env
-        required: false
     environment: *app-env
     volumes:
       # 与 app 是**同一个宿主目录**（转存写、接口读，必须同源）
