@@ -7,6 +7,7 @@
 |---|---|---|
 | [`architecture.md`](architecture.md) | 总体架构设计方案：模块划分、数据模型、存储约定、页面布局 | 全局 |
 | [`auth.md`](auth.md) | 登录认证原理速查：JWT + bcrypt、收藏/历史鉴权边界 | `api-service/core/security.py` · `routers/auth.py` |
+| [`deploy.md`](deploy.md) | **上线部署（后端）**：打包产出、环境变量、建库、起进程、上线前必做清单、为什么当前只能单进程 | `scripts/package.sh` · `api-service/core/config.py` |
 
 > 各服务的使用说明见 `crawler-service/README.md` / `api-service/README.md` / `comic-web/README.md`。
 

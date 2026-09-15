@@ -1,8 +1,11 @@
 @echo off
 rem ============================================================
+rem  Local dev: start site on :8000 reading the MySQL comic database
+rem  (use the Docker setup under deploy/ for production).
+rem ============================================================
 rem  Start site on :8000 reading the MySQL comic database (唯·存储方案).
-rem  Requires: local/remote MySQL reachable (see crawler-service
-rem  README for COMIC_MYSQL_* env overrides, default 3307/root/password)
+rem  Requires: DB container up (宿主 127.0.0.1:3309; 参数自动读 deploy\.env,
+rem  override with COMIC_MYSQL_* -- see crawler-service README)
 rem ============================================================
 chcp 65001 >nul
 cd /d "%~dp0..\api-service"

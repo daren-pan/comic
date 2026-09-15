@@ -31,7 +31,7 @@ from routers import admin, auth, public, users
 # 日志：自家日志加时间戳 + 轮询/探活接口不进访问日志（见 core/logging_setup.py）
 setup_logging()
 
-app = FastAPI(title="漫阅 Comic API", version="0.1.0")
+app = FastAPI(title="漫阅 Comic API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
+# 本地开发用：起站点到 :8000 读 MySQL（**上线走 deploy/ 的 Docker**）
 # Start site on :8000 reading the MySQL comic database (唯·存储方案).
-# Requires: MySQL reachable (default 127.0.0.1:3307 root/password, override with COMIC_MYSQL_*)
+# Requires: DB container up (宿主 127.0.0.1:3309; 参数自动读 deploy/.env, override with COMIC_MYSQL_*)
 set -e
 cd "$(dirname "$0")/../api-service"
 

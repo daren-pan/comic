@@ -6,7 +6,7 @@
 > 每日工作日志写 `.workbuddy/memory/YYYY-MM-DD.md`。
 
 ## 架构总览
-三层服务 + 单一 MySQL（Docker 容器 `ruoyi-mysql` :3307）。文件层级：
+三层服务 + 单一 MySQL（**本项目独占的 MySQL 8.0 实例**，Docker 容器 `comic-mysql`：宿主 `127.0.0.1:3309` / 编排内网 `comic-mysql:3306`）。文件层级：
 
 ```
 comic/
@@ -33,14 +33,17 @@ comic/
 
 ## 模块边界
 - **源站接入**：`sources/{name}/` 4 件套自包含；新增源详见 `新增爬虫源` 技能。已接入 zaimanhua（主源）/ mangadex / weebcentral。
-- **存储**：唯一 MySQL；增量 = 时间窗口。
-- **图库**：唯一 `images.store.default_store_root()`，引用只存相对 key。
+- **存储**：唯一 MySQL —— **本项目独占一个实例**（`comic-mysql`，8.0），不与别的系统共库；增量 = 时间窗口。连接参数取值顺序：环境变量 → `deploy/.env` → 默认值（本地开发免配，读的就是 compose 那份同一个文件）。
+- **图库 / 运行时数据**：唯一真源 `comic_crawler.paths.DATA_ROOT`（= `<服务根>/data`，默认 `crawler-service/data`），
+  里面是 `data/image_store`（图库，引用只存相对 key）与 `data/source_state.json`（管理台源开关状态）。
+  **容器把整个 `/data` bind 到同一个宿主目录**，所以本地直跑与 Docker 读写的是同一批文件（不会出现两份图库互相看不见）。
 - **按需导入 / 管理台**：逻辑集中 `api-service/services/ondemand.py`；管理台 `/api/admin/*`，前端 `/#/admin` 免登录。
 - **标签**：写入侧归一（`taxonomy.py` + `data/tag_synonyms.json`），查询侧零翻译。
 - **源归属**：同一部作品只记**首个收录源**，不记录第二个源（章节归属由 `comic.source` 推导，`chapter` 表无 source 列）。详见 `docs/architecture.md` §2.3。
 
 ## 常用命令
-- **启动前**：确认 Docker Desktop 运行、`ruoyi-mysql` Up（`docker ps`）。
+- **分工**：**本地开发 = 宿主直跑**（uvicorn + Vite，快、有热重载，见下）；**上线 = Docker Compose**（`deploy/`，见 `docs/deploy.md`）。
+- **启动前**：确认 Docker Desktop 运行、`comic-mysql` Up（`docker ps`）—— 本地开发直连宿主 `127.0.0.1:3309`，连接参数由 `deploy/.env` 兜底提供，无需手工导出环境变量。
 - **后端**：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 >> ../logs/api.log 2>&1`
 - **前端**：`cd comic-web && npm run dev`（:5173，HMR；开发不 build，发布才 `npm run build` → `comic-web/dist`）
 - **停止**：TaskStop / Ctrl+C。禁用 `taskkill //IM python.exe`。

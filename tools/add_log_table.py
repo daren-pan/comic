@@ -14,7 +14,7 @@
 
 用法（在 comic 仓库根目录）：
     cd crawler-service && PYTHONPATH=src python ../tools/add_log_table.py
-连接参数用环境变量 `COMIC_MYSQL_*` 覆盖（默认 127.0.0.1:3307）。
+连接参数用环境变量 `COMIC_MYSQL_*` 覆盖（默认兜底读仓库根 `deploy/.env`：宿主 `127.0.0.1:3309`）。
 """
 
 from __future__ import annotations

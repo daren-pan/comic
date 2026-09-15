@@ -1,0 +1,31 @@
+# 采集层打包描述（相当于 Java 那边的 pom.xml）
+#
+# 产物：python -m pip wheel --no-deps -w dist .
+#       → dist/comic_crawler-<版本>-py3-none-any.whl
+# 镜像里 `pip install` 这个 whl 即可（见 deploy/crawler/Dockerfile）。
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comic-crawler"
+version = "1.0.0"
+description = "漫画聚合平台 · 采集服务（源站适配 / 存储 / 调度 / 图库）"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27",
+    "parsel>=1.9",
+    "pymysql>=1.1",
+    "cryptography>=42",   # MySQL 8.0 的 caching_sha2_password 认证（PyMySQL 需要）
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["comic_crawler*"]
+
+# ⚠️ 词表必须随包分发：taxonomy.py 用 `Path(__file__).with_name("data")` 读它，
+#    漏掉会直接 FileNotFoundError（不是降级，是崩）。
+# 其余非 .py 文件**故意不带** —— 各源 README.md 是文档、guazi/fixtures/*.html 是测试夹具，
+# 都不属于运行产物；guazi/ 没有 __init__.py，setuptools 本就不会把它当包收进来。
+[tool.setuptools.package-data]
+comic_crawler = ["data/*.json"]

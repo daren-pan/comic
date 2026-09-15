@@ -1,0 +1,25 @@
+# crawler 模块 —— 采集层（可单独用：docker run --rm comic-crawler:1.0.0 python -m comic_crawler.cli list）
+# 产物：deploy/build.sh 用 crawler-service/pyproject.toml 构建 wheel 到本目录 dist/
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# wheel 装进 site-packages 后，包位置的相对推导不再指向本项目 → 图库根必须显式给
+ENV COMIC_IMAGE_ROOT=/data/image_store
+
+WORKDIR /app
+
+# PIP_INDEX 可换源（国内/慢网）：--build-arg PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_INDEX=https://pypi.org/simple
+COPY dist/ /tmp/wheels/
+RUN pip install --no-cache-dir --index-url "$PIP_INDEX" "$(ls -t /tmp/wheels/*.whl | head -1)"
+
+# 非 root 运行；/data 先建好并改属主 —— 命名卷首次创建会继承镜像里该路径的属主，
+# 否则以 uid 10001 运行的进程写不进去（表现为图库落不了盘）
+RUN useradd -m -u 10001 comic \
+ && mkdir -p /data/image_store \
+ && chown -R comic:comic /data
+
+USER comic

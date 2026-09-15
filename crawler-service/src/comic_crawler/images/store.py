@@ -61,12 +61,13 @@ def default_store_root() -> Path:
     """图库根目录的**唯一真源**（写入端与读取端必须一致）。
 
     优先级：env `COMIC_IMAGE_ROOT`（**必须是绝对路径、且非哨兵值**）> `paths.IMAGE_STORE_ROOT`
-    （服务根下 image_store）。env 值不合法时**告警并回落默认根**，见 `_env_store_root()`。
+    （服务根下 `data/image_store`，见 `paths.IMAGE_STORE_ROOT`）。env 值不合法时**告警并回落默认根**，
+    见 `_env_store_root()`。
 
-    刻意**不**提供「相对进程 cwd 的 image_store」兜底：那种解析会随启动目录漂移
-    —— api-service 里以 cwd=api-service 起 uvicorn 时，封面被写到 api-service/image_store，
-    而转存走显式 root 写到 crawler-service/image_store，读取端又只认其中一个，
-    于是 DB 里 oss_url 有值、文件也确实落了盘，接口却读不到、只能返回占位图。
+      刻意**不**提供「相对进程 cwd 的 image_store」兜底：那种解析会随启动目录漂移
+      —— api-service 里以 cwd=api-service 起 uvicorn 时，封面被写到 `api-service/image_store`，
+      而转存走显式 root 写到 `crawler-service/data/image_store`，读取端又只认其中一个，
+      于是 DB 里 oss_url 有值、文件也确实落了盘，接口却读不到、只能返回占位图。
     """
     env_root = _env_store_root()
     return env_root if env_root is not None else IMAGE_STORE_ROOT

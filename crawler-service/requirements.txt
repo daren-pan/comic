@@ -1,3 +1,7 @@
 httpx>=0.27
 parsel>=1.9
 pymysql>=1.1
+# MySQL 8.0 的默认认证插件是 caching_sha2_password：PyMySQL 没有它会在握手时报
+# "cryptography package is required for sha256_password or caching_sha2_password"。
+# 留在这里而不是改用 mysql_native_password，是因为后者在 8.0 已废弃、8.4 移除。
+cryptography>=42

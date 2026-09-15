@@ -7,8 +7,8 @@ Windows（`.bat`）与 Unix（`.sh`）各一份，内容等价。
 
 | 脚本 | 作用 | 说明 |
 |---|---|---|
-| `init_mysql.bat` / `.sh` | 按 `crawler-service/sql/mysql_schema.sql` 初始化 `comic` 库 | 幂等（`CREATE DATABASE IF NOT EXISTS`），**但会 DROP 重建表 → 会清空现有数据** |
-| `start_mysql.bat` / `.sh` | 启动站点到 `:8000`（读 MySQL） | 依赖 MySQL 可达，连接参数用 `COMIC_MYSQL_*` 覆盖（默认 127.0.0.1:3307） |
+| `init_mysql.bat` / `.sh` | 按 `crawler-service/sql/mysql_schema.sql` 建库建表 | 一般**不用跑**：本项目独占的 `comic-mysql` 容器首次启动会自动建。脚本幂等且**不含 `DROP`、不会清空数据**；口令自动读 `deploy/.env` |
+| `start_mysql.bat` / `.sh` | 本地开发：启动站点到 `:8000`（读 MySQL） | 依赖数据库容器 `comic-mysql` 可达（默认 `127.0.0.1:3309`，参数自动读 `deploy/.env`） |
 | `check.bat` / `.sh` | **一键自检**：crawler 单测 + api 分层守卫 + 前端 `tsc --noEmit` | 提交前跑一次；可软链进 `.git/hooks/pre-commit` 自动拦截 |
 | `package.bat` / `.sh` | **打包部署产物**到 `build/deploy`（部署时才生成，不入库） | 需要先 `npm run build` 出 `comic-web/dist` |
 
@@ -59,10 +59,10 @@ build/deploy/
 ./scripts/package.sh /tmp/dist   # 打包到指定目录
 ```
 
-> 日常开发请**不要**用这里的启动脚本，改用热重载：
-> `cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --port 8000`
-> 以及 `cd comic-web && npm run dev`（5173，带 HMR）。
+> **分工**：本地开发用这两个脚本（或直接热重载：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --port 8000`，
+> 以及 `cd comic-web && npm run dev`（5173，带 HMR））；**上线用 `deploy/` 的 Docker 编排**。
 >
-> **前置依赖**：数据库在 Docker 容器 `ruoyi-mysql`（`127.0.0.1:3307`，**不是**本机 3306）。
-> 起服务前先确认 Docker Desktop 已运行、`docker ps` 中 `ruoyi-mysql` 为 `Up`，否则后端连不上库。
+> **前置依赖**：数据库在 Docker 容器 `comic-mysql`（**本项目独占实例**，宿主 `127.0.0.1:3309`；
+> **不是**本机 3306，也不是别的系统占着的 3307）。起服务前先确认 Docker Desktop 已运行、
+> `docker ps` 中 `comic-mysql` 为 `Up`，否则后端连不上库。
 > 日志统一写根 `logs/`（`api.log` / `vite.log`）。

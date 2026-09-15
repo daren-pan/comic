@@ -18,8 +18,19 @@ PKG_DIR = Path(__file__).resolve().parent        # .../comic_crawler
 SRC_DIR = PKG_DIR.parent                         # .../src
 SERVICE_ROOT = SRC_DIR.parent                   # crawler-service/ 或 <bundle>/
 
+# 运行时数据根目录（**本地直跑与容器必须落在同一处** —— 见下），里面是"可变数据"：
+#     data/image_store/        图库
+#     data/source_state.json   管理台「数据源开关」状态（api 侧 COMIC_STATE_FILE 的默认值）
+# 为什么要有这一层：容器部署时整个 /data 会 bind 到这个目录，于是"本地直跑"与"Docker 里跑"
+# 读写的是**同一批文件**；否则同一台机器上会出现两份图库，本地转存的图容器读不到（反之亦然），
+# 只能靠"记得同步"维持，而项目在数据库上已经吃过一次这种亏（见 AGENTS.md 硬性约定）。
+DATA_ROOT = SERVICE_ROOT / "data"
+
 # 图库（本地模拟 OSS）默认根目录；env COMIC_IMAGE_ROOT 可覆盖，见 images.store
-IMAGE_STORE_ROOT = SERVICE_ROOT / "image_store"
+IMAGE_STORE_ROOT = DATA_ROOT / "image_store"
+
+# 管理台「数据源开关」状态文件的默认位置；api 侧 env COMIC_STATE_FILE 可覆盖
+SOURCE_STATE_FILE = DATA_ROOT / "source_state.json"
 
 # 仓库根（仅开发态有意义：用于定位 fixtures 等仓库内资源，打包态不依赖它）
 REPO_ROOT = SERVICE_ROOT.parent

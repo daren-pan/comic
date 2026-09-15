@@ -10,7 +10,8 @@
 python -m pip install -r requirements.txt
 
 # 前置：先构建前端（仓库不带 dist，clone 后请先 cd comic-web && npm install && npm run build）
-#       本机 MySQL 需可用（默认 127.0.0.1:3307 / root / password，连接参数见 crawler-service/README.md「存储」），
+#       数据库容器需在跑（docker compose -f deploy/docker-compose.yml up -d comic-mysql；
+#       本项目独占实例，连接参数自动读 deploy/.env —— 见 crawler-service/README.md「存储」），
 #       仓库不带数据文件，请先在 crawler-service 目录执行 cli run 采集入库
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
@@ -100,7 +101,7 @@ api-service/
 
 面向本机运维的采集控制台（前端 `/#/admin`，无需登录）。采集/懒转存耗时，故用**后台线程执行 + 前端轮询**（`_run_admin_task`），触发后立即返回 `taskId`，再轮询 `GET /api/admin/tasks/{id}` 取结果。
 
-- **按源开关**：`POST /api/admin/sources/{name}/toggle` 切换某源采集启用状态，持久化到 `api-service/source_state.json`（默认读 `config.SOURCES.enabled`）；关闭的源拒绝触发采集（400）。
+- **按源开关**：`POST /api/admin/sources/{name}/toggle` 切换某源采集启用状态，持久化到 `paths.SOURCE_STATE_FILE`（= `crawler-service/data/source_state.json`，与图库同一个运行时数据目录；容器内是 bind 过来的 `/data/source_state.json`），重启不丢（默认读 `config.SOURCES.enabled`）；关闭的源拒绝触发采集（400）。
 - **触发采集**：`POST /api/admin/sync`，`since`（ISO，起始日期）**优先于上次同步水位**——留空按水位、填了按填的日期回补/前移；`limit` 限制本次收录数量（受控样本）。
 - **触发懒转存**：`POST /api/admin/transfer`，`source` 只转存指定源、`since/until` 按章节 `sync_time`（DATETIME）窗口过滤——**语义是把窗口内所有未转存页全部转存**；边界**双端含**（`until` 只给日期时**含当天全天**）；`limit` 为可选兜底阀门（留空/≤0 = 不限制）。**转存完成后自动附带封面自愈**（无需单独按钮，见下）。
 - **触发失效巡检**：`POST /api/admin/inspect`，body `{source, since, until}`。与「转存」的区别：转存只做「未转存 → 转存」；巡检在此基础上**再多做一步「已转存对象校验 + 丢失恢复」**，因此能发现图库文件被误删/写错目录的情况。校验按 `id` **键集分页遍历全表**（每次 1000 条 + 游标推进，**不会被固定条数截断**），`source` 同时限定校验范围；结果摘要为 `校验 N | 转存 N | 恢复 N | 失效 N`。**管理台只提供「全库」一个入口**（页面顶部一块面板，不随源卡片复制）；`source` 是可选参数，供 CLI / 脚本做单源巡检。

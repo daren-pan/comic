@@ -1,0 +1,35 @@
+# 接口层打包描述（相当于 Java 那边的 pom.xml）
+#
+# 产物：python -m pip wheel --no-deps -w dist .
+#       → dist/comic_api-<版本>-py3-none-any.whl
+# 镜像里 `pip install` 这个 whl 即可（见 deploy/api/Dockerfile）。
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comic-api"
+version = "1.0.0"
+description = "漫画聚合平台 · 接口服务（FastAPI，同源托管前端）"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "pymysql>=1.1",
+    "cryptography>=42",   # MySQL 8.0 的 caching_sha2_password 认证（PyMySQL 需要）
+    "bcrypt>=4.0",
+    "PyJWT>=2.8",
+]
+
+# api-service 是"应用目录"而不是可导入包：main.py / core/ / routers/ / services/ / schemas.py /
+# serializers.py 都是**顶层名**。所以这里声明为顶层模块 + 顶层包，装进镜像的 site-packages 后
+# `python -m uvicorn main:app` 直接可跑（容器是专用环境，不存在命名冲突）。
+#
+# 副作用要记住：core/config.py 里那套"从自身位置推路径"会指向 site-packages，
+# 因此镜像里显式给了 COMIC_DIST_DIR 与 COMIC_STATE_FILE —— 见 deploy/api/Dockerfile。
+[tool.setuptools]
+py-modules = ["main", "schemas", "serializers"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "routers*", "services*"]

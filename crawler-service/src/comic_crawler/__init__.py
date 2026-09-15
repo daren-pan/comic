@@ -27,4 +27,4 @@ PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua
 ```
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

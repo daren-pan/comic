@@ -61,7 +61,7 @@ $2b$12$  NSIuNmCBrNdd9hdU1r3Rmu  msPzM7.jLMEXRkB8MetJzhtNK67jjK2
 ## 2. 用户唯一性：`username NOT NULL UNIQUE`
 
 ### 2.1 为什么同名不存在
-user 表建表语句（`crawler-service/sql/mysql_schema.sql`，MySQL 5.7）：
+user 表建表语句（`crawler-service/sql/mysql_schema.sql`）：
 
 ```sql
 CREATE TABLE IF NOT EXISTS user (

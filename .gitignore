@@ -48,6 +48,16 @@ _zmh_probe/
 .workbuddy/memory/*
 !.workbuddy/memory/MEMORY.md
 
+# ---- 部署配置（含密钥，只入库示例文件）----
+deploy/.env
+
+# ---- 部署产物（由 deploy/build.sh 生成，不入库）----
+#   crawler/api = 构建出的 wheel；web = 前端 dist 的复制品
+deploy/api/dist/
+deploy/crawler/dist/
+deploy/mysql/sql/
+deploy/web/dist/
+
 # ---- 编辑器 / 系统 ----
 .idea/
 .vscode/

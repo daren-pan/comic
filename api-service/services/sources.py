@@ -1,7 +1,8 @@
 """数据源开关状态与元信息。
 
 开关的**默认值**来自 `comic_crawler.sources.SOURCES[].enabled`；管理台的覆盖态
-持久化到 `config.SOURCE_STATE_FILE`（`api-service/source_state.json`），重启不丢。
+持久化到 `config.SOURCE_STATE_FILE`（默认 `crawler-service/data/source_state.json` —— 与图库同一个
+运行时数据目录；容器内是 bind 过来的 `/data/source_state.json`），重启不丢。
 """
 from __future__ import annotations
 

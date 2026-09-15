@@ -8,17 +8,69 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from pymysql.cursors import DictCursor
 
 logger = logging.getLogger(__name__)
 
+# ---------------- 连接参数 ----------------
+# 取值顺序：**环境变量 → 仓库根的 `deploy/.env` → 默认值**。
+# 容器部署由 compose 注入环境变量；本地开发没有环境变量，就兜底读 `deploy/.env`
+# —— 与 compose 读的是**同一个文件**，所以"本地开发连的库"和"线上连的库"永远是同一个
+# （曾出现两套库并存、排序规则/数据不一致的排查成本极高，故刻意收敛到一处配置源）。
+_CONFIG_FILE = "deploy/.env"
+#  .env 里的键名与 compose 保持一致：宿主端口复用 MYSQL_HOST_PORT、口令复用 MYSQL_ROOT_PASSWORD
+_FILE_KEYS = {
+    "COMIC_MYSQL_HOST": ("COMIC_MYSQL_HOST",),
+    "COMIC_MYSQL_PORT": ("COMIC_MYSQL_PORT", "MYSQL_HOST_PORT"),
+    "COMIC_MYSQL_USER": ("COMIC_MYSQL_USER",),
+    "COMIC_MYSQL_PASSWORD": ("COMIC_MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"),
+    "COMIC_MYSQL_DB": ("COMIC_MYSQL_DB",),
+}
+
+
+def _read_config_file() -> dict[str, str]:
+    """向上查找并解析仓库根的 `deploy/.env`（.gitignore 已忽略）。
+
+    容器/发布包里没有这个文件 → 返回空字典，完全走环境变量（生产形态不受影响）。
+    """
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / _CONFIG_FILE
+        if not candidate.is_file():
+            continue
+        values: dict[str, str] = {}
+        for raw in candidate.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            values[key.strip()] = val.strip().strip('"').strip("'")
+        return values
+    return {}
+
+
+_FILE_ENV = _read_config_file()
+
+
+def _cfg(name: str, default: str = "") -> str:
+    """环境变量 → deploy/.env（含 compose 的等价键）→ 默认值。"""
+    if os.environ.get(name):
+        return os.environ[name]
+    for key in _FILE_KEYS.get(name, (name,)):
+        if _FILE_ENV.get(key):
+            return _FILE_ENV[key]
+    return default
+
+
 _DSN = {
-    "host": os.environ.get("COMIC_MYSQL_HOST", "127.0.0.1"),
-    "port": int(os.environ.get("COMIC_MYSQL_PORT", "3307")),
-    "user": os.environ.get("COMIC_MYSQL_USER", "root"),
-    "password": os.environ.get("COMIC_MYSQL_PASSWORD", "password"),
-    "database": os.environ.get("COMIC_MYSQL_DB", "comic"),
+    "host": _cfg("COMIC_MYSQL_HOST", "127.0.0.1"),
+    # 本项目独占实例的宿主端口（app 在容器内走编排内网 3306，见 deploy/docker-compose.yml）
+    "port": int(_cfg("COMIC_MYSQL_PORT", "3309")),
+    "user": _cfg("COMIC_MYSQL_USER", "root"),
+    # 无默认口令：宁愿连接失败报错，也不要静默连上一个"碰巧能用"的库
+    "password": _cfg("COMIC_MYSQL_PASSWORD"),
+    "database": _cfg("COMIC_MYSQL_DB", "comic"),
     "charset": "utf8mb4",
     "cursorclass": DictCursor,
     "autocommit": True,

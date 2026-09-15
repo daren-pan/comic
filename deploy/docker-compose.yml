@@ -1,0 +1,174 @@
+# 漫画聚合平台 —— 生产编排（Linux）
+#
+# 目录结构（每个模块一个文件夹，产物与 Dockerfile 放在一起）：
+#   deploy/web/      前端产物 dist/            -> comic-web:1.0.0
+#   deploy/crawler/  采集层 wheel              -> comic-crawler:1.0.0（可单独当 CLI 镜像用）
+#   deploy/api/      接口层 wheel（FROM 采集层）-> comic-api:1.0.0
+#   deploy/nginx/    反代 nginx.conf           -> comic-nginx:1.0.0
+#   deploy/mysql/    自带数据库 Dockerfile      -> comic-mysql:1.0.0（本项目独占的库）
+#
+# 快速开始：
+#   cp deploy/.env.example deploy/.env     # 然后编辑：MYSQL_ROOT_PASSWORD + COMIC_JWT_SECRET
+#   cd comic-web && npm run build          # 前端产物（deploy/build.sh 会把它复制进 deploy/web/）
+#   ./deploy/build.sh                      # 生成产物 + 按序构建 5 个镜像（Windows: deploy\build.bat）
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# 服务名与容器名一致、且都带 comic- 前缀（comic-mysql / comic-app / comic-nginx / comic-scheduler），
+# 所以 `docker compose exec comic-app ...` 与 `docker exec comic-app ...` 指的是同一个容器；
+# 宿主端口由 .env 的 HTTP_PORT 控制（默认 80）—— 被别的程序占了就改它。
+#
+# 常用命令：
+#   docker compose -f deploy/docker-compose.yml logs -f comic-app        # 看后端日志
+#   docker compose -f deploy/docker-compose.yml ps                 # 状态
+#   docker compose -f deploy/docker-compose.yml exec comic-app bash      # 进容器（跑迁移脚本等）
+#   docker compose -f deploy/docker-compose.yml exec comic-nginx nginx -t # 校验反代配置（运行期才可解析 app）
+#   docker compose -f deploy/docker-compose.yml --profile collect up -d   # 额外启动定时采集
+#   docker compose -f deploy/docker-compose.yml down               # 停（卷保留，数据不丢）
+name: comic
+
+# 公共片段：app 与 scheduler 用同一镜像、同一份数据卷与数据库配置
+x-app-env: &app-env
+  # 数据库：本项目**独占**的实例（服务名 mysql），走编排内网直连，不经过宿主端口
+  COMIC_MYSQL_HOST: ${COMIC_MYSQL_HOST:-comic-mysql}
+  COMIC_MYSQL_PORT: ${COMIC_MYSQL_PORT:-3306}
+  COMIC_MYSQL_DB: ${COMIC_MYSQL_DB:-comic}
+  COMIC_MYSQL_USER: root
+  # 口令跟随上面那个库（只填一处，避免两处不一致）
+  COMIC_MYSQL_PASSWORD: ${COMIC_MYSQL_PASSWORD:-${MYSQL_ROOT_PASSWORD:?deploy/.env 里必须设置 MYSQL_ROOT_PASSWORD}}
+  # 必须显式提供：程序内有演示用默认值，不设就等于 token 可被伪造
+  COMIC_JWT_SECRET: ${COMIC_JWT_SECRET:?deploy/.env 里必须设置 COMIC_JWT_SECRET}
+  # 图库与「数据源开关」状态都放在**宿主的运行时数据目录**里（下面的 /data 就 bind 到它）。
+  # 这样"本地直跑 uvicorn"与"Docker 里跑"读写的是**同一批文件** —— 不会出现两份图库互相看不见
+  # （本地转存的图容器读不到、反之亦然），也不必靠"记得同步"维持一致。
+  COMIC_IMAGE_ROOT: /data/image_store
+  COMIC_STATE_FILE: /data/source_state.json
+
+services:
+  # ---------------- 数据库（本项目独占一个实例，不与别的系统共用）----------------
+  # 首次启动自动执行建库脚本（烘在镜像里）→ 10 张表直接建好，无需手工跑 SQL。
+  # 数据在 mysql_data 卷里；⚠️ 改 MYSQL_ROOT_PASSWORD 只对**新卷**生效（见 .env.example）。
+  comic-mysql:
+    container_name: comic-mysql
+    image: comic-mysql:1.0.0
+    build:
+      context: ./mysql
+    restart: unless-stopped
+    environment:
+      # 默认 password：简单口令 + **靠网络层限制来源**（云安全组 / 防火墙只放行需要的来源）。
+      # 要让数据库端口对公网开放的话，请换成强随机值。
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
+      MYSQL_DATABASE: ${COMIC_MYSQL_DB:-comic}
+    # 宿主端口 3309（避开 3307 上的其它系统），仅给 Navicat/IDEA 从本机连用；
+    # comic-app 走编排内网连 comic-mysql:3306，不经过这里。
+    ports: ["${MYSQL_BIND:-0.0.0.0}:${MYSQL_HOST_PORT:-3309}:3306"]
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # 建库脚本已烘进镜像（deploy/mysql/sql/ → /docker-entrypoint-initdb.d/），不挂宿主文件
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks: [backend]
+
+  # ---------------- 应用（API + 同源托管前端）----------------
+  comic-app:
+    # 镜像由 deploy/build.sh 按依赖顺序构建（web → crawler → api）；这里同时写上
+    # image + build，是为了"单独重建某一层"时也能用 `docker compose build comic-app`。
+    # 但**全量重建请用 deploy/build.sh** —— api 依赖另外两个镜像，冒烟式乱序构建会拿到旧层。
+    image: comic-api:1.0.0
+    container_name: comic-app
+    build:
+      context: ./api
+    restart: unless-stopped
+    # 密钥放 deploy/.env（已 gitignore）。required:false —— 文件缺失也能起，
+    # 但 x-app-env 里的 ${...:?} 守卫会明确指出缺哪个变量，不会静默用上演示默认值。
+    env_file:
+      - path: ./.env
+        required: false
+    environment: *app-env
+    volumes:
+      # 整个 /data bind 到宿主的**运行时数据目录**（默认 ../crawler-service/data，与本地直跑
+      # 的默认值就是同一个目录）。服务器请在 .env 里把 COMIC_DATA_HOST 指到仓库外的独立盘
+      # （如 /srv/comic/data）—— 别放仓库里，重新 clone / 重新部署会丢；且目录需可写
+      # （容器内进程是 uid 10001，见 deploy/README.md「几个不显然的点」）。
+      - ${COMIC_DATA_HOST:-../crawler-service/data}:/data
+    depends_on:
+      comic-mysql:
+        condition: service_healthy
+    networks: [backend, frontend]
+    # 默认只在编排网络内暴露（经 nginx 访问）。想在本机直连调试再打开这行：
+    # ports: ["127.0.0.1:8000:8000"]
+
+  # ---------------- 反向代理（nginx）----------------
+  comic-nginx:
+    image: comic-nginx:1.0.0
+    container_name: comic-nginx
+    build:
+      context: ./nginx
+    restart: unless-stopped
+    ports: ["${HTTP_PORT:-80}:80"]   # 宿主端口可配：80 被别的程序占了就设 HTTP_PORT=8080；HTTPS 再加 "443:443"
+    # 站点配置已烘进镜像（见 deploy/nginx/Dockerfile）—— 改配置就重建这一层，可版本化/回滚。
+    # 启用 HTTPS 时再加证书挂载：
+    # volumes:
+    #   - /etc/letsencrypt:/etc/nginx/certs:ro
+    depends_on: [comic-app]
+    networks: [frontend]
+
+  # ---------------- 定时采集（可选，默认不启动）----------------
+  # 用 --profile collect 才会起；不需要定时采集就永远不用它（可以在管理台手动触发）。
+  # ⚠️ 注意：调度器读的是**代码里的** SOURCES[].enabled，不读管理台那个开关文件 ——
+  #    在管理台关掉的源，这里仍会采集（已知差异，见 docs/deploy.md §9）。
+  comic-scheduler:
+    profiles: [collect]
+    image: comic-crawler:1.0.0   # 直接用采集层镜像（不含 HTTP 层）
+    container_name: comic-scheduler
+    build:
+      context: ./crawler
+    restart: unless-stopped
+    env_file:
+      - path: ./.env
+        required: false
+    environment: *app-env
+    volumes:
+      # 与 app 是**同一个宿主目录**（转存写、接口读，必须同源）
+      - ${COMIC_DATA_HOST:-../crawler-service/data}:/data
+    command:
+      - python
+      - -m
+      - comic_crawler.cli
+      - serve
+      - --interval
+      - ${COLLECT_INTERVAL:-900}
+    depends_on:
+      comic-mysql:
+        condition: service_healthy
+    networks: [backend]
+
+volumes:
+  mysql_data:    # 本项目独占的数据库
+
+networks:
+  backend:       # comic-app / comic-scheduler ↔ comic-mysql
+  frontend:      # comic-nginx ↔ comic-app
+
+# ---------------------------------------------------------------
+# 数据库：本项目**独占一个 MySQL 实例**（comic-mysql 容器），不与别的系统共用。
+#
+#   · 起停：docker compose -f deploy/docker-compose.yml up -d     # 会一并起 mysql
+#   · 首次启动自动建表：建库脚本烘在镜像里（deploy/mysql/），数据卷为空时自动执行 →
+#     10 张表直接建好，不需要手工跑任何 SQL。
+#   · 连法：comic-app 走编排内网 `comic-mysql:3306`；宿主端口 3309 只是给 Navicat/IDEA 从本机连用。
+#   · 数据在 mysql_data 卷里，`down` 不会删卷；备份 = mysqldump + 卷快照。
+#   · 图库与源开关状态**不在卷里** —— 在宿主目录（bind 到容器 /data，默认 `crawler-service/data`），
+#     本地直跑与容器共用同一份。备份/迁移就针对这一个目录。
+#   · ⚠️ 别和别的系统共用一个 MySQL 实例：库、账号、权限、备份策略都会互相牵连
+#     （本项目曾与 RuoYi 共用 3307，出现过"别的项目建的表/库混进来"这类问题）。独立实例最省心。
+#
+#   库升级（加表 / 加索引）：用 tools/ 下的迁移脚本，在 app 容器里跑
+#        docker compose -f deploy/docker-compose.yml exec comic-app python tools/add_log_table.py
+#
+#   要连宿主机上**别的** MySQL（不推荐）：覆盖 .env 里的 COMIC_MYSQL_HOST/PORT/PASSWORD 三项，
+#   并给 app/scheduler 加回 extra_hosts（host.docker.internal:host-gateway）。
+# ---------------------------------------------------------------

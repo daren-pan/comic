@@ -2,8 +2,8 @@
 
 用法：
     python -m comic_crawler.cli run --source zaimanhua [--mode incremental|full]
-    python -m comic_crawler.cli transfer-images [--store image_store]
-    python -m comic_crawler.cli inspect [--store image_store] [--source <name>] [--since ISO] [--until ISO]
+    python -m comic_crawler.cli transfer-images [--store <图库目录>]
+    python -m comic_crawler.cli inspect [--store <图库目录>] [--source <name>] [--since ISO] [--until ISO]
     python -m comic_crawler.cli list          # 列出已注册的源站适配器
     python -m comic_crawler.cli show          # 展示库内数据
 

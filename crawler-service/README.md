@@ -88,13 +88,16 @@ PYTHONPATH=src python -m comic_crawler.cli serve
 `Storage` 抽象作为类型契约保留（架构方案 §3.1「抽象可替换」的落地）。
 
 ```bash
-# 0. 前置：本机 MySQL 可用（默认连 127.0.0.1:3307，兼容 RuoYi-Cloud 的 docker mysql）
-#    连接参数可用环境变量覆盖：
-#    COMIC_MYSQL_HOST / COMIC_MYSQL_PORT / COMIC_MYSQL_USER / COMIC_MYSQL_PASSWORD / COMIC_MYSQL_DB
+# 0. 前置：数据库容器在跑（本项目**独占**实例，MySQL 8.0，宿主 127.0.0.1:3309）
+docker compose -f ../deploy/docker-compose.yml up -d comic-mysql
+#    连接参数取值顺序：环境变量 → 仓库根 deploy/.env → 默认值
+#    本地开发**无需手工导出**，直接读 deploy/.env 里的 MYSQL_ROOT_PASSWORD / MYSQL_HOST_PORT
+#    （要覆盖：COMIC_MYSQL_HOST / COMIC_MYSQL_PORT / COMIC_MYSQL_USER / COMIC_MYSQL_PASSWORD / COMIC_MYSQL_DB）
 
-# 1. 建库建表（comic 库 + 9 张表，utf8mb4）
-mysql -h127.0.0.1 -P3307 -uroot -p -e "CREATE DATABASE comic DEFAULT CHARACTER SET utf8mb4;"
-mysql -h127.0.0.1 -P3307 -uroot -p comic < sql/mysql_schema.sql
+# 1. 建库建表：**用容器时不需要** —— 数据卷首次初始化会自动执行建库脚本，10 张表直接建好。
+#    只有「连外部 MySQL」才手工建；注意 schema 是纯 DDL、里面**没有 CREATE DATABASE**：
+#      mysql -h<host> -P<port> -uroot -p -e "CREATE DATABASE comic DEFAULT CHARACTER SET utf8mb4;"
+#      mysql -h<host> -P<port> -uroot -p comic < sql/mysql_schema.sql
 
 # 2. 采集链路直接写 MySQL（无需迁移）
 PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --limit 3
