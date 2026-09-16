@@ -25,6 +25,7 @@ deploy/
 ├── nginx/      Dockerfile + nginx.conf                  → comic-nginx:1.0.0    反代（配置烘进镜像）
 ├── mysql/      Dockerfile + sql/（建库脚本产物）        → comic-mysql:1.0.0   本项目独占的库（FROM mysql:8.0）
 ├── build.sh / build.bat                                 生成产物 + 按序构建这 5 个镜像
+├── up.sh                                                **一键**：前端 build + 上面这些 + up -d + 自检
 ├── docker-compose.yml                                   编排：comic-mysql + comic-app + comic-nginx
 └── .env.example                                         配置模板（`deploy/.env` 已 gitignore）
 ```
@@ -55,13 +56,24 @@ wheel 里只有包本身与依赖声明：**测试、文档、样例夹具自动
 `sources/*/README.md`、`guazi/fixtures/*.html` 都不在包里），依赖清单也只写一份（`pyproject.toml`）。
 
 ```bash
+# 一条命令干完下面四步（含前置检查与自检）：
+./deploy/up.sh                  # 一键：前端 build + 镜像 build + 起服务 + 自检
+#   ./deploy/up.sh --skip-web    前端没改 → 跳过 npm build（快很多）
+#   ./deploy/up.sh --collect     额外起定时采集 comic-scheduler
+
 cp deploy/.env.example deploy/.env      # 至少改 MYSQL_ROOT_PASSWORD 与 COMIC_JWT_SECRET
 cd comic-web && npm run build           # 前端产物（build.sh 会把它复制进 deploy/web/dist）
 ./deploy/build.sh                       # 构建 wheel/dists + 按序构建 5 个镜像（Windows: deploy\build.bat）
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-> 构建 wheel 需要一个带 `pip` 的 Python 3.10+（默认取 PATH 里的 `python3/python`，可用 `PYTHON=/path/to/python` 指定）。
+> `up.sh` 就是把这四步串起来的**幂等**一键脚本：前置检查 → 前端 build →
+> `build.sh` → `up -d` → 自检（mysql healthy → 容器内 `/api/health` → 数据目录可写 →
+> 对外入口 HTTP 码）。重复跑只是重新构建 + `up -d`，**不会清数据**。
+
+> 构建 wheel 需要一个带 `pip` 的 Python 3.10+（默认取 PATH 里的 `python3/python`，
+> 找不到或那个解释器没有 pip 时**自动回落项目自带的 `crawler-service/.venv`**；
+> 也可用 `PYTHON=/path/to/python` 显式指定）。
 > 它会临时拉 `setuptools` 做构建隔离，首次构建需要网络。
 
 **为什么镜像要按顺序建**：`api` 的 Dockerfile 会 `FROM comic-crawler:1.0.0` 并

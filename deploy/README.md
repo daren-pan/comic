@@ -10,6 +10,7 @@ deploy/
 ├── nginx/     Dockerfile + nginx.conf                → comic-nginx:1.0.0    反代（配置烘进镜像）
 ├── mysql/     Dockerfile + sql/（建库脚本产物）      → comic-mysql:1.0.0    本项目独占的库
 ├── build.sh / build.bat                              生成产物 + 按序构建这 5 个镜像
+├── up.sh                                              **一键**：前端 build + 上面这些 + up -d + 自检
 ├── docker-compose.yml                                编排：comic-mysql + comic-app + comic-nginx
 └── .env.example                                      配置模板（`deploy/.env` 已 gitignore）
 ```
@@ -53,6 +54,19 @@ cd comic-web && npm run build           # 前端产物（build.sh 会把它复�
 ./deploy/build.sh                       # 构建 wheel/dist + 按序构建镜像（Windows: deploy\build.bat）
 docker compose -f deploy/docker-compose.yml up -d
 ```
+
+**或者一条命令干完这一串**（含前置检查与自检）：
+
+```bash
+./deploy/up.sh                 # 一键：前端 build + 镜像 build + 起服务 + 自检
+./deploy/up.sh --skip-web      # 前端没改 → 跳过 npm build（快很多）
+./deploy/up.sh --collect       # 额外起定时采集 comic-scheduler
+```
+
+`up` 依次做五步：**0)** 前置检查（docker / compose v2 / `.env` / 数据目录）→
+**1)** 前端 `npm run build` → **2)** 调 `build.sh`（生成产物 + 按序构建 5 个镜像）→
+**3)** `compose up -d` → **4)** 自检（mysql healthy → 容器内 `/api/health` →
+数据目录可写 → 对外入口 HTTP 码）。**幂等**：重复跑就是重新构建 + `up -d`，不会清数据。
 
 ## 几个不显然的点
 

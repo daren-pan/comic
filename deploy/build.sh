@@ -9,16 +9,18 @@
 #  步骤 2  按依赖顺序构建镜像
 #             mysql → web → crawler → api → nginx
 #
-#  其中 mysql 镜像当前**不被编排使用**（项目复用现有的 MySQL 实例，见 docker-compose.yml
-#  末尾「数据库」），构建它只为"需要一个独立干净的库"时备用 —— 它与被复用的实例同版本
-#  （5.7），且数据卷首次启动时会自动执行我们的建库脚本。
+#  其中 mysql 镜像是本项目**独占**的数据库（MySQL 8.0，见 docker-compose.yml）——数据卷首次
+#  启动时会自动执行烘在镜像里的建库脚本，10 张表直接建好。
 #          （顺序不能乱：api 的 Dockerfile 会 FROM comic-crawler:1.0.0 并 COPY --from=comic-web:1.0.0）
 #
 #  用法：./deploy/build.sh        （Windows: deploy\build.bat）
-#        构建完启动：docker compose -f deploy/docker-compose.yml up -d
+#        —— 一般**不用单独跑它**：一键脚本 `deploy/up.sh` 已经把
+#           「前端 npm build → 本脚本 → compose up -d → 自检」串好了。
+#        单独构建后启动：docker compose -f deploy/docker-compose.yml up -d
 #
-#  依赖：构建 wheel 需要一个带 pip 的 Python 3.10+（默认取 PATH 里的 python3/python，
-#        可用 PYTHON=/path/to/python 覆盖）。构建时 pip 会在临时隔离环境里装 setuptools。
+#  依赖：构建 wheel 需要一个带 pip 的 Python 3.10+（优先取 PATH 里的 python3/python，
+#        找不到或那个解释器没有 pip 时回落项目自带的 crawler-service/.venv；
+#        也可用 PYTHON=/path/to/python 显式指定）。构建时 pip 会在临时隔离环境里装 setuptools。
 # ============================================================
 set -euo pipefail
 
@@ -26,14 +28,29 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY="$ROOT/deploy"
 
 # ---------- 选定 Python 解释器 ----------
+# 优先级：PYTHON -> PATH 里的 python3/python -> 项目自带的 crawler-service/.venv。
+# 最后这条回落是为「PATH 里的 python 装了但没 pip / 是别的用途的解释器」准备的
+# （Windows 上很常见：python 指向 Microsoft Store 的占位程序）；
+# 仓库里的 venv 一定有 pip，所以有它就能开箱跑通。
 PY="${PYTHON:-}"
 if [ -z "$PY" ]; then
   for c in python3 python; do
     command -v "$c" >/dev/null 2>&1 && PY="$c" && break
   done
 fi
-[ -n "$PY" ] || { echo "!! 找不到 python —— 可用 PYTHON=/path/to/python 指定"; exit 1; }
-"$PY" -m pip --version >/dev/null 2>&1 || { echo "!! $PY 里没有可用的 pip"; exit 1; }
+if [ -n "$PY" ] && ! "$PY" -m pip --version >/dev/null 2>&1; then PY=""; fi
+if [ -z "$PY" ]; then
+  for c in "$ROOT/crawler-service/.venv/bin/python3" "$ROOT/crawler-service/.venv/Scripts/python.exe"; do
+    [ -x "$c" ] && "$c" -m pip --version >/dev/null 2>&1 && PY="$c" && break
+  done
+fi
+[ -n "$PY" ] || {
+  echo "!! 找不到带 pip 的 python"
+  echo "   可显式指定：PYTHON=/path/to/python ./deploy/build.sh"
+  echo "   或建一个 venv：python -m venv crawler-service/.venv"
+  exit 1
+}
+echo "   使用 Python: $PY"
 
 copy_tree() {  # copy_tree <源根> <目标目录> <相对路径...>；目标已存在时合并内容而非嵌套
   local src="$1" dest="$2"
@@ -54,7 +71,7 @@ build_wheel() {  # build_wheel <源模块目录> <deploy 子目录>
   #      而 PyPI 上真有个叫 api-service 的第三方包，会静默下回来一个假产物；
   #   2) 输出目录用 `../deploy/...` —— 传 "$ROOT/..." 这种绝对路径时，在 Windows 上可能是
   #      `/d/...` 形式，直接给 pip.exe 会报 `Invalid requirement: Expected package name ...`。
-  ( cd "$ROOT/$src" && "$PY" -m pip wheel --no-deps --wheel-dir "../deploy/$out/dist" . >/dev/null )
+  ( cd "$ROOT/$src" && "$PY" -m pip wheel --disable-pip-version-check --no-deps --wheel-dir "../deploy/$out/dist" . >/dev/null )
 }
 build_wheel crawler-service crawler
 build_wheel api-service     api

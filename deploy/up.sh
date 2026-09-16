@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# ============================================================
+#  一键：构建前后端产物 + 镜像 → 启动整套服务 → 自检
+#
+#  依次做五件事：
+#    0) 前置检查（docker / compose v2 / deploy/.env / 运行时数据目录）
+#    1) 构建前端产物 comic-web/dist（默认 npm run build）
+#    2) 调 deploy/build.sh：生成 wheel、复制前端产物，按序构建 5 个镜像
+#    3) docker compose up -d
+#    4) 自检：mysql 健康 → 容器内接口可用 → 数据目录可写 → 对外入口 HTTP 码
+#
+#  用法：
+#    bash deploy/up.sh                 # 全量：前端 build + 镜像 build + 起服务
+#    bash deploy/up.sh --skip-web      # 前端没改，跳过 npm build（快很多）
+#    bash deploy/up.sh --collect       # 额外启动定时采集（comic-scheduler）
+#    bash deploy/up.sh -h
+#
+#  说明：
+#    · 脚本是**幂等**的 —— 重复跑就是重新构建 + `up -d`，不会清数据；
+#      真正会丢数据的只有 `docker compose down -v`（删数据库卷）与手动删数据目录。
+#    · 前端产物是烘进 comic-api 镜像的（COPY --from=comic-web），所以改前端必须重跑本脚本。
+# ============================================================
+set -euo pipefail
+
+SKIP_WEB=0
+COLLECT=0
+for a in "$@"; do
+  case "$a" in
+    --skip-web) SKIP_WEB=1 ;;
+    --collect)  COLLECT=1 ;;
+    -h|--help)  # 打印文件头那段说明（按内容定位，不写死行号，免得改了头部就漏出正文）
+                awk 'NR==1{next} {sub(/^# ?/,"")} NR>2 && /^=+$/ {print; exit} {print}' "$0"; exit 0 ;;
+    *) echo "!! 未知参数：$a（-h 看用法）" >&2; exit 1 ;;
+  esac
+done
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DEPLOY="$ROOT/deploy"
+cd "$DEPLOY"                      # 之后一律用**相对路径**调 docker/compose
+
+step() { printf '\n== %s\n' "$*"; }
+die()  { printf '!! %s\n' "$*" >&2; exit 1; }
+# ⚠️ 必须用相对路径（`-f docker-compose.yml`）：在 Git Bash 里把 "$DEPLOY/..." 这种
+#    `/d/...` MSYS 路径交给 docker.exe（Windows 程序）会被路径转换搞坏，报
+#    `open D:\d\RuoyiProject\...: The system cannot find the path specified`。
+#    这也是 build.sh 里一律用相对路径的同一个原因。
+compose() { docker compose -f docker-compose.yml "$@"; }
+
+# ---------- 0. 前置检查 ----------
+step "[0/5] 前置检查"
+command -v docker >/dev/null 2>&1 || die "没找到 docker"
+docker compose version >/dev/null 2>&1 \
+  || die "需要 Docker Compose v2（命令形式是 'docker compose'，不是老的独立 'docker-compose'）"
+docker info >/dev/null 2>&1 || die "Docker 守护进程不可用（本机装的是 Docker Desktop 吗？启动它）"
+echo "   docker  : $(docker --version)"
+echo "   compose : $(docker compose version --short 2>/dev/null || docker compose version | head -1)"
+
+if [ ! -f "$DEPLOY/.env" ]; then
+  cp "$DEPLOY/.env.example" "$DEPLOY/.env"
+  echo "   已从 .env.example 生成 deploy/.env"
+  die "请先编辑 deploy/.env：确认 MYSQL_ROOT_PASSWORD，并把 COMIC_JWT_SECRET 换成强随机值，然后重跑本脚本"
+fi
+echo "   deploy/.env 存在 ✅"
+
+# 运行时数据目录（图库 + 源开关状态）：容器 bind 到它，本地直跑用的也是它
+DATA_HOST="$(grep -E '^COMIC_DATA_HOST=' "$DEPLOY/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+DATA_HOST="${DATA_HOST:-}"
+[ -n "$DATA_HOST" ] || DATA_HOST="$ROOT/crawler-service/data"
+mkdir -p "$DATA_HOST/image_store"
+# 以 root 跑（服务器上的常见情形）时顺手把属主设成容器内那个 uid，省掉一次踩坑
+if [ "$(id -u 2>/dev/null || echo 1)" = "0" ]; then
+  chown -R 10001:10001 "$DATA_HOST" 2>/dev/null || true
+fi
+[ -w "$DATA_HOST" ] || die "数据目录不可写：$DATA_HOST
+   容器内进程以 uid 10001 运行，宿主上需执行：sudo chown -R 10001:10001 '$DATA_HOST'"
+echo "   数据目录: $DATA_HOST ✅"
+
+# ---------- 1. 前端 ----------
+step "[1/5] 前端产物"
+if [ "$SKIP_WEB" = "1" ]; then
+  [ -d "$ROOT/comic-web/dist" ] || die "--skip-web 但 comic-web/dist 不存在，去掉该参数重跑"
+  echo "   跳过（--skip-web），复用现有 comic-web/dist"
+else
+  command -v npm >/dev/null 2>&1 || die "没找到 npm —— 构建前端需要 Node.js 18+（只想跳过前端就用 --skip-web）"
+  if [ ! -d "$ROOT/comic-web/node_modules" ]; then
+    echo "   npm install（首次）"
+    ( cd "$ROOT/comic-web" && npm install )
+  fi
+  echo "   npm run build"
+  ( cd "$ROOT/comic-web" && npm run build )
+  [ -d "$ROOT/comic-web/dist" ] || die "前端构建后仍然没有 comic-web/dist"
+fi
+
+# ---------- 2. 产物 + 镜像 ----------
+step "[2/5] 生成 wheel/产物 + 按序构建 5 个镜像（mysql → web → crawler → api → nginx）"
+bash "$DEPLOY/build.sh"
+
+# ---------- 3. 起服务 ----------
+step "[3/5] 启动服务"
+if [ "$COLLECT" = "1" ]; then
+  compose --profile collect up -d
+else
+  compose up -d
+fi
+
+# ---------- 4. 自检 ----------
+step "[4/5] 自检"
+for i in $(seq 1 40); do
+  st="$(docker inspect comic-mysql --format '{{.State.Health.Status}}' 2>/dev/null || echo unknown)"
+  if [ "$st" = "healthy" ]; then
+    echo "   comic-mysql: healthy（第 ${i} 次探测）✅"
+    break
+  fi
+  [ "$i" = "40" ] && die "comic-mysql 迟迟不 healthy —— 看日志：docker compose -f deploy/docker-compose.yml logs comic-mysql"
+  sleep 3
+done
+
+# 应用能否连上库：在容器内打自己的接口（不依赖宿主机有没有 curl）
+if compose exec -T comic-app python -c \
+     "import urllib.request,json;print('   comic-app /api/health →',json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=10))['data'])" 2>/dev/null; then
+  echo "   ✅"
+else
+  die "comic-app 自检失败 —— 看日志：docker compose -f deploy/docker-compose.yml logs comic-app"
+fi
+
+# 数据目录可写性 —— bind 挂载最容易踩的坑（能读不能写，表现为转存落盘失败）
+if compose exec -T comic-app sh -c 'touch /data/image_store/.probe && rm /data/image_store/.probe' 2>/dev/null; then
+  echo "   /data/image_store 容器内可写 ✅"
+else
+  die "容器内写不了 /data/image_store —— 宿主目录属主要给 uid 10001：
+   sudo chown -R 10001:10001 '$DATA_HOST'"
+fi
+
+# 对外入口（宿主有 curl 才验；服务器上一般都有）
+# nginx 在 comic-app 的 uvicorn 真正开始监听前会返回 502，而 `up -d` 早就返回了，
+# 所以要重试几次，而不是刚起来就打一枪。
+PORT="$(grep -E '^HTTP_PORT=' "$DEPLOY/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+PORT="${PORT:-80}"
+if command -v curl >/dev/null 2>&1; then
+  code=""
+  for _ in $(seq 1 12); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$PORT/" 2>/dev/null || true)"
+    case "$code" in
+      000|502|503|504|"") sleep 2 ;;
+      *) break ;;
+    esac
+  done
+  echo "   对外入口 http://127.0.0.1:$PORT/ → HTTP ${code:-无响应}"
+  if [ "$code" = "502" ]; then
+    echo "   ⚠️ 502：nginx 已起，但上游 comic-app 还没就绪 —— 过几秒再试即可"
+  fi
+fi
+
+# ---------- 5. 汇总 ----------
+step "[5/5] 完成"
+compose ps
+cat <<EOF
+
+  入口（宿主 HTTP_PORT=$PORT）
+    站点        http://127.0.0.1:$PORT/
+    采集管理台  http://127.0.0.1:$PORT/#/admin      （免登录，可手动触发采集/转存/巡检）
+    接口文档    http://127.0.0.1:$PORT/docs
+
+  数据位置（备份就这两处）
+    数据库      Docker 卷 comic_mysql_data      （备份：mysqldump）
+    图库/开关   $DATA_HOST
+
+  常用命令
+    日志  docker compose -f deploy/docker-compose.yml logs -f comic-app
+    状态  docker compose -f deploy/docker-compose.yml ps
+    停止  docker compose -f deploy/docker-compose.yml down     # 卷与数据目录都保留
+EOF
