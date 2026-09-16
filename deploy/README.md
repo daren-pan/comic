@@ -61,12 +61,15 @@ docker compose -f deploy/docker-compose.yml up -d
 ./deploy/up.sh                 # 一键：前端 build + 镜像 build + 起服务 + 自检
 ./deploy/up.sh --skip-web      # 前端没改 → 跳过 npm build（快很多）
 ./deploy/up.sh --collect       # 额外起定时采集 comic-scheduler
+./deploy/up.sh --migrate       # 老环境升级：起完后跑一遍幂等迁移脚本（已有库才需要）
 ```
 
 `up` 依次做五步：**0)** 前置检查（docker / compose v2 / `.env` / 数据目录）→
 **1)** 前端 `npm run build` → **2)** 调 `build.sh`（生成产物 + 按序构建 5 个镜像）→
 **3)** `compose up -d` → **4)** 自检（mysql healthy → 容器内 `/api/health` →
 数据目录可写 → 对外入口 HTTP 码）。**幂等**：重复跑就是重新构建 + `up -d`，不会清数据。
+加了 `--migrate` 就在 3 与 4 之间多跑一步"已有库迁移"（`add_log_table` / `add_perf_indexes` /
+`drop_fingerprint_unique`，逐个挂 `../tools` 进容器执行，都是幂等的）。
 
 ## 几个不显然的点
 

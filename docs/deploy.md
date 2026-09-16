@@ -60,6 +60,7 @@ wheel 里只有包本身与依赖声明：**测试、文档、样例夹具自动
 ./deploy/up.sh                  # 一键：前端 build + 镜像 build + 起服务 + 自检
 #   ./deploy/up.sh --skip-web    前端没改 → 跳过 npm build（快很多）
 #   ./deploy/up.sh --collect     额外起定时采集 comic-scheduler
+#   ./deploy/up.sh --migrate     ★ 服务器上**已有旧库**时加上它（跑幂等迁移脚本，见 §5）
 
 cp deploy/.env.example deploy/.env      # 至少改 MYSQL_ROOT_PASSWORD 与 COMIC_JWT_SECRET
 cd comic-web && npm run build           # 前端产物（build.sh 会把它复制进 deploy/web/dist）
@@ -70,6 +71,10 @@ docker compose -f deploy/docker-compose.yml up -d
 > `up.sh` 就是把这四步串起来的**幂等**一键脚本：前置检查 → 前端 build →
 > `build.sh` → `up -d` → 自检（mysql healthy → 容器内 `/api/health` → 数据目录可写 →
 > 对外入口 HTTP 码）。重复跑只是重新构建 + `up -d`，**不会清数据**。
+>
+> ⚠️ **老环境升级**（服务器上已经有漫画库）请用 `./deploy/up.sh --migrate`：
+> 本次"跨源不再合并"改造去掉了 `comic.fingerprint` 的唯一约束（见 §5），
+> 旧库若不带这个迁移，第二个源的同名作品会因 `Duplicate entry` 插不进去。
 
 > 构建 wheel 需要一个带 `pip` 的 Python 3.10+（默认取 PATH 里的 `python3/python`，
 > 找不到或那个解释器没有 pip 时**自动回落项目自带的 `crawler-service/.venv`**；
@@ -103,11 +108,17 @@ docker compose -f deploy/docker-compose.yml up -d
   ```bash
   docker run --rm -e COMIC_MYSQL_HOST=... comic-crawler:1.0.0 python -m comic_crawler.cli run --source zaimanhua --limit 1
   ```
-- **现有库升级**（不是全新初始化）时，新表/索引用 `tools/` 里的迁移脚本补。镜像里**不带** `tools/`
-  （全新部署由 `mysql_schema.sql` 建全表，用不到它们），需要在容器里跑就把目录挂进去：
+- **现有库升级**（不是全新初始化）时，新表/索引/去约束用 `tools/` 里的迁移脚本补。镜像里**不带**
+  `tools/`（全新部署由 `mysql_schema.sql` 建全表，用不到它们），需要在容器里跑就把目录挂进去。
+  三个都是**幂等**的，可以照抄（注意 `-f` 后面的路径按你的实际位置写）：
   ```bash
-  docker compose -f deploy/docker-compose.yml run --rm -v "$PWD/tools:/app/tools:ro" app python tools/add_log_table.py
+  cd deploy    # 相对挂载路径按 compose 文件所在目录解析，服务器与 Git Bash 都成立
+  docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/add_log_table.py
+  docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/add_perf_indexes.py
+  docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/drop_fingerprint_unique.py
   ```
+  懒得逐条敲就 **`bash deploy/up.sh --migrate`** —— 起完服务自动把上面三个跑一遍
+  （见 §1 的 up.sh 用法）。
 
 ## 2. 方式 B：直接在仓库里跑（**本地开发用这个**）
 
@@ -193,8 +204,11 @@ mysql -h <host> -P <port> -u root -p < crawler-service/sql/mysql_schema.sql
 > `ERROR 1049 Unknown database`，得先 `CREATE DATABASE comic DEFAULT CHARACTER SET utf8mb4` 再执行。
 
 - 脚本是 `CREATE TABLE IF NOT EXISTS` + 带 `UNIQUE KEY`，**幂等可重跑**，且**不含任何 `DROP`**；
-- 新库会自动带上 `log_record` 表；**已有库**（老环境升级）用 `tools/add_log_table.py` 补，
-  索引用 `tools/add_perf_indexes.py` 补 —— 两个脚本都可重跑、都支持回滚；
+- 新库会自动带上 `log_record` 表、性能索引，且 `comic.fingerprint` 是**普通索引**；
+  **已有库**（老环境升级）对应补三个脚本：`add_log_table.py`（补表）、`add_perf_indexes.py`（补索引）、
+  **`drop_fingerprint_unique.py`（把 fingerprint 的唯一约束改成普通索引）** ——
+  第三个是"跨源不再合并"改造所必需：不去掉唯一约束，第二个源的同名作品会插不进去（`Duplicate entry`）。
+  三个都可重跑、都写了回滚方式（⚠️ 第三个的回滚受限制：库内可能已有同指纹多行）；
 - `scripts/init_mysql.sh` / `.bat` 是上面这条路的脚本化：同样幂等、同样**不含 `DROP`**（不会清空数据），
   额外先来一步 `CREATE DATABASE IF NOT EXISTS`（库不存在也一步到位），口令自动读 `deploy/.env`。
 

@@ -13,6 +13,8 @@
 #    bash deploy/up.sh                 # 全量：前端 build + 镜像 build + 起服务
 #    bash deploy/up.sh --skip-web      # 前端没改，跳过 npm build（快很多）
 #    bash deploy/up.sh --collect       # 额外启动定时采集（comic-scheduler）
+#    bash deploy/up.sh --migrate       # 起完服务后，对**已有库**跑一遍幂等迁移脚本
+#                                      #   （老环境升级用；全新库不需要 —— 建表脚本已带全）
 #    bash deploy/up.sh -h
 #
 #  说明：
@@ -24,10 +26,12 @@ set -euo pipefail
 
 SKIP_WEB=0
 COLLECT=0
+MIGRATE=0
 for a in "$@"; do
   case "$a" in
     --skip-web) SKIP_WEB=1 ;;
     --collect)  COLLECT=1 ;;
+    --migrate)  MIGRATE=1 ;;
     -h|--help)  # 打印文件头那段说明（按内容定位，不写死行号，免得改了头部就漏出正文）
                 awk 'NR==1{next} {sub(/^# ?/,"")} NR>2 && /^=+$/ {print; exit} {print}' "$0"; exit 0 ;;
     *) echo "!! 未知参数：$a（-h 看用法）" >&2; exit 1 ;;
@@ -101,6 +105,21 @@ if [ "$COLLECT" = "1" ]; then
   compose --profile collect up -d
 else
   compose up -d
+fi
+
+# ---------- 3.5 已有库迁移（可选） ----------
+if [ "$MIGRATE" = "1" ]; then
+  step "[3.5] 迁移已有库（幂等；全新库可跳过）"
+  echo "   挂载 ../tools 到容器 /app/tools，逐个跑（都支持重复执行）"
+  for t in add_log_table.py add_perf_indexes.py drop_fingerprint_unique.py; do
+    echo "   → tools/$t"
+    compose run --rm -v ../tools:/app/tools:ro comic-app python "tools/$t" \
+      || die "tools/$t 失败 —— 单独跑它看详细输出：
+  docker compose -f deploy/docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/$t"
+  done
+  echo "   ✅ 迁移脚本全部执行完（都是幂等的，没有改动就是已经迁过）"
+  echo "   提示：指纹（comic.fingerprint）只作"可能重复"的观察字段，若也要对齐可手动跑
+         tools/rebuild_fingerprint.py（它会往容器内 /app/backup 写回滚 SQL，宿主上跑更方便）"
 fi
 
 # ---------- 4. 自检 ----------
