@@ -109,7 +109,7 @@ scripts/check.sh        # crawler 单测 + api 分层守卫 + tsc --noEmit
 | 1 | `image_hosts` 必须列出图床域名 | 转存/穿透取图的白名单，防 SSRF；图床 ≠ 站点域的源必须补 |
 | 2 | 详情逐章 `canRead` 不可信 | 实测 131 章全 false 但实际可读；能否读由 `ondemand._probe_readable` 实测探测 |
 | 3 | `restricted` 只认 `is_lock` | 不用详情逐章 canRead 判 |
-| 4 | 同作品只记首源 | `chapter` 表无 source 列，混入第二源章节会让读图用错适配器（图床/签名对不上） |
+| 4 | **判重只看 `(源, 源作品 ID)`** | 跨源**不合并**（用户 2026-09-16 决策）：同一部作品在别的源收过是**另一行**，各记各自章节进度（不同译本进度往往不同）。适配器不需要做任何跨源去重或语言归一 |
 | 5 | 时间列一律 DATETIME | 写入 `_now()`，`_as_dt()` 归一 ISO 串 |
 | 6 | 新漫画首采只入最新 1 话 | `FIRST_CHAPTERS=1`；页面只登记 source_url，仅封面落盘 |
 | 7 | 不保存章节页数 | 源站无批量途径，逐话太慢被软限流；chapter 无页数列、API 不返回 pageCount |
@@ -129,7 +129,9 @@ scripts/check.sh        # crawler 单测 + api 分层守卫 + tsc --noEmit
 - **mangadex 列表字段不能当更新时间**：`latestUploadedChapter` 是 UUID，要逐部 `/chapter?manga={id}&order[publishAt]=desc&limit=1`。
 - **zaimanhua 章节图 sign+t 短时效**：采集入库的 URL 数日即过期 → `fetch_source_page_urls` 现场重签 + 实例级缓存（同章多页一批只请求一次）。
 - **源站接口偶发返回空**：判定"有无数据/能否读"必须多次采样或换时刻复测，不归因（分不清缺数据与需付费），只按"能否取到图"处理。
-- **繁体源（zh-hant）不要自己转简体**：`fingerprint`（跨源指纹去重）与 `taxonomy`（标签归一）已统一做
-  繁转简（`zhconv` 的 `zh-hans`，**只换字形、不做词汇改译**）→ 适配器原样透出源站写法即可，
-  入库标题也保持源站原样（繁体）。若给**已有库**接繁体源，先跑一遍 `tools/rebuild_fingerprint.py`。`Accept-Language`
-  之类的语言头只改界面文案、通常**不改作品名**，别指望它。
+- **繁体源（zh-hant）照原样透出即可，不要自己转简体**：作品判重**刻意不做繁简折叠**（繁体/简体是
+  两个译本、进度往往不同 → 各占一行，见硬约束 4），所以标题保持源站原文；只有**标签归一**那层
+  才会折叠繁简（`taxonomy` 的 `zhconv`，`格鬥`→`格斗`→「动作」），与适配器无关。
+  `Accept-Language` 之类的语言头只改界面文案、通常**不改作品名**，别指望它。
+  源站若有别名/原名/多语言标题字段（copymanga `alias`、zaimanhua `realName`/`aliasName`、
+  mangadex `altTitles`），当前**不采集**（多语言统一方案已搁置）。

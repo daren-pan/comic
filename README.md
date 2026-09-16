@@ -1,6 +1,6 @@
 # 漫阅 · 漫画聚合平台（comic-platform）
 
-面向演示的漫画聚合平台：**多源采集 → 指纹去重入库 → REST API → 前端同源托管** 全链路代码。
+面向演示的漫画聚合平台：**多源采集 → 同源判重入库 → REST API → 前端同源托管** 全链路代码。
 存储唯一方案为 **MySQL**（`MySQLStorage` 单实现，`Storage` 抽象作为契约保留），图片统一为**图库内相对 key**。
 
 > 仓库**不携带任何数据文件**（`*.db*` / `*.sqlite*` 已全局忽略）。数据需联网采集重建后使用。
@@ -11,7 +11,7 @@
 ```
 comic/
 ├── docs/                     # 设计与原理文档（architecture / auth；各源站说明随代码放在 sources/<源名>/）
-├── crawler-service/          # 采集服务（Python）：适配器/调度/指纹去重/图片懒转存
+├── crawler-service/          # 采集服务（Python）：适配器/调度/判重入库（同源精确）/图片懒转存
 │   ├── src/comic_crawler/    #   核心包 L0/L1/L2 分层：sources/<源名>/ 自包含、storage/mysql/、images/、scheduling/
 │   ├── sql/                  #   mysql_schema.sql（表结构，无数据快照）
 │   ├── data/                 #   运行时数据（gitignore）：image_store/ 图库 + source_state.json 源开关状态

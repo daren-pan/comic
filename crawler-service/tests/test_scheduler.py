@@ -74,9 +74,6 @@ class FakeStorage(Storage):
         return []
 
     # 其余抽象方法不参与调度节奏测试，统一占位
-    def get_comic_id_by_fingerprint(self, fingerprint: str):
-        return None
-
     def get_comic_id_by_source(self, source: str, source_comic_id: str):
         return None
 

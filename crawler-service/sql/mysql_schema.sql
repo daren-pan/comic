@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS comic (
     sync_time DATETIME NOT NULL,
     -- addtime: 首次收录时间（第一次同步写入，之后不再更新）；sync_time 为最近一次同步时间
     addtime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_fingerprint (fingerprint),
+    -- 判重只看 uk_source_comic（同源精确判重）。fingerprint 是"这几行可能是同一部作品"的
+    -- 观测标记（归一化标题 + 作者），**刻意不是唯一键**：不同源 / 不同译本（繁简、中日英）
+    -- 各占一行、各记各自章节进度（用户 2026-09-16 决策，见 docs/architecture.md §2.3）。
+    KEY idx_comic_fingerprint (fingerprint),
     UNIQUE KEY uk_source_comic (source, source_comic_id),
     -- 列表默认按最近更新倒序（sort=updated），无索引则每次列表页都 filesort；
     -- 大数据量下这是最常走的排序路径，必须有索引（见 AGENTS.md「硬性约定·性能」）。

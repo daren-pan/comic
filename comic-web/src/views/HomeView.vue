@@ -43,7 +43,7 @@ onMounted(async () => {
     <section class="banner">
       <div class="banner-inner">
         <h1>聚合全网好漫画<br /><em>一个书架，全网追更</em></h1>
-        <p>多源采集 · 指纹去重 · 秒级同步更新 —— 源站一更新，这里几分钟可见</p>
+        <p>多源采集 · 分源收录 · 秒级同步更新 —— 源站一更新，这里几分钟可见</p>
         <div class="banner-badges">
           <span v-for="c in categories.filter((x) => x.name !== '全部').slice(0, 6)" :key="c.name">
             {{ c.name }} {{ c.count }}

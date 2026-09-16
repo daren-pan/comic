@@ -17,7 +17,7 @@ export interface Comic {
   favoriteCount: number  // 收藏人数
   heat: number           // 热度分 = 1000（起底）+ 浏览×1 + 收藏×2，用于榜单排序
   updatedAt: string      // 最近更新，驱动"最新更新"列表
-  source: string         // 收录来源（同一部作品只记首个收录源，不会多源并列）
+  source: string         // 该行来自哪个源（一行=一个源；跨源不合并，同名作品可能各占一行）
   tags: string[]
 }
 
@@ -180,8 +180,6 @@ export interface ImportResult {
   chapters: number          // 库内现有章节总数
   newChapters: number
   failed: number
-  alreadySameSource: boolean
-  crossSourceComicId: number | null
-  keptSource: string | null   // 非空 = 库内已有该作品且来源不同，本次来源的章节未写入
+  alreadySameSource: boolean  // 本源此前已收过（幂等重复导入；别的源收过是另一行）
   summary: string
 }

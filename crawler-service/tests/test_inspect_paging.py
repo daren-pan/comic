@@ -74,9 +74,6 @@ class PagingStorage(Storage):
         self.recached.append(page_id)
 
     # ---- 其余抽象方法（本测试不触达，占位实现）----
-    def get_comic_id_by_fingerprint(self, fingerprint: str):
-        return None
-
     def get_comic_id_by_source(self, source: str, source_comic_id: str):
         return None
 

@@ -48,13 +48,6 @@ class MySQLStorage(Storage):
             conn.close()
 
     # ------------------------------------------------------------------
-    def get_comic_id_by_fingerprint(self, fingerprint: str) -> int | None:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM comic WHERE fingerprint = %s", (fingerprint,))
-                row = cur.fetchone()
-        return int(row["id"]) if row else None
-
     def get_comic_id_by_source(self, source: str, source_comic_id: str) -> int | None:
         """按 (源, 源作品 ID) 精确查（走 uk_source_comic）—— 同源判重，供按需导入用。"""
         with self._conn() as conn:
@@ -114,42 +107,26 @@ class MySQLStorage(Storage):
     def upsert_comic(self, detail: ComicDetail, fingerprint: str) -> tuple[int, bool]:
         """收录/更新一部作品 → `(comic_id, is_new)`。
 
-        **判重两级**：① `fingerprint`（书名+作者，**跨源**）→ 同一部作品全库只有一行；
-        ② `(source, source_comic_id)` → 同源内精确判重。
+        **判重只看 `(source, source_comic_id)`**（走 `uk_source_comic`）→ 命中即更新该行，
+        未命中即新增一行。
 
-        ⚠️ **源归属：同一部作品只记「首个收录源」，不记录第二个源**（用户 2026-09-14 明确）。
-        两条 UPDATE 分支都**刻意不改 `source` / `source_comic_id`** —— 指纹命中说明这部作品
-        已由别的源收过，此时以库内那一行为准；本次来源的元数据只用来刷新标题/简介等字段。
-        连带约束：章节归属由 `comic.source` 推导（`chapter` 表**没有** source 列），
-        所以第二个源的章节也不能写进来，否则读图时会用错适配器 —— 护栏在
-        `scheduling/sync._upsert_detail`（源不一致直接跳过章节写入）。
+        ⚠️ **跨源不合并**（用户 2026-09-16 决策）：同一部作品在别的源收过**不影响**本源的收录，
+        两个源的同名作品各占一行、各记各自章节进度（繁简/中日英译本进度往往不同，合并会丢信息）。
+        `fingerprint` 只写入、不判重 —— 它是"这几行可能是同一部作品"的观测标记。
+
+        章节归属由 `comic.source` 推导（`chapter` 表**没有** source 列），而一行只属于一个源，
+        所以读图时用哪个适配器始终是确定的。
         """
         now = _now()
         tags = self._tags_from(detail)
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id FROM comic WHERE fingerprint = %s", (fingerprint,))
-                row = cur.fetchone()
-                if row:
-                    # 跨源命中：只刷元数据，**不动 source / source_comic_id**（见 docstring）
-                    cur.execute(
-                        """UPDATE comic SET title=%s, author=%s, status=%s, category=%s,
-                           description=%s, latest_chapter_title=%s, sync_time=%s WHERE id=%s""",
-                        (
-                            detail.title, detail.author, detail.status, detail.category,
-                            detail.description, detail.latest_chapter_title, now, row["id"],
-                        ),
-                    )
-                    self._sync_tags(cur, row["id"], tags)
-                    return int(row["id"]), False
-
                 cur.execute(
                     "SELECT id FROM comic WHERE source=%s AND source_comic_id=%s",
                     (detail.source, detail.source_comic_id),
                 )
                 row = cur.fetchone()
                 if row:
-                    # 同源已收录（此前是用指纹没命中时收进来的）：补指纹，source 本来就是这个源
                     cur.execute(
                         """UPDATE comic SET title=%s, author=%s, cover_url=%s, status=%s,
                            category=%s, description=%s, fingerprint=%s,
@@ -507,10 +484,11 @@ class MySQLStorage(Storage):
         return {int(r["id"]): r for r in rows}
 
     def get_comic_source(self, comic_id: int) -> str | None:
-        """作品的收录源（`comic.source`，None = 不存在）。
+        """该行的收录源（`comic.source`，None = 不存在）。
 
-        用于「同一部作品只记首个收录源」的判定：指纹命中时拿库内那一行的源，
-        与本次来源比较（见 `scheduling/sync._upsert_detail`）。
+        一行只属于一个源（跨源不合并），所以它同时也是这一行**章节的图床/签名归属**；
+        `scheduling/sync._upsert_detail` 用它判断"库内是否已有同一部作品来自别的源"，
+        只为给用户一句提示，**不再阻止本次导入**。
         """
         with self._conn() as conn:
             with conn.cursor() as cur:

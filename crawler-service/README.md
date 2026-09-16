@@ -1,7 +1,7 @@
 # comic-crawler 采集服务（骨架实现）
 
 漫画聚合平台（架构方案见 `../docs/architecture.md`）的采集层落地代码。
-演示完整链路：**调度 → 抓取 → 解析 → 指纹去重 → 入库 → 图片懒转存 → 失效巡检 → 同步日志**。
+演示完整链路：**调度 → 抓取 → 解析 → 判重入库（同源精确）→ 图片懒转存 → 失效巡检 → 同步日志**。
 
 ## 目录结构
 
@@ -13,7 +13,7 @@ crawler-service/
 │   ├── models.py              # L0 通用内核 · 领域模型 Comic/Chapter/Page/ListResult/SyncStats
 │   ├── config.py              # L0 通用内核 · 源站配置数据结构 SourceConfig，不含各源清单
 │   ├── http.py                # L0 通用内核 · 抓取客户端：UA 池 / 随机延迟 / 指数退避 / 代理池预留
-│   ├── fingerprint.py         # L0 通用内核 · 标题归一化 + 跨站指纹（跨源去重核心）
+│   ├── fingerprint.py         # L0 通用内核 · 标题归一化 + 指纹（"可能重复"的观测标记，不判重）
 │   ├── paths.py               # L0 通用内核 · 路径常量（服务根 / 图库根唯一真源）
 │   ├── taxonomy.py            # L0 通用内核 · 标签归一化（各源写法 -> 统一中文规范名）
 │   ├── data/tag_synonyms.json #   词表数据：规范名 -> 同义词（跨源跨语言）
@@ -54,12 +54,12 @@ crawler-service/
 python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt     # Windows
 # .venv/bin/pip install -r requirements.txt       # macOS/Linux
-# （含 zhconv：跨源指纹去重与标签归一的繁转简，纯 Python 无需编译）
+# （含 zhconv：**标签归一**的繁转简，纯 Python 无需编译。作品判重刻意不做繁简折叠）
 
 # 2. 增量同步（**主源**：再漫画 zaimanhua —— 会联网；受控样本请加 --limit）
 PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --limit 3
 
-# 3. 备源（各自独立采集，跨站重复作品由指纹自动合并）
+# 3. 备源（各自独立采集；跨源不合并 —— 同名作品各占一行，各记各自章节进度）
 PYTHONPATH=src python -m comic_crawler.cli run --source mangadex
 PYTHONPATH=src python -m comic_crawler.cli run --source weebcentral
 
@@ -153,8 +153,10 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 子包固定 4 件套：`__init__.py`（导出 + SOURCES）、`adapter.py`（解析）、
 `README.md`（接口/请求头/限流/已知坑）、`fixtures/`（离线样例，可选）。
 
-跨站重复作品由 `fingerprint.py` 自动合并（标题归一化 + 作者 → sha1 前 16 位，
-命中同一指纹只保留一条记录）。
+**判重只看 `(source, source_comic_id)`**（`uk_source_comic` 唯一键）：重复抓取幂等覆盖。
+跨源**不合并** ——同一部作品在别的源收过就是另一行（不同译本进度往往不同，合并会丢信息）。
+`fingerprint.py` 算出的指纹（标题归一化 + 作者 → sha1 前 16 位）**只写不判重**，
+留作"这几行可能是同一部作品"的观测标记。
 
 ## 按需导入（用户指定看哪一部）
 
@@ -165,7 +167,7 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 | 环节 | 行为 | 请求数 |
 |---|---|---|
 | 详情 | 拿书目 + **全部章节** | 1 |
-| 书目 | 写 `comic` 1 行（幂等：指纹 + `(源, 源作品 ID)` 双唯一键） | — |
+| 书目 | 写 `comic` 1 行（幂等：只看 `(源, 源作品 ID)`；同一部作品在别的源收过会新增一行） | — |
 | 章节 | **全量收目录**（`first_chapters=None`，且补齐库内缺的那几话） | — |
 | 页清单 | **一页都不登记**（`register_pages=False`） | 0 |
 | 图片 | **一张都不下载**（封面除外，落 `covers/{id}.jpg`） | 1 |

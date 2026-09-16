@@ -131,10 +131,12 @@ def import_comic(
     """按需导入一部作品，返回结果摘要（**不下载任何正文图**）。
 
     first_chapters：新作品入库的章节数；默认 None = **全量收目录**。
-    重复导入是幂等的：`upsert_comic` 先按跨源指纹、再按 (源, 源作品 ID) 判重，
-    命中则更新元数据、不新增行，章节也只补 chapter_no 更大的新章。
-    ⚠️ 若库内已有该作品、但**收录源不同**，本次来源的章节不会被写入（同一部作品只记
-    首个收录源），结果里 `keptSource` 会给出库内保留的那个源名。
+    重复导入是幂等的：`upsert_comic` 只按 `(源, 源作品 ID)` 判重，命中则更新元数据、
+    不新增行，章节也只补 chapter_no 更大的新章。
+
+    ⚠️ **跨源不合并**（用户 2026-09-16 决策）：同一个作品在别的源收过**不影响**这里 ——
+    会**新增一行**、章节也照常写入（繁简/中日英译本进度往往不同，合并会丢信息）。
+    结果里的 `alreadySameSource` 只表示"本源此前已收过"（幂等重复导入）。
     """
     brief = resolve_brief(
         adapter, keyword=keyword, ref=ref, source_comic_id=source_comic_id
@@ -164,9 +166,6 @@ def import_comic(
             )
 
         fp = build_fingerprint(detail.title, detail.author)
-        # 跨源是否已收录：指纹唯一键决定了「同一部作品全库只有一行」，
-        # 命中说明已有别的源收过它，本次导入只会更新那一行（不会新增）。
-        existing_cross = storage.get_comic_id_by_fingerprint(fp)
 
         stats = SyncStats(
             source=adapter.source_name,
@@ -174,9 +173,8 @@ def import_comic(
             started_at=datetime.now().isoformat(timespec="seconds"),
             total_seen=1,
         )
-        # 返回值非 None = 库内已有该作品且收录源不同 → 本次来源的章节未被写入
-        # （同一部作品只记首个收录源，见 sync._upsert_detail）
-        kept_source = _upsert_detail(
+        # 返回库内这一行的 comic_id（判重只看本源，见 sync._upsert_detail）
+        comic_id = _upsert_detail(
             adapter,
             storage,
             detail,
@@ -202,9 +200,6 @@ def import_comic(
         adapter.post_fetch()
 
     storage.log_sync(adapter.source_name, IMPORT_MODE, stats)
-    comic_id = existing_same or existing_cross or storage.get_comic_id_by_source(
-        adapter.source_name, brief.source_comic_id
-    )
     chapters = len(storage.get_chapters(comic_id)) if comic_id else 0
     logger.info(
         "按需导入完成 comic_id=%s「%s」章节 %d", comic_id, detail.title, chapters,
@@ -224,13 +219,8 @@ def import_comic(
         "chapters": chapters,          # 库内现有章节总数
         "newChapters": stats.new_chapters,
         "failed": stats.failed,
-        # 已在本源收录过（重复导入）；已有别的源收录（会被跨源合并到同一行）
+        # 本源此前已收过这部作品（幂等重复导入；跨源不合并，别的源收过是另一行）
         "alreadySameSource": existing_same is not None,
-        "crossSourceComicId": (
-            existing_cross if existing_cross and existing_cross != comic_id else None
-        ),
-        # 非 None = 库内已有该作品且来源不同 → 本次来源的章节未写入（只记首个收录源）
-        "keptSource": kept_source,
         "summary": stats.summary(),
     }
 

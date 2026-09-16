@@ -1,4 +1,4 @@
-"""采集服务单元测试：指纹去重、标签拆分（纯逻辑，不依赖数据库）。
+"""采集服务单元测试：指纹归一（同语言内写法差异）、标签拆分（纯逻辑，不依赖数据库）。
 
 运行：python -m unittest discover -s tests -v
 （需在 crawler-service 目录下，或设置 PYTHONPATH=src；无需 MySQL，离线可跑。）
@@ -20,7 +20,7 @@ from comic_crawler.storage.mysql import MySQLStorage
 
 
 class TestFingerprint(unittest.TestCase):
-    """跨站去重：不同写法命中同一指纹。"""
+    """指纹归一：同一语言内的写法差异命中同一指纹（指纹只作观测，不用于判重）。"""
 
     def test_same_comic_different_writing(self):
         fp1 = build_fingerprint("海贼王", "尾田荣一郎")
@@ -38,21 +38,20 @@ class TestFingerprint(unittest.TestCase):
     def test_normalize_halfwidth(self):
         self.assertEqual(normalize_title("ONE PIECE 海贼王"), normalize_title("one piece海贼王"))
 
-    def test_simplified_and_traditional_hit_same_fingerprint(self):
-        """繁简是同一部作品：繁体源（copymanga 是 zh-hant 站）不得被当成另一部。"""
-        self.assertEqual(
+    def test_simplified_and_traditional_are_separate(self):
+        """繁简**不合并**（用户 2026-09-16 决策）：繁体（港台译本）与简体（大陆译本）
+        是两个译本、章节进度往往不同，合并会丢掉其中一版的章节。
+
+        指纹现在也不参与判重（判重看 `(source, source_comic_id)`），这里钉住的是
+        "指纹不得折叠繁简"这条口径 —— 若哪天有人又往 `normalize_title` 里加繁转简，本用例会红。
+        """
+        self.assertNotEqual(
             build_fingerprint("電鋸人", "藤本タツキ"),
             build_fingerprint("电锯人", "藤本タツキ"),
         )
-        self.assertEqual(build_fingerprint("進擊的巨人", "諫山創"),
-                         build_fingerprint("进击的巨人", "谏山创"))
-        # 字形归一，不是词汇改译：繁体写法归到简体字形即可
-        self.assertEqual(normalize_title("虛構推理"), normalize_title("虚构推理"))
-        # 括号注释 + 繁简叠加也要命中
-        self.assertEqual(
-            build_fingerprint("電鋸人（重置版）", "藤本タツキ"),
-            build_fingerprint("电锯人", "藤本タツキ"),
-        )
+        self.assertNotEqual(normalize_title("虛構推理"), normalize_title("虚构推理"))
+        # 同一语言内的写法差异仍然归一（这条是原有行为，别一起改坏）
+        self.assertEqual(normalize_title("海贼王（重置版）"), normalize_title("海贼王"))
 
 
 class TestTagsFrom(unittest.TestCase):

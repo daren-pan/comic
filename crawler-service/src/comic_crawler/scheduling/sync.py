@@ -118,16 +118,9 @@ def _process_batch(
         processed += 1
         try:
             fp = build_fingerprint(brief.title, brief.author)
-            existing_id = storage.get_comic_id_by_fingerprint(fp)
-            if existing_id is not None:
-                stats.updated_comics += 1
-                # 已收录：仍抓一次详情做幂等补录（upsert 按指纹/章节号跳过已存在项，
-                # 源站发布新章节时由此自动补入）。生产环境可用 latest_chapter_title
-                # 快筛减少请求，演示以正确性优先。
-                detail = adapter.fetch_comic_detail(brief)
-                _upsert_detail(adapter, storage, detail, fp, stats)
-                continue
-
+            # 一律抓详情后 upsert：`upsert_comic` 按 (源, 源作品 ID) 判重 —— 新增/更新与
+            # 章节增量的计数都在 `_upsert_detail` 里统一记账（避免两处各记一次）。
+            # 生产环境可用 `latest_chapter_title` 快筛少打一次详情请求，演示以正确性优先。
             detail = adapter.fetch_comic_detail(brief)
             _upsert_detail(adapter, storage, detail, fp, stats)
         except Exception:
@@ -150,8 +143,8 @@ def _upsert_detail(
     stats: SyncStats,
     first_chapters: int | None = FIRST_CHAPTERS,
     register_pages: bool = True,
-) -> str | None:
-    """详情 + 章节 + 页面入库（采集收录、采集补章、按需导入共用）。
+) -> int:
+    """详情 + 章节 + 页面入库（采集收录、采集补章、按需导入共用）→ 返回 `comic_id`。
 
     章节采样策略（避免每轮对全卷逐章请求，解决"太慢"）：
     - **按需导入**（`first_chapters=None`）：补齐库内**缺失的所有章节**（不只是比库内最大值
@@ -160,9 +153,10 @@ def _upsert_detail(
     - 已收录漫画（库内已有章节）：只入库 chapter_no 大于库内最大值的新章节，
       其余已同步章节仅更新元数据、不重复抓分页。
 
-    **源归属**：同一部作品只记「首个收录源」。若库内已有该作品、且收录源与本次不同，
-    直接跳过本次的章节写入并返回**库内保留的源名**（未发生跨源冲突时返回 None）——
-    详见 `MySQLStorage.upsert_comic` 的说明。
+    **跨源不合并**（用户 2026-09-16 决策）：判重只看 `(源, 源作品 ID)`，所以"别的源也收过同一部
+    作品"**不会**阻止本次写入 —— 两个源各占一行、各记各自的章节进度（繁简/中日英译本的进度
+    往往不同，合并会丢信息）。章节归属由 `comic.source` 推导，而一行只属于一个源，读图时
+    用哪个适配器始终确定。
 
     页面一律「懒下载」：入库只登记源站 URL（cached_status=未转存），图片字节不主动下载，
     由失效巡检 lazy_transfer / 读某话时的穿透兜底按需转存（见 images/transfer.py）。
@@ -172,21 +166,11 @@ def _upsert_detail(
     页清单等用户真正打开那一话时再生登记。
     """
     comic_id, is_new = storage.upsert_comic(detail, fp)
+    # 新增 / 更新的记账只在这里做一次（调用方不再各记一遍）
     if is_new:
         stats.new_comics += 1
     else:
-        # ⚠️ 同一部作品只记「首个收录源」（用户 2026-09-14 明确）：指纹命中说明这部作品
-        # 已由别的源收过，此时**不把第二个源的章节/页面写进来**。章节归属由 `comic.source`
-        # 推导（`chapter` 表没有 source 列），混入第二个源的章节会让读图用错适配器
-        # （图床域名、签名规则都对不上）。元数据由 upsert_comic 里的 UPDATE 刷新。
-        kept = storage.get_comic_source(comic_id)
-        if kept and kept != detail.source:
-            logger.warning(
-                "「%s」(comic_id=%s) 已由 %s 收录，跳过 %s 的章节写入"
-                "（同一部作品只记首个收录源）",
-                detail.title, comic_id, kept, detail.source,
-            )
-            return kept
+        stats.updated_comics += 1
 
     # 外链封面落盘为图库内相对 key（入库即落盘；失败仅告警，下次同步自愈）
     try:
@@ -232,6 +216,8 @@ def _upsert_detail(
                 # 页面登记失败不阻塞整部漫画入库，仅记录并继续
                 stats.failed += 1
                 logger.warning("章节 %s(%s) 页面登记失败", chapter.title, chapter.source_chapter_id)
+
+    return comic_id
 
 
 def full_sync(adapter: CrawlerAdapter, storage: Storage, limit: int | None = None, since=None) -> SyncStats:

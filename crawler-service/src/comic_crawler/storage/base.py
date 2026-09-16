@@ -6,10 +6,11 @@
 **扩展点**：新增存储后端（PostgreSQL / 内存 Mock / 分库）只需实现这两个 ABC，
 采集层、调度层与 API 层均无需改动 —— 上层只认本文件的接口。
 
-去重约定：
-- comic.fingerprint UNIQUE          —— 跨站合并（标题指纹+作者）
-- comic (source, source_comic_id) UNIQUE —— 站内唯一
-- chapter (comic_id, chapter_no) UNIQUE —— 章节唯一
+去重约定（**判重只看前两条**；fingerprint 只作观测，见 docs/architecture.md §2.3）：
+- comic (source, source_comic_id) UNIQUE —— 站内唯一（唯一判重依据）
+- chapter (comic_id, chapter_no) UNIQUE  —— 章节唯一
+- comic.fingerprint 普通索引            —— "这几行可能是同一部作品"的观测标记。
+  不同源 / 不同译本（繁简、中日英）**各占一行**、各记各自章节进度（用户 2026-09-16 决策）
 """
 
 from __future__ import annotations
@@ -24,17 +25,11 @@ class Storage(ABC):
     """存储抽象：采集层只依赖本接口，底层实现可替换（当前唯一实现 MySQL）。"""
 
     @abstractmethod
-    def get_comic_id_by_fingerprint(self, fingerprint: str) -> int | None:
-        """跨站指纹查作品 ID，None 表示新作品。"""
-
-    @abstractmethod
     def get_comic_id_by_source(self, source: str, source_comic_id: str) -> int | None:
-        """按 `(源, 源作品 ID)` 精确查作品 ID（`uk_source_comic` 唯一键），None = 未收录。
+        """按 `(源, 源作品 ID)` 精确查作品 ID（走 `uk_source_comic`），None = 未收录。
 
-        与上一条的区别：指纹是**跨源**判重（同一部作品在别的源收过也算命中），
-        本方法是**同源精确**判重 —— 按需导入前用它回答「这部作品在本源是不是
-        已经收过了」，不受跨源合并影响。两者都用，才能既不重复收录、又能提示
-        「已收录（来自其他来源）」。
+        这是**唯一**的判重入口：跨源不合并（同一部作品在别的源收过不影响本源收录），
+        按需导入前用它回答「这部作品在本源是不是已经收过了」。
         """
 
     @abstractmethod
@@ -150,7 +145,8 @@ class Storage(ABC):
 
     @abstractmethod
     def get_comic_source(self, comic_id: int) -> str | None:
-        """作品的收录源（None = 不存在）。用于「同一部作品只记首个收录源」的判定。"""
+        """该行的收录源（None = 不存在）。一行只属于一个源 —— 跨源不再合并，
+        所以它同时也是这一行章节的图床/签名归属（见 docs/architecture.md §2.3）。"""
 
     @abstractmethod
     def get_chapters(self, comic_id: int) -> list[dict]:

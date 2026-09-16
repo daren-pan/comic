@@ -49,14 +49,19 @@
 
 ### 2.3 去重策略
 
-- **站内唯一**：`source_id + 源站内容ID` 建唯一记录，重复抓取幂等覆盖；
-- **跨站合并**：标题归一化（去空格/符号、同义映射、**繁转简**）生成 `fingerprint`，`fingerprint + author` 命中则合并为同一作品，避免同一漫画重复入库存多份；
-  - 归一化含**繁转简**（`zhconv`，只换字形、不做词汇改译）：繁体源（`copymanga` 是 zh-hant 站）的《電鋸人》与简体源的《电锯人》必须命中同一指纹，否则同一部作品会各占一行。同一套折叠也用在标签归一（`格鬥` → `格斗` → `动作`）；
-  - **源归属：同一部作品只记「首个收录源」**，不记录第二个源。指纹命中时只刷新标题/简介等元数据，
-    不改 `comic.source`；**第二个源的章节也不写入** —— 章节归属由 `comic.source` 推导
-    （`chapter` 表没有 source 列），混入第二个源的章节会让读图用错适配器（图床域名、签名规则都对不上）。
-    实现：`storage/mysql/comic_store.upsert_comic`（不改 source）+ `scheduling/sync._upsert_detail`（跨源跳过章节写入）。
-    真要做「同作品多源并存」，需要另加 `comic_source` 关联表并把章节的源落到章节级 —— 本项目**刻意不做**。
+- **同源唯一**：`(source, source_comic_id)` 建唯一记录（`uk_source_comic`），重复抓取幂等覆盖。**这是唯一的判重依据**；
+- **跨源不合并**（用户 2026-09-16 决策）：同一部作品在别的源收过**不影响**本源的收录 —— 各源**各占一行**、
+  各记各自的章节进度。理由是**不同翻译版本的进度往往不同**（繁简、中日英译本），合并成一行后
+  既丢信息又难处理（旧规则"只记首个收录源"会让后到的那个源的章节根本进不了库）。
+  - 实现：`storage/mysql/comic_store.upsert_comic` 只按 `(source, source_comic_id)` 判重；
+    `scheduling/sync._upsert_detail` 不再有"跨源跳过章节写入"的护栏；
+  - **同一部作品只属于一个源**（一行 = 一个收录源），所以章节归属由 `comic.source` 推导始终是确定的
+    （`chapter` 表没有 source 列）—— 读图时用哪个适配器不存在歧义；
+  - `comic.fingerprint`（归一化标题 + 作者）**只写入、不判重**，保留为"这几行可能是同一部作品"的
+    **观测标记**（普通索引 `idx_comic_fingerprint`，不再是唯一键），供运维查重；
+  - ⚠️ **指纹刻意不做繁转简**：繁体（港台译本）与简体（大陆译本）是两个译本，折叠会把它们并成一行。
+    繁简折叠只用在**标签归一**（`taxonomy`：`格鬥` → `格斗` → `动作`）—— 那是"概念归一"，
+    与"作品是不是同一部"无关。
 - **章节去重**：`comic_id + chapter_no` 联合唯一；`content_hash` 用于内容变更检测（源站修图后可感知并重抓）。
 
 ### 2.4 反爬处理（合规框架内）
@@ -78,7 +83,7 @@
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
-| comic 作品 | PK id, title, author, cover_url, status, category, **fingerprint(唯一)**, source_id FK, latest_chapter_no, sync_time | 跨站合并后的作品主表 |
+| comic 作品 | PK id, title, author, cover_url, status, category, **fingerprint(普通索引，仅观测不判重)**, source, source_comic_id, latest_chapter_title, sync_time | 作品主表（`(source, source_comic_id)` 唯一；一行=一个源） |
 | chapter 章节 | PK id, comic_id FK, chapter_no, title, source_chapter_id, page_count, **content_hash**, sync_time | comic+no 联合唯一 |
 | page 分页 | PK id, chapter_id FK, page_no, source_url, **oss_url**, cached_status | 图片不落库，只存 URL |
 | source 源站 | PK id, name, base_url, robots_allowed, priority, parser_type, crawl_interval, status | 采集配置中心 |

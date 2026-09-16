@@ -37,7 +37,7 @@ comic/
   **容器把整个 `/data` bind 到同一个宿主目录**，所以本地直跑与 Docker 读写的是同一批文件（不会出现两份图库互相看不见）。
 - **按需导入 / 管理台**：逻辑集中 `api-service/services/ondemand.py`；管理台 `/api/admin/*`，前端 `/#/admin` 免登录。
 - **标签**：写入侧归一（`taxonomy.py` + `data/tag_synonyms.json`），查询侧零翻译。
-- **源归属**：同一部作品只记**首个收录源**，不记录第二个源（章节归属由 `comic.source` 推导，`chapter` 表无 source 列）。详见 `docs/architecture.md` §2.3。
+- **判重**：只看 `(source, source_comic_id)`（同源幂等）。**跨源不合并**（用户 2026-09-16 决策）：同一部作品在别的源收过就是**另一行**，各记各自章节进度 —— 不同翻译版本（繁简/中日英）进度往往不同，合并会丢信息。`comic.fingerprint` 只写不判重（"可能重复"的观测标记）。一行=一个收录源，所以章节归属由 `comic.source` 推导始终确定（`chapter` 表无 source 列）。详见 `docs/architecture.md` §2.3。
 
 ## 常用命令
 - **分工**：**本地开发 = 宿主直跑**（uvicorn + Vite，快、有热重载，见下）；**上线 = Docker Compose**（`deploy/`，见 `docs/deploy.md`）。

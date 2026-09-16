@@ -6,7 +6,7 @@
 
 | 层 | 位置 | 放什么 |
 |---|---|---|
-| L0 通用内核 | 包根平铺 | `models` 领域模型 · `config` 数据结构与限速 · `http` 抓取客户端 · `fingerprint` 跨源去重 · `paths` 路径常量 · `cli` 命令行入口 |
+| L0 通用内核 | 包根平铺 | `models` 领域模型 · `config` 数据结构与限速 · `http` 抓取客户端 · `fingerprint` 标题归一与指纹（观测标记，判重看 `(source, source_comic_id)`）· `paths` 路径常量 · `cli` 命令行入口 |
 | L1 契约 | 各子包根 | `sources/base.py` 适配器契约 · `storage/base.py` 存储契约 |
 | L2 实现 | 契约之下 | `sources/<源名>/` 各源适配器 · `storage/mysql/` 存储实现 · `images/` 图片读写 |
 | L3 编排 | `scheduling/` | 决定"何时跑、跑一次做什么"，单向依赖下面各层 |

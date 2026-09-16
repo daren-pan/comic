@@ -1,17 +1,17 @@
 """一次性迁移：按当前归一化规则**重建 `comic.fingerprint`**。
 
-背景：指纹（`comic_crawler.fingerprint`）是跨源去重的唯一依据，只在**写入/更新作品时**算一次
-并被 UNIQUE 约束固化在库里。归一化规则一旦变化（本次是加入**繁转简**），历史行的指纹就
-与新规则不一致 —— 表现为新采集的简体写法作品与库里已有的繁体写法作品**各自成行**。
+背景：`fingerprint`（归一化标题 + 作者）是"这几行可能是同一部作品"的**观测标记**，
+只在写入/更新作品时算一次就固化在库里；归一化规则一旦变化（历史上加过、又撤过繁简折叠），
+历史行的指纹就与新规则不一致，观测就失真了。
+
+⚠️ **指纹不参与判重**（判重只看 `(source, source_comic_id)`，跨源不合并 —— 用户 2026-09-16
+决策，见 `docs/architecture.md` §2.3），所以本脚本**只对齐这个观测字段**，
+不合并、不删除任何作品行。
 
 本脚本按 `build_fingerprint(title, author)` 重算所有作品指纹：
 - 只更新**变了**的行；没变的一行不碰（幂等，可重复运行）；
-- 更新分两阶段（先写成 `tmp-<id>` 再写成最终值）避免撞上 `uk_fingerprint` 的**瞬时冲突**；
-  整段在一个事务里，失败自动回滚；
-
-⚠️ **冲突检测**：折叠后可能有两行**指向同一个新指纹**（说明它们本就是同一部作品、只是当初
-一繁一简没认出来）。合并两条作品记录是另一件事（涉及 chapter / favorite / history 的搬迁），
-本脚本**只报告不合并**，这类行保持原指纹不动，由人决定怎么处理。
+- 顺带报告"同指纹多行"（同一部作品来自不同源）—— 这是**预期**状态，仅列出供人工判断；
+- 一个事务里做完，失败自动回滚。
 
 **可回滚**：执行前把「受影响行 + 旧指纹」写成 `backup/fingerprint_before_rebuild_<时间戳>.sql`，
 文件里就是一组可反向执行的 `UPDATE comic SET fingerprint=...`。
@@ -42,11 +42,11 @@ BACKUP_DIR = Path(__file__).resolve().parents[1] / "backup"
 def main() -> int:
     storage = MySQLStorage()
     dsn = dict(storage.dsn)
-    dsn["autocommit"] = False          # 两阶段更新要在一个事务里
+    dsn["autocommit"] = False          # 整批更新放一个事务里
     conn = pymysql.connect(**dsn)
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, title, author, fingerprint FROM comic ORDER BY id")
+            cur.execute("SELECT id, title, author, source, fingerprint FROM comic ORDER BY id")
             rows = list(cur.fetchall())
 
             plan: list[tuple[int, str, str, str]] = []   # (id, title, 旧指纹, 新指纹)
@@ -58,15 +58,6 @@ def main() -> int:
                 else:
                     plan.append((int(r["id"]), r["title"], r["fingerprint"], new_fp))
 
-            # 冲突：多个 id 落到同一新指纹（跨源重复），或新指纹已被别的行占着
-            targets: dict[str, list[int]] = {}
-            for cid, _t, _old, new_fp in plan:
-                targets.setdefault(new_fp, []).append(cid)
-            keep_old = {r["fingerprint"] for r in rows} - {p[2] for p in plan}
-            conflicted = {fp for fp, ids in targets.items() if len(ids) > 1 or fp in keep_old}
-            safe = [p for p in plan if p[3] not in conflicted]
-            blocked = [p for p in plan if p[3] in conflicted]
-
             BACKUP_DIR.mkdir(parents=True, exist_ok=True)
             stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             backup = BACKUP_DIR / f"fingerprint_before_rebuild_{stamp}.sql"
@@ -77,40 +68,38 @@ def main() -> int:
                 out.write("-- 直接执行即可改回原样（只动 fingerprint 一列）\n")
                 out.write("-- ============================================================\n")
                 for cid, title, old_fp, _new_fp in plan:
-                    t = title.replace("'", "''")
-                    out.write(f"UPDATE comic SET fingerprint = '{old_fp}' WHERE id = {cid};  -- {t}\n")
+                    out.write(
+                        f"UPDATE comic SET fingerprint = '{old_fp}' WHERE id = {cid};"
+                        f"  -- {title.replace(chr(39), chr(39) * 2)}\n"
+                    )
 
             print(f"备份: {backup.name}")
-            print(f"共 {len(rows)} 部：待重建 {len(plan)} / 未变 {unchanged}"
-                  + (f" / 因冲突跳过 {len(blocked)}" if blocked else ""))
+            print(f"共 {len(rows)} 部：待重建 {len(plan)} / 未变 {unchanged}")
 
-            if safe:
-                ids = ", ".join(str(p[0]) for p in safe)
-                cur.execute(f"UPDATE comic SET fingerprint = CONCAT('tmp-', id) WHERE id IN ({ids})")
-                for cid, _title, _old, new_fp in safe:
-                    cur.execute("UPDATE comic SET fingerprint = %s WHERE id = %s", (new_fp, cid))
-                conn.commit()
-                for cid, title, old_fp, new_fp in safe:
-                    print(f"   #{cid:<3} {title!r:<34} {old_fp} -> {new_fp}")
-            else:
-                conn.commit()   # 只落备份
+            for cid, _title, _old, new_fp in plan:
+                cur.execute("UPDATE comic SET fingerprint = %s WHERE id = %s", (new_fp, cid))
+            conn.commit()
+            for cid, title, old_fp, new_fp in plan:
+                print(f"   #{cid:<3} {title!r:<34} {old_fp} -> {new_fp}")
+            if not plan:
                 print("   （没有需要重建的行）")
 
-            if blocked:
-                print("\n⚠️ 以下行折叠后与别的行**同一指纹**（本就是同一部作品，只是当初没认出来），")
-                print("   本脚本不合并、保持原状，请人工决定保留哪一条：")
-                for fp, ids in sorted(targets.items()):
-                    if fp in conflicted:
-                        for cid, title, old_fp, _new_fp in plan:
-                            if cid in ids:
-                                print(f"   #{cid:<3} {title!r:<34} {old_fp} -> 将与 {ids} 撞到 {fp}")
-
-            cur.execute("SELECT COUNT(*) AS n FROM comic")
-            total = int(cur.fetchone()["n"])
+            # 观测：同指纹多行 = 同一部作品来自不同源（跨源不合并，属预期）
+            cur.execute(
+                """SELECT fingerprint, COUNT(*) AS n,
+                          GROUP_CONCAT(CONCAT(source, '#', id) ORDER BY source) AS rows_
+                   FROM comic GROUP BY fingerprint HAVING n > 1 ORDER BY n DESC"""
+            )
+            dup = list(cur.fetchall())
+            cur.execute("SELECT COUNT(*) AS c FROM comic")
+            total = int(cur.fetchone()["c"])
     finally:
         conn.close()
 
-    print(f"\n结果：comic 共 {total} 部，指纹已按当前规则对齐（同名可重跑，第二次应显示「待重建 0」）")
+    print(f"\n结果：comic 共 {total} 部，指纹已按当前规则对齐（可重跑，第二次应显示「待重建 0」）")
+    print(f"「同指纹多行」（同一部作品来自不同源）{len(dup)} 组 —— 跨源不合并，属预期：")
+    for r in dup:
+        print(f"   {r['fingerprint']}  ×{r['n']}  ← {r['rows_']}")
     return 0
 
 

@@ -144,7 +144,7 @@ class TestBatchListing(unittest.TestCase):
         self.assertEqual(_DB.batch_calls, [])
 
     def test_favorites_include_source_and_tags(self):
-        """来源是单个字符串（同一部作品只记首个收录源），标签为数组。"""
+        """来源是单个字符串（一行=一个收录源），标签为数组。"""
         _DB.comics = {11: _row(11)}
         _USERS.fav_ids = [11]
 

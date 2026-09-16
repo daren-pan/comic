@@ -90,9 +90,10 @@ async function onImport(item: SourceSearchItem) {
   notice.value = `正在从 ${item.source} 导入《${item.title}》…`
   try {
     const r = await importAndWait({ source: item.source, sourceComicId: item.sourceComicId })
-    // keptSource 非空 = 库内已有这部作品（来自别的源）→ 本次来源的章节不会写入
-    notice.value = r.keptSource
-      ? `《${r.title}》已由 ${r.keptSource} 收录，本次不再重复写入（正在打开…）`
+    // 跨源不合并：别的源收过同一部作品时，这里会作为独立的一部导入（译本/进度可能不同）
+    notice.value = r.alreadySameSource
+      ? `《${r.title}》已在 ${r.source} 收录过` +
+        (r.newChapters ? `，本次补齐 ${r.newChapters} 话新章节` : '') + '（正在打开…）' 
       : `已导入《${r.title}》，共 ${r.chapters} 话，正在打开…`
     router.push(`/comic/${r.comicId}`)
   } catch (e) {
