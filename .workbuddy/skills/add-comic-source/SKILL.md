@@ -129,3 +129,7 @@ scripts/check.sh        # crawler 单测 + api 分层守卫 + tsc --noEmit
 - **mangadex 列表字段不能当更新时间**：`latestUploadedChapter` 是 UUID，要逐部 `/chapter?manga={id}&order[publishAt]=desc&limit=1`。
 - **zaimanhua 章节图 sign+t 短时效**：采集入库的 URL 数日即过期 → `fetch_source_page_urls` 现场重签 + 实例级缓存（同章多页一批只请求一次）。
 - **源站接口偶发返回空**：判定"有无数据/能否读"必须多次采样或换时刻复测，不归因（分不清缺数据与需付费），只按"能否取到图"处理。
+- **繁体源（zh-hant）不要自己转简体**：`fingerprint`（跨源指纹去重）与 `taxonomy`（标签归一）已统一做
+  繁转简（`zhconv` 的 `zh-hans`，**只换字形、不做词汇改译**）→ 适配器原样透出源站写法即可，
+  入库标题也保持源站原样（繁体）。若给**已有库**接繁体源，先跑一遍 `tools/rebuild_fingerprint.py`。`Accept-Language`
+  之类的语言头只改界面文案、通常**不改作品名**，别指望它。

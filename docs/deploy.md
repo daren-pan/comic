@@ -149,7 +149,7 @@ cd comic-web && npm install && npm run build    # 先构建前端 → comic-web/
 | `src/comic_crawler/` | 采集服务包（适配器 / 存储 / 调度 / 词表数据 `data/`），**含非 py 资源** |
 | `dist/` | 前端产物（同源托管） |
 | `sql/mysql_schema.sql` | 建库脚本（10 张表，含 `log_record`） |
-| `requirements.txt` | api + crawler 依赖**合并去重**（7 项） |
+| `requirements.txt` | api + crawler 依赖**合并去重**（`sort -u` 生成） |
 | `README-DEPLOY.md` | 一页运行说明（脚本自动生成） |
 
 **为什么是 `src/comic_crawler/` 这层而不是直接放 `comic_crawler/`**：

@@ -1,8 +1,9 @@
 """标签归一化测试（纯逻辑，不连库不联网）。
 
 覆盖：
-- normalize_tag：大小写 / 全角半角 / 连字符 / 空格 / 撇号 / 间隔号 折叠成同一键；
-- canonical_tag：跨源跨语言同义命中（Comedy+搞笑→喜剧、ゆり+Girls' Love→百合）；
+- normalize_tag：大小写 / 全角半角 / 连字符 / 空格 / 撇号 / 间隔号 / **繁简** 折叠成同一键；
+- canonical_tag：跨源跨语言同义命中（Comedy+搞笑→喜剧、ゆり+Girls' Love→百合、格鬥→动作）；
+- 繁体未命中的标签回落简体写法（靈異→灵异）；只换字形不做词汇改译（硬碟 不变 硬盘）；
 - 刻意保留原文：形态类（Web Comic / Full Color）、更新季（2026春）、敏感标签（Loli 等）；
 - 幂等性与边界：canonical(canonical(x)) == canonical(x)、空串 / None；
 - 词表自检：规范名映射到自身、同一别名不得指向两个规范名（防止写表时冲突）；
@@ -76,6 +77,22 @@ class TestTagTaxonomy(unittest.TestCase):
         # 写法差异（连字符/大小写）也能命中
         self.assertEqual(canonical_tag("sci fi"), "科幻")
         self.assertEqual(canonical_tag("SUPERNATURAL"), "神魔")
+
+    def test_traditional_hits_same_canonical(self):
+        """繁体站的写法（copymanga 是 zh-hant）折叠字形后命中同一规范名。"""
+        self.assertEqual(normalize_tag("格鬥"), normalize_tag("格斗"))
+        self.assertEqual(canonical_tag("格鬥"), "动作")   # 词表里 格斗 是「动作」的别名
+        self.assertEqual(canonical_tag("職場"), "职场")
+        self.assertEqual(canonical_tag("校園"), "校园")
+        self.assertEqual(canonical_tag("冒險"), "冒险")
+        self.assertTrue(is_known("格鬥"))
+
+    def test_unmapped_traditional_falls_back_to_simplified(self):
+        """未命中的繁体标签回落简体写法 —— 否则同一概念（靈異/灵异）会分裂成两行。"""
+        self.assertFalse(is_known("靈異"))
+        self.assertEqual(canonical_tag("靈異"), "灵异")
+        # 只换字形、不做词汇改译：台湾用语「硬碟」不变成「硬盘」（那是 zh-cn 才会做的）
+        self.assertEqual(canonical_tag("硬碟"), "硬碟")
 
     def test_unmapped_kept_verbatim(self):
         """形态类 / 更新季 / 敏感标签不做映射，原样保留（避免把错译固化成规范名）。"""

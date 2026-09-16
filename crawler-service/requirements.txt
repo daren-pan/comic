@@ -5,3 +5,5 @@ pymysql>=1.1
 # "cryptography package is required for sha256_password or caching_sha2_password"。
 # 留在这里而不是改用 mysql_native_password，是因为后者在 8.0 已废弃、8.4 移除。
 cryptography>=42
+# 繁转简（跨源指纹去重 + 标签归一）—— 纯 Python 实现，无需编译工具链。
+zhconv>=1.4

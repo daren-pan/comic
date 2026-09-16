@@ -38,6 +38,22 @@ class TestFingerprint(unittest.TestCase):
     def test_normalize_halfwidth(self):
         self.assertEqual(normalize_title("ONE PIECE 海贼王"), normalize_title("one piece海贼王"))
 
+    def test_simplified_and_traditional_hit_same_fingerprint(self):
+        """繁简是同一部作品：繁体源（copymanga 是 zh-hant 站）不得被当成另一部。"""
+        self.assertEqual(
+            build_fingerprint("電鋸人", "藤本タツキ"),
+            build_fingerprint("电锯人", "藤本タツキ"),
+        )
+        self.assertEqual(build_fingerprint("進擊的巨人", "諫山創"),
+                         build_fingerprint("进击的巨人", "谏山创"))
+        # 字形归一，不是词汇改译：繁体写法归到简体字形即可
+        self.assertEqual(normalize_title("虛構推理"), normalize_title("虚构推理"))
+        # 括号注释 + 繁简叠加也要命中
+        self.assertEqual(
+            build_fingerprint("電鋸人（重置版）", "藤本タツキ"),
+            build_fingerprint("电锯人", "藤本タツキ"),
+        )
+
 
 class TestTagsFrom(unittest.TestCase):
     """标签拆分回归测试：category 用 `/` 分隔时不得产生孤儿 `/` 标签。

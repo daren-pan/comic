@@ -17,6 +17,7 @@ dependencies = [
     "parsel>=1.9",
     "pymysql>=1.1",
     "cryptography>=42",   # MySQL 8.0 的 caching_sha2_password 认证（PyMySQL 需要）
+    "zhconv>=1.4",        # 繁转简（跨源指纹去重 + 标签归一），纯 Python 无需编译
 ]
 
 [tool.setuptools.packages.find]

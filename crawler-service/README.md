@@ -54,6 +54,7 @@ crawler-service/
 python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt     # Windows
 # .venv/bin/pip install -r requirements.txt       # macOS/Linux
+# （含 zhconv：跨源指纹去重与标签归一的繁转简，纯 Python 无需编译）
 
 # 2. 增量同步（**主源**：再漫画 zaimanhua —— 会联网；受控样本请加 --limit）
 PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --limit 3

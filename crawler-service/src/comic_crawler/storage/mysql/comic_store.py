@@ -94,7 +94,7 @@ class MySQLStorage(Storage):
         cur.execute("DELETE FROM comic_tag WHERE comic_id = %s", (comic_id,))
         seen: set[str] = set()
         for raw in tags:
-            # 各源写法 -> 统一中文规范名；未命中保持原文（见 taxonomy.py）
+            # 各源写法 -> 统一中文规范名；未命中回落简体写法（见 taxonomy.py）
             t = canonical_tag(raw)
             # 防御：跳过空串、纯符号/空白片段（如 '/'、'·'）——避免孤儿标签
             if not t or t in seen or not re.search(r"[\w\u4e00-\u9fff]", t):
