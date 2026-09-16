@@ -52,9 +52,13 @@ def run_task(task_id: str, task_type: str, fn) -> None:
                 finishedAt=datetime.now().isoformat(timespec="seconds"),
             )
         except Exception as exc:
+            # ⚠️ 只打任务 id（如 import-9-1789523396）在日志页定位不到任何东西 —— 必须把
+            # 异常摘要带上：「导入哪一部作品失败」的信息就在异常消息里
+            # （如「…按合规约定不收录：《XXX》」）。结构化字段补 reason 供按原因筛选；
+            # 更细的源侧上下文（comic_title 等）由 crawler 侧再记一条（见 scheduling.ondemand）。
             _logger.exception(
-                "后台任务 %s 失败", task_id,
-                extra={"log_fields": {"event": "task.fail"}},
+                "后台任务 %s 失败：%s", task_id, exc,
+                extra={"log_fields": {"event": "task.fail", "reason": str(exc)}},
             )
             _TASKS[task_id].update(
                 status="failed", message=str(exc), result=None,

@@ -224,11 +224,39 @@ class TestImportComic(unittest.TestCase):
         """源站不可读（付费/需登录/下架）→ 拒绝导入，且不写任何章节。"""
         db = FakeStorage()
         ad = FakeAdapter(detail=_detail([1, 2, 3], restricted=True))
-        with self.assertRaises(ComicRestricted):
-            import_comic(ad, db, source_comic_id="42")
+        with self.assertLogs("comic_crawler.scheduling.ondemand", level="ERROR"):
+            with self.assertRaises(ComicRestricted):
+                import_comic(ad, db, source_comic_id="42")
         self.assertEqual(db.upserted_chapters, [])
         self.assertEqual(db.page_writes, 0)
         self.assertEqual(ad.pages_calls, 0)   # is_lock 先判，不必再探测
+
+    def test_restricted_failure_logs_comic_title(self):
+        """失败日志必须写出**漫画名**（不能只有任务 id）：日志页要能直接看懂是哪一部。
+
+        原来只有任务级那句「后台任务 import-9-1789523396 失败」，得逐条翻任务详情才
+        知道是哪部作品 —— 这里断言源侧那条 ERROR 日志带标题与结构化字段。
+        """
+        db = FakeStorage()
+        ad = FakeAdapter(detail=_detail([1], title="某部被锁的作品", restricted=True))
+        with self.assertLogs("comic_crawler.scheduling.ondemand", level="ERROR") as cm:
+            with self.assertRaises(ComicRestricted):
+                import_comic(ad, db, source_comic_id="42")
+        line = "\n".join(cm.output)
+        self.assertIn("某部被锁的作品", line)          # 标题出现在消息里
+        self.assertIn("按需导入失败", line)
+        self.assertIn("fake", line)                   # 源名也在
+
+    def test_probe_failure_logs_comic_title_for_id_import(self):
+        """只有作品 ID（无标题）时也要给得出定位信息：日志用 ID 兜底。"""
+        db = FakeStorage()
+        ad = FakeAdapter(detail=_detail([1]), pages=0)  # 一章都取不到页 -> 探测判不可读
+        with self.assertLogs("comic_crawler.scheduling.ondemand", level="ERROR") as cm:
+            with self.assertRaises(ComicRestricted):
+                import_comic(ad, db, source_comic_id="42")
+        line = "\n".join(cm.output)
+        self.assertIn("测试漫画", line)               # 详情已回来 → 用真实标题
+        self.assertIn("按需导入失败", line)
 
     def test_new_comic_gets_all_chapters_and_no_pages(self):
         """新作品：**章节全量**入库，且**一页都不登记**（导入不碰页清单）。"""
@@ -304,8 +332,9 @@ class TestImportComic(unittest.TestCase):
         """详情未标受限、但实测一章取不到图 → 仍拒绝（避免收进空壳作品）。"""
         db = FakeStorage()
         ad = FakeAdapter(detail=_detail([1, 2, 3]), pages=0)
-        with self.assertRaises(ComicRestricted):
-            import_comic(ad, db, source_comic_id="42")
+        with self.assertLogs("comic_crawler.scheduling.ondemand", level="ERROR"):
+            with self.assertRaises(ComicRestricted):
+                import_comic(ad, db, source_comic_id="42")
         self.assertEqual(db.upserted_chapters, [])
 
     def test_probe_failure_lets_it_through(self):

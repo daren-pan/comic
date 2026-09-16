@@ -13,7 +13,7 @@ comic/
 │       ├── models · config · http · fingerprint · paths · cli · taxonomy   # L0 通用内核
 │       ├── sources/                      # 源站层：契约在外、各源在里
 │       │   ├── base.py · registry.py          # L1 契约（CrawlerAdapter ABC）
-│       │   └── zaimanhua/ mangadex/ weebcentral/   # L2 每源一个自包含子包
+│       │   └── zaimanhua/ mangadex/ weebcentral/ copymanga/   # L2 每源一个自包含子包
 │       ├── storage/                      # L1 base.py + L2 mysql/
 │       ├── images/                       # L1 store.py + L2 transfer.py
 │       └── scheduling/                   # 采集 / 巡检调度
@@ -30,8 +30,8 @@ comic/
 ```
 
 ## 模块边界
-- **源站接入**：`sources/{name}/` 4 件套自包含；新增源详见 `新增爬虫源` 技能。已接入 zaimanhua（主源）/ mangadex / weebcentral。
-- **存储**：唯一 MySQL —— **本项目独占一个实例**（`comic-mysql`，8.0），不与别的系统共库；增量 = 时间窗口。连接参数取值顺序：环境变量 → `deploy/.env` → 默认值（本地开发免配）。
+- **源站接入**：`sources/{name}/` 4 件套自包含；新增源详见 `新增爬虫源` 技能。已接入 zaimanhua（主源）/ mangadex / weebcentral / copymanga。
+- **存储**：唯一 MySQL —— **本项目独占一个实例**（`comic-mysql`，8.0），不与别的系统共库；增量 = 时间窗口。连接参数取值顺序：环境变量 → `deploy/.env` → 默认值（本地开发免配，读的就是 compose 那份同一个文件）。
 - **图库 / 运行时数据**：唯一真源 `comic_crawler.paths.DATA_ROOT`（= `<服务根>/data`，默认 `crawler-service/data`），
   里面是 `data/image_store`（图库，引用只存相对 key）与 `data/source_state.json`（管理台源开关状态）。
   **容器把整个 `/data` bind 到同一个宿主目录**，所以本地直跑与 Docker 读写的是同一批文件（不会出现两份图库互相看不见）。

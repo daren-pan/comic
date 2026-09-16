@@ -141,10 +141,14 @@ def import_comic(
     )
     # 同源是否已收录（导入前查询，用于把「新导入」与「已在本源」区分开告诉用户）
     existing_same = storage.get_comic_id_by_source(adapter.source_name, brief.source_comic_id)
+    # 失败日志要写得出「哪一部作品」，而真标题要等详情回来才准：
+    # 按 ID / 链接导入时 brief.title 是空的，先用源作品 ID 占位，拿到详情后覆盖。
+    title = brief.title or brief.source_comic_id
 
     adapter.pre_fetch()
     try:
         detail = adapter.fetch_comic_detail(brief)
+        title = detail.title or title
         if detail.restricted:
             raise ComicRestricted(
                 "该作品在源站被标记为锁定内容（is_lock），按合规约定不收录："
@@ -181,6 +185,19 @@ def import_comic(
             first_chapters=first_chapters,
             register_pages=False,  # 只入目录；页清单等用户打开那一话时再生登记
         )
+    except Exception as exc:
+        # 失败日志必须写到「哪一部作品」：原来只有任务级那句「后台任务 import-9-… 失败」，
+        # 在管理台日志页完全看不出是哪一部（要逐条翻任务详情）。这里把标题/源/原因
+        # 结构化写进 log_record（comic_title / source / reason 都有列），便于按作品筛。
+        logger.error(
+            "按需导入失败 source=%s「%s」: %s",
+            adapter.source_name, title, exc,
+            extra={"log_fields": {
+                "event": "import.fail", "source": adapter.source_name,
+                "comic_id": existing_same, "comic_title": title, "reason": str(exc),
+            }},
+        )
+        raise
     finally:
         adapter.post_fetch()
 

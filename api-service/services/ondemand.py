@@ -207,9 +207,13 @@ def ensure_chapter_pages(chapter_id: int) -> int:
         return len(pages)
     except Exception as exc:
         logger.warning(
-            "读时登记页清单失败 chapter_id=%s: %s", chapter_id, exc,
+            "读时登记页清单失败 source=%s「%s」%s: %s",
+            source, comic.get("title") or "", chapter.get("title") or "", exc,
             extra={"log_fields": {
-                "event": "read.fail", "chapter_id": chapter_id, "reason": str(exc),
+                "event": "read.fail", "source": source,
+                "comic_id": comic.get("id"), "comic_title": comic.get("title") or "",
+                "chapter_id": chapter_id, "chapter_title": chapter.get("title") or "",
+                "reason": str(exc),
             }},
         )
         return 0
@@ -226,10 +230,16 @@ def fetch_page_online(chapter_id: int, page_no: int) -> bytes | None:
     try:
         return fetch_page_bytes(db, admin_image_store(), row, adapter_provider=create_adapter)
     except Exception as exc:
+        # get_page_context 一条 SQL 就带回了作品/章节上下文，失败日志直接写出
+        # 「哪部作品的哪一话哪一页」—— 只写 chapter_id/page_no 根本定位不到。
         logger.warning(
-            "穿透取图失败 chapter=%s page=%s: %s", chapter_id, page_no, exc,
+            "穿透取图失败 source=%s「%s」%s 第 %s 页: %s",
+            row.get("source") or "", row.get("comic_title") or "",
+            row.get("chapter_title") or "", page_no, exc,
             extra={"log_fields": {
-                "event": "read.fail", "chapter_id": chapter_id,
+                "event": "read.fail", "source": row.get("source") or "",
+                "comic_id": row.get("comic_id"), "comic_title": row.get("comic_title") or "",
+                "chapter_id": chapter_id, "chapter_title": row.get("chapter_title") or "",
                 "pages": 1, "reason": str(exc),
             }},
         )

@@ -121,6 +121,7 @@ scripts/check.sh        # crawler 单测 + api 分层守卫 + tsc --noEmit
 | **zaimanhua**（主源） | H5 API、sign 短时效签名 | 最完整：搜索/详情/章节/重签/引用解析全有；`_row_to_brief(id_field=)` 处理列表 vs 搜索 ID 字段差异 |
 | **mangadex** | v5 REST API | external 外链坑：zh/en 章节常是外链被 `includeExternalUrl=0` 排除 → `_pick_langs()` 为 zh → en → 其它可用语言（命中即停） |
 | **weebcentral** | HTML 搜索 | URL 永久有效，无需覆写 `fetch_source_page_urls`；`.png` 实为 JPEG |
+| **copymanga** | 公开 JSON API（前后端分离） | 成功码看 body 的 `code`（HTTP 可能是非标 210）；作品 ID 是 `path_word` 字符串；`groups` 在 results 层级、字段名 `path_word`；分片图床用 `image_hosts = {"*.域名"}` 通配 |
 
 ## 常见坑速查
 

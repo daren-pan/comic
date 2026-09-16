@@ -180,14 +180,29 @@ def _host_allowed(url: str, adapter: object | None) -> bool:
 
     适配器未声明 ``image_hosts`` 时不校验（沿用「库内数据可信」的既有约定）；
     声明了的源只允许下载白名单域名，避免重定向/篡改 URL 打到内网地址。
+
+    白名单条目支持两种写法：
+    - **精确域名**：``images.zaimanhua.com``；
+    - **通配一级子域**：``*.mangafunb.fun`` —— 给**分片图床**用。拷贝漫画的图床是
+      ``sa…sz`` + ``s0`` 共 24 个分片域名（同一部作品的封面与正文图同分片），
+      分片由作品路径散列得出、集合可能新增，穷举必然漏；故按后缀放行。
+      只匹配**恰好一级**子域：``a.b.mangafunb.fun``（多一级）与
+      ``evilmangafunb.fun``（没有点分隔）都不放行。
     """
     hosts = getattr(adapter, "image_hosts", None) or set()
     if not hosts:
         return True
     try:
-        return httpx.URL(url).host in hosts
+        host = httpx.URL(url).host or ""
     except Exception:
         return False
+    if host in hosts:
+        return True
+    for entry in hosts:
+        if entry.startswith("*.") and host.count(".") == entry.count("."):
+            if host.endswith(entry[1:]):
+                return True
+    return False
 
 
 def fetch_page_bytes(
