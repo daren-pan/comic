@@ -1,6 +1,9 @@
 # crawler 模块 —— 采集层（可单独用：docker run --rm comic-crawler:1.0.0 python -m comic_crawler.cli list）
 # 产物：deploy/build.sh 用 crawler-service/pyproject.toml 构建 wheel 到本目录 dist/
-FROM python:3.13-slim
+#
+# 基础镜像经 DaoCloud 加速站拉取（m.daocloud.io 代理 docker.io）—— 国内直连 Docker Hub
+# 拉 python:3.13-slim 常超时。要换回官方源，删掉 `m.daocloud.io/docker.io/library/` 前缀即可。
+FROM m.daocloud.io/docker.io/library/python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
