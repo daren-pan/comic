@@ -14,8 +14,10 @@ ENV COMIC_IMAGE_ROOT=/data/image_store
 
 WORKDIR /app
 
-# PIP_INDEX 可换源（国内/慢网）：--build-arg PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
-ARG PIP_INDEX=https://pypi.org/simple
+# 依赖源默认国内镜像（直连 pypi.org 很慢）。这一行装的是本层全部第三方依赖 —— 实测 19 个包 / 约 9MB。
+# deploy/build.sh 会按「环境变量 PIP_INDEX → deploy/.env 的 PIP_INDEX → 这个默认值」传 --build-arg。
+# 要换回官方源（海外/特殊网络）：docker build --build-arg PIP_INDEX=https://pypi.org/simple ...
+ARG PIP_INDEX=https://mirrors.aliyun.com/pypi/simple
 COPY dist/ /tmp/wheels/
 RUN pip install --no-cache-dir --index-url "$PIP_INDEX" "$(ls -t /tmp/wheels/*.whl | head -1)"
 

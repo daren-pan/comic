@@ -18,6 +18,10 @@
 #           「前端 npm build → 本脚本 → compose up -d → 自检」串好了。
 #        单独构建后启动：docker compose -f deploy/docker-compose.yml up -d
 #
+#  PyPI 源：镜像构建时装依赖走哪个源 —— 依次取 环境变量 PIP_INDEX → deploy/.env 的 PIP_INDEX
+#        → 默认 https://mirrors.aliyun.com/pypi/simple（国内直连 pypi.org 很慢；
+#        compose 不会替我们把 .env 里的键传给 docker build，所以必须在这里读出来显式传下去）。
+#
 #  依赖：构建 wheel 需要一个带 pip 的 Python 3.10+（优先取 PATH 里的 python3/python，
 #        找不到或那个解释器没有 pip 时回落项目自带的 crawler-service/.venv；
 #        也可用 PYTHON=/path/to/python 显式指定）。构建时 pip 会在临时隔离环境里装 setuptools。
@@ -125,14 +129,13 @@ echo "-> [2/2] 构建镜像（顺序：mysql → web → crawler → api → ngi
 # 直接传给 docker.exe（Windows 程序）会报 "unable to prepare context: path ... not found"。
 cd "$DEPLOY"
 
-# PIP_INDEX 是可选的（见文件头）：传了就让 crawler / api 两层换源装依赖。
+# pip 依赖源（取值顺序见文件头）：crawler / api 两层认这个 ARG，其余层没声明它、会被静默忽略。
+PIP_INDEX="${PIP_INDEX:-$(grep -E '^PIP_INDEX=' "$DEPLOY/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true)}"
+PIP_INDEX="${PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple}"
+echo "   [PyPI 源] $PIP_INDEX"
+
 build_img() {  # build_img <模块目录> <镜像名>
-  if [ -n "${PIP_INDEX:-}" ]; then
-    echo "   [PyPI 源] $PIP_INDEX"
-    docker build --build-arg "PIP_INDEX=$PIP_INDEX" -t "$2" "$1"
-  else
-    docker build -t "$2" "$1"
-  fi
+  docker build --build-arg "PIP_INDEX=$PIP_INDEX" -t "$2" "$1"
 }
 
 build_img mysql   comic-mysql:1.0.0

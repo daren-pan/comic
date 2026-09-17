@@ -10,7 +10,8 @@ ENV COMIC_DIST_DIR=/app/comic-web/dist \
 
 USER root
 
-ARG PIP_INDEX=https://pypi.org/simple
+# 依赖源同 crawler 层：默认国内镜像，由 deploy/build.sh 传 --build-arg 覆盖（见 crawler/Dockerfile 的注释）
+ARG PIP_INDEX=https://mirrors.aliyun.com/pypi/simple
 COPY dist/ /tmp/wheels/
 RUN pip install --no-cache-dir --index-url "$PIP_INDEX" "$(ls -t /tmp/wheels/*.whl | head -1)"
 
