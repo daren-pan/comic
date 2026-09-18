@@ -23,7 +23,8 @@ EVENTS: tuple[str, ...] = (
     "transfer.done", "transfer.fail",
     "inspect.done", "inspect.fail",
     "import.done", "import.fail",
-    "cover.heal", "read.pages", "read.fail", "search.fail",
+    "cover.ok", "cover.fail", "cover.heal",
+    "read.pages", "read.fail", "search.fail",
     "task.fail", "env.warn",
 )
 

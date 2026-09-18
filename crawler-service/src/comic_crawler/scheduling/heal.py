@@ -140,7 +140,10 @@ def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> di
 
         # 仍是外链（此前下载失败）：按登记地址重试落盘
         if cover.startswith(("http://", "https://")):
-            if ensure_cover_local(storage, image_store, int(row["id"]), cover):
+            if ensure_cover_local(
+                storage, image_store, int(row["id"]), cover,
+                comic_title=row.get("title"), source=row.get("source"),
+            ):
                 stats["healed"] += 1
                 continue
             # 下载失败 → 回源重取（登记地址可能已失效）；无适配器则只能计失败
@@ -188,7 +191,10 @@ def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> di
                     # 回源拿到的还是同一个地址（刚已试过并失败）→ 不再重复请求
                     stats["failed"] += 1
                     continue
-                if ensure_cover_local(storage, image_store, int(row["id"]), url):
+                if ensure_cover_local(
+                    storage, image_store, int(row["id"]), url,
+                    comic_title=row.get("title"), source=row.get("source"),
+                ):
                     stats["healed"] += 1
                 else:
                     stats["failed"] += 1
@@ -210,6 +216,7 @@ def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> di
 
 def _refetch_cover_url(adapter: CrawlerAdapter, row: dict) -> str:
     """回源站重抓详情，取其封面外链（本地封面文件丢失、DB 只存相对 key 时用）。"""
+    from ..images.transfer import comic_label
     from ..models import ComicBrief
 
     brief = ComicBrief(
@@ -222,7 +229,8 @@ def _refetch_cover_url(adapter: CrawlerAdapter, row: dict) -> str:
         return detail.cover_url or ""
     except Exception:
         logger.warning(
-            "封面回源失败 comic_id=%s source=%s", row.get("id"), row.get("source"),
+            "封面回源失败 comic_id=%s source=%s",
+            comic_label(row.get("id"), row.get("title")), row.get("source"),
             exc_info=True,
             extra={"log_fields": {
                 "event": "cover.heal", "source": row.get("source"),

@@ -177,7 +177,11 @@ def _upsert_detail(
         from ..images.transfer import ensure_cover_local
         from ..images.store import LocalImageStore
 
-        ensure_cover_local(storage, LocalImageStore(), comic_id, detail.cover_url)
+        # 带上标题 / 源名：失败时日志里才能直接看出是哪部作品（否则只有 comic_id）
+        ensure_cover_local(
+            storage, LocalImageStore(), comic_id, detail.cover_url,
+            comic_title=detail.title, source=detail.source,
+        )
     except Exception:
         logger.exception("封面落盘流程异常 comic_id=%s", comic_id)
 

@@ -146,7 +146,7 @@ onMounted(async () => {
     </div>
     <p class="lead">
       采集 / 转存 / 巡检 / 按需导入 / 读图的运行日志（与后端 <code>logs/api.log</code> 同一批记录，已落库）。
-      点某行展开详情；带异常的日志会显示堆栈全文。
+      失败日志的正文带作品 id 与名称，点某行展开详情（含异常堆栈全文）。
     </p>
 
     <!-- 筛选条件 -->
@@ -223,7 +223,7 @@ onMounted(async () => {
                   <div class="kv"><b>记录器</b><span>{{ row.logger }}</span></div>
                   <div class="kv" v-if="row.taskId"><b>任务</b><span>{{ row.taskType }} · {{ row.taskId }}</span></div>
                   <div class="kv" v-if="row.reason"><b>原因</b><span>{{ row.reason }}</span></div>
-                  <div class="kv" v-if="row.endpoint"><b>接口</b><span class="mono">{{ row.endpoint }}</span></div>
+                  <div class="kv" v-if="row.endpoint"><b>接口/地址</b><span class="mono">{{ row.endpoint }}</span></div>
                   <div class="kv full"><b>消息</b><span>{{ row.message }}</span></div>
                   <template v-if="row.excType">
                     <div class="kv"><b>异常</b><span>{{ row.excType }}</span></div>

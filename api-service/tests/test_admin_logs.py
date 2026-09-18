@@ -135,6 +135,9 @@ class TestLogQueryService(unittest.TestCase):
         opt = logs.options()
         self.assertIn("WARNING", opt["levels"])
         self.assertIn("transfer.fail", opt["events"])
+        # 封面落盘的两端（成功 / 失败）也要在下拉里，否则筛不出来
+        self.assertIn("cover.fail", opt["events"])
+        self.assertIn("cover.ok", opt["events"])
 
 
 if __name__ == "__main__":  # pragma: no cover

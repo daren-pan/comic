@@ -72,11 +72,17 @@ def _row(cid: int, cover: str, source: str = "fake") -> dict:
     }
 
 
-def _fake_ensure(ok_urls: set[str], calls: list[tuple[int, str]]):
-    """替身：url 在 ok_urls 内视为下载成功，回填相对 key。"""
+def _fake_ensure(ok_urls: set[str], calls: list[tuple[int, str]], titles: dict | None = None):
+    """替身：url 在 ok_urls 内视为下载成功，回填相对 key。
 
-    def _ensure(storage, image_store, comic_id, cover_url):
+    `**kw` 用来吃掉调用方补充的 `comic_title` / `source`（只进日志，不影响落盘行为）——
+    顺便断言它们确实被传了下来（`titles` 里收一份，供"日志要带作品名"的用例检查）。
+    """
+
+    def _ensure(storage, image_store, comic_id, cover_url, **kw):
         calls.append((comic_id, cover_url))
+        if titles is not None:
+            titles[comic_id] = kw.get("comic_title")
         if cover_url in ok_urls:
             storage.set_comic_cover(comic_id, f"covers/{comic_id}.jpg")
             return True
@@ -90,8 +96,12 @@ class TestHealCovers(unittest.TestCase):
         storage = FakeStorage(comics)
         store = FakeStore(existing)
         calls: list[tuple[int, str]] = []
+        self.titles: dict = {}
         provider = (lambda name: FakeAdapter(adapter_url)) if use_adapter and adapter_url is not None else None
-        with patch("comic_crawler.images.transfer.ensure_cover_local", _fake_ensure(ok_urls or set(), calls)):
+        with patch(
+            "comic_crawler.images.transfer.ensure_cover_local",
+            _fake_ensure(ok_urls or set(), calls, self.titles),
+        ):
             stats = heal_covers(storage, store, adapter_provider=provider)
         return storage, stats, calls
 
@@ -178,6 +188,20 @@ class TestHealCovers(unittest.TestCase):
         )
         self.assertEqual(stats["healed"], 1)
         self.assertEqual(calls, [(6, "https://img.x/d.jpg")])
+
+    def test_title_passed_to_cover_log(self):
+        """封面落盘要**带上作品名**：日志里只写 comic_id 的话，看日志的人还得回库查是哪部。
+
+        用户 2026-09-18 明确要求「消息中要显示具体漫画 id 和名称」—— 所以 heal 的两条
+        落盘路径都必须把 title 透传下去（两条路径：外链重试、回源后落盘）。
+        """
+        self._run([_row(2, "https://img.x/a.jpg")], ok_urls={"https://img.x/a.jpg"})
+        self.assertEqual(self.titles[2], "作品2")
+
+        self._run(
+            [_row(4, "")], adapter_url="https://img.x/c.jpg", ok_urls={"https://img.x/c.jpg"}
+        )
+        self.assertEqual(self.titles[4], "作品4")
 
     def test_placeholder_path_skipped(self):
         """非外链非本地 key（如演示占位路径）→ 跳过。"""

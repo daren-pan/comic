@@ -57,8 +57,69 @@ def default_downloader(source_url: str, key: str) -> bytes:
     return b"FAKE-IMAGE:" + key.encode("utf-8")
 
 
+def comic_label(comic_id: object, title: object = "") -> str:
+    """日志里的作品标识：`36「惡女只想安靜地生活！」`；没有名字时退化成 `36`。
+
+    为什么要带上名字：只写 `comic_id=36` 的话，看日志的人还得回库里查一次才知道是哪部作品
+    （用户 2026-09-18 提：「消息中要显示具体漫画 id 和名称」）。与 `_fail_body` 同属"日志正文
+    拼装"，故放在本模块；`scheduling/heal.py` 的封面回源失败也复用它。
+    """
+    name = str(title or "").strip()
+    return f"{comic_id}「{name}」" if name else str(comic_id)
+
+
+def _short_reason(exc: Exception) -> str:
+    """把下载异常压成一行可读原因（封面失败日志用）。
+
+    ⚠️ **不要直接用 `str(exc)`**：httpx 的异常文案自带完整 URL 加一句
+    "For more information check: https://developer.mozilla.org/..."，落进日志页就是
+    两百多字符的噪音，真正有用的「谁失败了 / 为什么」反被冲掉
+    （用户 2026-09-18 举的就是这种：`封面落盘失败 comic_id=36 https://…: Client error '404 …'`）。
+    """
+    resp = getattr(exc, "response", None)
+    status = getattr(resp, "status_code", None)
+    if status is not None:
+        phrase = str(getattr(resp, "reason_phrase", "") or "")
+        return f"HTTP {status}{f' {phrase}' if phrase else ''}"
+    if isinstance(exc, httpx.TimeoutException):
+        return "请求超时"
+    if isinstance(exc, httpx.TransportError):
+        return f"网络错误（{type(exc).__name__}）"
+    return f"{type(exc).__name__}: {str(exc)[:80]}"
+
+
+def _cover_log_fields(
+    *, event: str, source: object, comic_id: int, comic_title: object, url: str, reason: str
+) -> dict:
+    """封面落盘的 `extra={"log_fields": …}`（落进 `log_record` 的**结构化**列）。
+
+    结构化之后，管理台「日志查询」页的作品 / 源站 / 事件 / 原因四列都能直接显示与筛选，
+    不必再去 message 里捞关键字。
+
+    ⚠️ **下载地址刻意塞进 `endpoint`**（原本只给"源站章节接口"用）：它是"这次失败请求的远端
+    端点"，且该列在详情面板里按等宽字体 + 断行渲染，正好适合放 URL；这样 message 才能保持
+    干净（只留 id / 名称 / 原因），又不丢排查线索。
+    """
+    return {
+        "log_fields": {
+            "event": event,
+            "source": source,
+            "comic_id": comic_id,
+            "comic_title": comic_title,
+            "endpoint": url,
+            "reason": reason,
+        }
+    }
+
+
 def ensure_cover_local(
-    storage: Storage, image_store: ImageStore, comic_id: int, cover_url: str
+    storage: Storage,
+    image_store: ImageStore,
+    comic_id: int,
+    cover_url: str,
+    *,
+    comic_title: object = "",
+    source: object = "",
 ) -> bool:
     """外链封面落盘为图库内相对 key（covers/{comic_id}.jpg）。
 
@@ -74,7 +135,12 @@ def ensure_cover_local(
     所以"文件在"就等于"已落盘"，没必要再回源。
 
     代价（用户 2026-09-18 明确接受）：**源站换封面时不会自动刷新** —— 想强制刷新就删掉
-    图库里那张 `covers/{id}.jpg`，下一次巡检的封面自愈（`heal_covers`）会回源重取。
+    图库里那张 `covers/{id}.jpg`，下一次管理台「触发转存」跑完的封面自愈
+    （`scheduling.heal.heal_covers`）会回源重取。⚠️ 注意：**定时巡检（`inspect_sync`）不碰封面**，
+    所以删了文件后不会自动被修，必须有转存 / 重新导入这类动作把它带一遍。
+
+    `comic_title` / `source` 是**可选**的补充信息，只用于日志（调用方手上有就传，
+    传了日志里才会显示作品名、管理台才筛得到）；不传不影响任何落盘行为。
     """
     key = f"covers/{comic_id}.jpg"
     if image_store.exists(key):
@@ -93,10 +159,23 @@ def ensure_cover_local(
             return False
         image_store.put(key, data)
         storage.set_comic_cover(comic_id, key)
-        logger.info("封面落盘 comic_id=%s -> %s (%dB)", comic_id, key, len(data))
+        logger.info(
+            "封面落盘 comic_id=%s -> %s (%dB)", comic_label(comic_id, comic_title), key, len(data),
+            extra=_cover_log_fields(
+                event="cover.ok", source=source, comic_id=comic_id,
+                comic_title=comic_title, url=cover_url, reason="",
+            ),
+        )
         return True
     except Exception as exc:
-        logger.warning("封面落盘失败 comic_id=%s %s: %s", comic_id, cover_url, exc)
+        reason = _short_reason(exc)
+        logger.warning(
+            "封面落盘失败 comic_id=%s｜%s", comic_label(comic_id, comic_title), reason,
+            extra=_cover_log_fields(
+                event="cover.fail", source=source, comic_id=comic_id,
+                comic_title=comic_title, url=cover_url, reason=reason,
+            ),
+        )
         return False
 
 

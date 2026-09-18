@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 import unittest
 from pathlib import Path
@@ -21,9 +22,10 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from unittest.mock import patch
+import httpx  # noqa: E402
+from unittest.mock import patch  # noqa: E402
 
-from comic_crawler.images.transfer import ensure_cover_local, lazy_transfer
+from comic_crawler.images.transfer import ensure_cover_local, lazy_transfer  # noqa: E402
 
 # 时间戳：PAST = 已过期；FUTURE = 远未来（未过期）
 PAST = 1700000000  # 2023-11 已过期
@@ -319,6 +321,38 @@ class _FakeResp:
         pass
 
 
+class _Recorder(logging.Handler):
+    """收集日志正文与 `log_fields`（用来断言"日志里到底写了什么"）。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[tuple[str, dict]] = []
+
+    def emit(self, record) -> None:
+        self.rows.append((record.getMessage(), getattr(record, "log_fields", {})))
+
+
+class _capture:
+    """上下文管理器：临时把某个 logger 收到 INFO 并挂上收集器。
+
+    （默认 root 是 WARNING，直接挂 Handler 收不到 info 级日志 —— 必须同时调级别。）
+    """
+
+    def __init__(self, name: str) -> None:
+        self._logger = logging.getLogger(name)
+        self._old_level = self._logger.level
+
+    def __enter__(self) -> _Recorder:
+        self._rec = _Recorder()
+        self._logger.setLevel(logging.INFO)
+        self._logger.addHandler(self._rec)
+        return self._rec
+
+    def __exit__(self, *exc) -> None:
+        self._logger.removeHandler(self._rec)
+        self._logger.setLevel(self._old_level)
+
+
 class TestEnsureCoverLocal(unittest.TestCase):
     """封面落盘：**本地已有图就直接返回**，不再回源（用户 2026-09-18 决策）。
 
@@ -377,6 +411,68 @@ class TestEnsureCoverLocal(unittest.TestCase):
                    return_value=_FakeResp(b"")):
             self.assertFalse(ensure_cover_local(db, store, 7, "https://img.x/cover.jpg"))
         self.assertEqual(store.puts, [])
+
+    def test_fail_message_names_comic_not_url_blob(self):
+        """失败日志要写清「哪部作品 + 为什么」，不要把 httpx 的 URL/MDN 长文案倒进来。
+
+        用户 2026-09-18 的原话是「消息中要…将具体漫画 id、名称显示出来，而不是
+        `封面落盘失败 comic_id=36 https://…: Client error '404 Not Found' for url '…'
+        For more information check: https://developer.mozilla.org/…`」——
+        所以钉住三条：① 带作品名；② 原因是短句 `HTTP 404 Not Found`；
+        ③ message 里**不出现** URL 与 developer.mozilla.org 噪音。
+        """
+        store = _CoverStore()
+        db = _CoverStorage()
+
+        class _Boom:
+            status_code = 404
+            reason_phrase = "Not Found"
+
+        exc = httpx.HTTPStatusError(
+            "Client error '404 Not Found' for url 'https://sb.mangafunb.fun/b/x/cover/1.jpg' "
+            "For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404",
+            request=httpx.Request("GET", "https://sb.mangafunb.fun/b/x/cover/1.jpg"),
+            response=_Boom(),  # type: ignore[arg-type]
+        )
+
+        with _capture("comic_crawler.images.transfer") as rec:
+            with patch("comic_crawler.images.transfer.httpx.get", side_effect=exc):
+                ok = ensure_cover_local(
+                    db, store, 36, "https://sb.mangafunb.fun/b/x/cover/1.jpg",
+                    comic_title="惡女只想安靜地生活！", source="copymanga",
+                )
+
+        self.assertFalse(ok)
+        self.assertEqual(len(rec.rows), 1)
+        msg, fields = rec.rows[0]
+        self.assertIn("comic_id=36「惡女只想安靜地生活！」", msg)
+        self.assertIn("HTTP 404 Not Found", msg)
+        self.assertNotIn("developer.mozilla.org", msg)   # ← 噪音不再进正文
+        self.assertNotIn("https://", msg)
+        # 结构化字段：管理台的作品 / 源站 / 原因 / 事件四列与筛选都靠它
+        self.assertEqual(fields["event"], "cover.fail")
+        self.assertEqual(fields["comic_title"], "惡女只想安靜地生活！")
+        self.assertEqual(fields["source"], "copymanga")
+        self.assertEqual(fields["reason"], "HTTP 404 Not Found")
+        self.assertEqual(fields["endpoint"], "https://sb.mangafunb.fun/b/x/cover/1.jpg")
+
+    def test_ok_message_carries_structured_fields(self):
+        """成功日志同样带作品名与结构化字段（作品列不该是空的 `#8`）。"""
+        store = _CoverStore()
+        db = _CoverStorage()
+        with _capture("comic_crawler.images.transfer") as rec:
+            with patch("comic_crawler.images.transfer.httpx.get",
+                       return_value=_FakeResp(b"IMG-BYTES")):
+                self.assertTrue(ensure_cover_local(
+                    db, store, 8, "https://img.x/cover.jpg",
+                    comic_title="電鋸人", source="copymanga",
+                ))
+
+        msg, fields = rec.rows[0]
+        self.assertIn("封面落盘 comic_id=8「電鋸人」", msg)
+        self.assertEqual(fields["event"], "cover.ok")
+        self.assertEqual(fields["comic_id"], 8)
+        self.assertEqual(fields["comic_title"], "電鋸人")
 
 
 if __name__ == "__main__":
