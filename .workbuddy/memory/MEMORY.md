@@ -51,4 +51,5 @@ comic/
 ## 硬性约定
 - **架构单职责 / 分层**：新增接口进 `api-service/routers/*`、业务逻辑进 `services/`（勿让 `main.py` 重新变胖）；`crawler-service` 保持 L0/L1/L2（通用外层 → 契约 → 可扩展内层）。**新模块未归层会被分层守卫拦下**（`tests/test_layering.py`）。
 - **性能**：面向**大数据量**访问设计，增 / 删 / 查 / 改都要走最优路径 —— 禁止逐条访问（「先拿一批 id 再取对象」必须用一次性批量方法，如 `get_comic_tags_bulk` / `get_comics_by_ids`）、禁止代价随数据量线性增长的写法（N+1、无索引全表扫、每次调用新建连接）。改 SQL / 存储层时按此自查。
-- **提交信息**：一律 Conventional Commits —— `<type>(<scope>): <中文主题>`。type 取 `feat` / `fix` / `refactor` / `perf` / `docs` / `chore` / `test` / `ci`；scope 取模块名（`crawler` / `api` / `web` / `db` / `deploy` / `tools`），跨模块或不限模块时可省。**一轮改动合成一次提交**（不做原子拆分）；正文只写 2~3 行「改了什么、为什么」，不罗列文件 / 函数 / 实测数字。示例：`feat(crawler): 新增拷贝漫画源，失败日志带上漫画名`。
+- **提交信息**：一律 Conventional Commits —— `<type>(<scope>): <中文主题>`。type 取 `feat` / `fix` / `refactor` / `perf` / `docs` / `chore` / `test` / `ci`；scope 取模块名（`crawler` / `api` / `web` / `db` / `deploy` / `tools`），跨模块或不限模块时可省。正文只写 2~3 行「改了什么、为什么」，不罗列文件 / 函数 / 实测数字。示例：`feat(crawler): 新增拷贝漫画源，失败日志带上漫画名`。
+- **提交时机与粒度：原子拆分**（2026-09-18 明确，**反转** 09-12 的"一轮改动合成一次提交"）—— **不在一轮改动做完就提交**；先攒着，等**多个需求都完成后**再**按主题拆成多个原子提交**（一个提交只做一件事，能单独看懂、单独回退）。提交前仍要查：无意外删除、无硬编码密钥。
