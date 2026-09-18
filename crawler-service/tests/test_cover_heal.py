@@ -114,11 +114,43 @@ class TestHealCovers(unittest.TestCase):
         self.assertEqual(storage.covers[2], "covers/2.jpg")
 
     def test_external_download_fails(self):
-        """外链重下失败 → 计 failed（DB 保留原外链）。"""
+        """外链重下失败且无适配器 → 计 failed（DB 保留原外链）。"""
         storage, stats, calls = self._run(
             [_row(3, "https://img.x/bad.jpg")], ok_urls=set()
         )
         self.assertEqual(stats["failed"], 1)
+        self.assertEqual(stats["healed"], 0)
+        self.assertEqual(calls, [(3, "https://img.x/bad.jpg")])
+
+    def test_external_failed_then_refetch_heals(self):
+        """外链地址失效 → 回源取最新地址再落盘（2026-09-18 补：登记地址失效后不再永远重试）。"""
+        storage, stats, calls = self._run(
+            [_row(8, "https://img.x/wrong.jpg")],
+            adapter_url="https://img.x/right.jpeg",
+            ok_urls={"https://img.x/right.jpeg"},
+        )
+        self.assertEqual(stats["healed"], 1)
+        self.assertEqual(stats["failed"], 0)
+        self.assertEqual(calls, [(8, "https://img.x/wrong.jpg"), (8, "https://img.x/right.jpeg")])
+        self.assertEqual(storage.covers[8], "covers/8.jpg")
+
+    def test_external_failed_refetch_same_url_not_retried(self):
+        """回源拿到的还是同一个地址（刚已失败）→ 不再重复下载，计 failed。"""
+        storage, stats, calls = self._run(
+            [_row(9, "https://img.x/dead.jpg")],
+            adapter_url="https://img.x/dead.jpg",
+            ok_urls=set(),
+        )
+        self.assertEqual(stats["failed"], 1)
+        self.assertEqual(calls, [(9, "https://img.x/dead.jpg")])   # 只试了一次
+
+    def test_external_failed_refetch_unavailable_skipped(self):
+        """回源拿不到地址（作品下架等）→ 计 skipped，不误报 healed。"""
+        storage, stats, _ = self._run(
+            [_row(10, "https://img.x/dead.jpg")], adapter_url="", ok_urls=set()
+        )
+        self.assertEqual(stats["skipped"], 1)
+        self.assertEqual(stats["failed"], 0)
         self.assertEqual(stats["healed"], 0)
 
     def test_empty_refetch_via_adapter(self):

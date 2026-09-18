@@ -108,11 +108,18 @@ def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> di
     """封面自愈（管理台触发「懒转存」后自动执行）：修复图库中缺失/未落盘的封面。
 
     逐部漫画判断（封面统一存「图库内相对 key」，见 image_service.ensure_cover_local）：
-    - 封面仍是外链（http/https，此前下载失败留下的）→ 直接重试下载落盘；
+    - 封面仍是外链（http/https，此前下载失败留下的）→ 先按登记地址重试下载；**失败则回源**
+      取最新 cover_url 再试一次（登记地址可能已失效：源站改扩展名 / 图床分片迁移 / 作品下架）；
     - 封面是本地 key（covers/xx.jpg）且图库文件存在 → 健康，跳过；
     - 封面为空 / 本地 key 但文件缺失 → 经 adapter_provider 按 source_comic_id
       回源站重抓一次详情，取其最新 cover_url 再落盘（best-effort，取不到则跳过）；
     - 其余非空非外链（如演示占位路径）→ 按源站自身约定，跳过（不发起无谓回源）。
+
+    ⚠️ **外链失败也要回源**（2026-09-18 补）：此前只重试库里登记的地址，而那个地址一旦
+    失效就永远不会变 —— 于是每轮巡检都拿同一个死链重试、`failed` 恒为 N 且永不恢复
+    （服务器上那批把 `.jpeg`/`.png` 封面写错成 `.jpg` 的记录正是如此：源站早已改回正确
+    地址，本地却一直照着错地址下）。回源还顺带覆盖了分片迁移、作品下架改链等情况。
+    代价：每次巡检对仍失败的封面多一次详情请求（低频任务，可接受）。
 
     返回统计：{checked, healed, failed, skipped}
     """
@@ -131,12 +138,16 @@ def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> di
         stats["checked"] += 1
         cover = str(row.get("cover_url") or "").strip()
 
-        # 仍是外链（此前下载失败）：直接重试下载落盘
+        # 仍是外链（此前下载失败）：按登记地址重试落盘
         if cover.startswith(("http://", "https://")):
             if ensure_cover_local(storage, image_store, int(row["id"]), cover):
                 stats["healed"] += 1
-            else:
+                continue
+            # 下载失败 → 回源重取（登记地址可能已失效）；无适配器则只能计失败
+            if adapter_provider is None:
                 stats["failed"] += 1
+                continue
+            need_refetch.setdefault(str(row.get("source") or ""), []).append(row)
             continue
 
         # 本地 key：文件在 → 健康；文件缺失 → 需回源
@@ -172,6 +183,10 @@ def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> di
                 url = _refetch_cover_url(adapter, row)
                 if not url.startswith(("http://", "https://")):
                     stats["skipped"] += 1
+                    continue
+                if url == str(row.get("cover_url") or "").strip():
+                    # 回源拿到的还是同一个地址（刚已试过并失败）→ 不再重复请求
+                    stats["failed"] += 1
                     continue
                 if ensure_cover_local(storage, image_store, int(row["id"]), url):
                     stats["healed"] += 1
