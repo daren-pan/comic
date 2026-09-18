@@ -145,6 +145,8 @@ CREATE TABLE IF NOT EXISTS history (
 CREATE TABLE IF NOT EXISTS log_record (
     id INT AUTO_INCREMENT PRIMARY KEY,
     -- 时间用 DATETIME（项目约定时间列一律 DATETIME）；同秒多条靠 id 兜底排序
+    -- 语义：**写入进程的本机时间**（容器必须配 TZ=Asia/Shanghai）。日志页出参一律
+    -- 按北京时间（services/logs.to_beijing 会按进程时区补差），所以这里不做 UTC 转换。
     created_at DATETIME NOT NULL,
     level VARCHAR(8) NOT NULL DEFAULT '',
     logger VARCHAR(64) NOT NULL DEFAULT '',

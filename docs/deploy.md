@@ -185,6 +185,10 @@ cd comic-web && npm install && npm run build    # 先构建前端 → comic-web/
 | `COMIC_IMAGE_ROOT` | 空（= `<out>/data/image_store`） | 指向**持久盘**，且**必须绝对路径** |
 | `COMIC_TZ` | `Asia/Shanghai` | 容器时区（compose 用，app/scheduler/mysql 共用）。**别删**：镜像默认 UTC，而日志与 `sync_time` 都按本机时间写库 → 不设会让管理台日志时间早 8 小时。改完要 `up -d` 重建容器 |
 
+> 管理台**日志查询页的时间列**已固定按北京时间出参（`services/logs.to_beijing`）：容器时区配对了
+> 是恒等变换，漏配/没重建就自动补 8 小时 —— 页面不再依赖这一项是否改对；但**筛选**的时间窗
+> 仍按存储侧时区比较，对不上时还是先查 `docker exec comic-app date`。
+
 两条确定性行为（不是猜测，代码里写死了）：
 
 - **连接参数在模块导入时读取一次** —— 环境变量要在启动进程前设好，改了必须重启；
