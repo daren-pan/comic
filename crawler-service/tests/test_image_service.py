@@ -21,7 +21,9 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from comic_crawler.images.transfer import lazy_transfer
+from unittest.mock import patch
+
+from comic_crawler.images.transfer import ensure_cover_local, lazy_transfer
 
 # 时间戳：PAST = 已过期；FUTURE = 远未来（未过期）
 PAST = 1700000000  # 2023-11 已过期
@@ -284,6 +286,97 @@ class TestFailureLogFormat(unittest.TestCase):
         ]
         lines = self._fail_lines(rows, FakeAdapter([]))
         self.assertEqual(len(lines), 2)
+
+
+class _CoverStore:
+    """只实现 ensure_cover_local 需要的 exists / put。"""
+
+    def __init__(self, existing: set[str] | None = None) -> None:
+        self.existing = set(existing or ())
+        self.puts: list[tuple[str, bytes]] = []
+
+    def exists(self, key: str) -> bool:
+        return key in self.existing
+
+    def put(self, key: str, data: bytes) -> None:
+        self.puts.append((key, data))
+        self.existing.add(key)
+
+
+class _CoverStorage:
+    def __init__(self) -> None:
+        self.covers: dict[int, str] = {}
+
+    def set_comic_cover(self, comic_id: int, key: str) -> None:
+        self.covers[comic_id] = key
+
+
+class _FakeResp:
+    def __init__(self, content: bytes) -> None:
+        self.content = content
+
+    def raise_for_status(self) -> None:
+        pass
+
+
+class TestEnsureCoverLocal(unittest.TestCase):
+    """封面落盘：**本地已有图就直接返回**，不再回源（用户 2026-09-18 决策）。
+
+    为什么值得钉住：采集每轮都会调它，且传进来的 `cover_url` 是源站外链（每轮相同），
+    只判 http(s) 的话会每轮把封面重下一遍 —— 曾经实测同一部在日志里出现多次「封面落盘」。
+    """
+
+    def test_local_file_exists_skips_download(self):
+        """库内已是本地 key + 文件在 → 直接返回：不发请求、不写库（幂等空转）。"""
+        store = _CoverStore(existing={"covers/7.jpg"})
+        db = _CoverStorage()
+        with patch("comic_crawler.images.transfer.httpx.get") as get:
+            ok = ensure_cover_local(db, store, 7, "covers/7.jpg")
+        self.assertTrue(ok)
+        self.assertFalse(get.called, "本地已有封面时不该发请求")   # ← 关键
+        self.assertEqual(store.puts, [])
+        self.assertEqual(db.covers, {}, "已经是本地 key，无需回填")
+
+    def test_local_file_exists_but_db_external_backfills(self):
+        """采集路径的典型情形：传进来的是源站外链，但本地文件已存在 →
+        只补回填（免得接口一直按外链取图），**不重新下载**。"""
+        store = _CoverStore(existing={"covers/7.jpg"})
+        db = _CoverStorage()
+        with patch("comic_crawler.images.transfer.httpx.get") as get:
+            ok = ensure_cover_local(db, store, 7, "https://img.x/cover.jpg")
+        self.assertTrue(ok)
+        self.assertFalse(get.called)
+        self.assertEqual(store.puts, [])
+        self.assertEqual(db.covers, {7: "covers/7.jpg"})
+
+    def test_downloads_when_local_missing(self):
+        store = _CoverStore()
+        db = _CoverStorage()
+        with patch("comic_crawler.images.transfer.httpx.get",
+                   return_value=_FakeResp(b"IMG-BYTES")):
+            ok = ensure_cover_local(db, store, 7, "https://img.x/cover.jpg")
+        self.assertTrue(ok)
+        self.assertEqual(store.puts, [("covers/7.jpg", b"IMG-BYTES")])
+        self.assertEqual(db.covers, {7: "covers/7.jpg"})
+
+    def test_non_http_skipped(self):
+        """已是本地 key / 占位路径 / 空 → 跳过且不下载。"""
+        store = _CoverStore()
+        db = _CoverStorage()
+        with patch("comic_crawler.images.transfer.httpx.get") as get:
+            for url in ("covers/7.jpg", "", "placeholder/cover.svg"):
+                self.assertTrue(ensure_cover_local(db, store, 7, url))
+        self.assertFalse(get.called)
+        self.assertEqual(store.puts, [])
+
+    def test_empty_body_not_written(self):
+        """下载回空内容 → 返回 False 且不落盘（等下次重试）。"""
+        store = _CoverStore()
+        db = _CoverStorage()
+        with patch("comic_crawler.images.transfer.httpx.get",
+                   return_value=_FakeResp(b"")):
+            self.assertFalse(ensure_cover_local(db, store, 7, "https://img.x/cover.jpg"))
+        self.assertEqual(store.puts, [])
 
 
 if __name__ == "__main__":

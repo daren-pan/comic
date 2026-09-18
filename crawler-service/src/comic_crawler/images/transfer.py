@@ -62,14 +62,29 @@ def ensure_cover_local(
 ) -> bool:
     """外链封面落盘为图库内相对 key（covers/{comic_id}.jpg）。
 
+    - **图库里已有这张封面 → 直接返回（True），不重复下载**；
     - 已是本地 key / 占位路径 / 空 → 跳过（True）；
-    - http(s) 外链 → 下载写图库并回填相对 key（幂等，每轮同步自愈）；
+    - http(s) 外链且本地还没有 → 下载写图库并回填相对 key；
     - 下载失败 → 保留外链，记录告警返回 False，下次同步重试。
     与 lazy_transfer 同一约定：DB 只存图库内相对 key，与机器/项目路径解耦。
+
+    ⚠️ **为什么必须先看本地**：采集每轮都会调这里，而传进来的 `cover_url` 是**源站外链**
+    （`detail.cover_url`，每轮都一样），只判"是不是 http(s)"的话就会**每轮把封面重下一遍**
+    （实测同一部在日志里出现多次「封面落盘」）。封面 key 由 comic_id 唯一确定，
+    所以"文件在"就等于"已落盘"，没必要再回源。
+
+    代价（用户 2026-09-18 明确接受）：**源站换封面时不会自动刷新** —— 想强制刷新就删掉
+    图库里那张 `covers/{id}.jpg`，下一次巡检的封面自愈（`heal_covers`）会回源重取。
     """
+    key = f"covers/{comic_id}.jpg"
+    if image_store.exists(key):
+        # 文件在：本地已落盘。若库里还记着外链（此前下载成功但回填失败等），顺手补回填 ——
+        # 否则接口会一直按外链取图，白存了这份本地文件。
+        if cover_url.startswith(("http://", "https://")):
+            storage.set_comic_cover(comic_id, key)
+        return True
     if not cover_url or not cover_url.startswith(("http://", "https://")):
         return True
-    key = f"covers/{comic_id}.jpg"
     try:
         resp = httpx.get(cover_url, timeout=15.0, follow_redirects=True)
         resp.raise_for_status()
