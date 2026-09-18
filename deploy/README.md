@@ -97,5 +97,11 @@ docker compose -f deploy/docker-compose.yml up -d
 - **管理台 / 日志 / 授权页要管理员角色**：管理台与日志要 `require_admin`（超管 + 普通管理员），
   **授权页要 `require_superadmin`（仅超管）**；未登录 401 / 权限不足 403。
   全新库**首个注册用户自动成为超管**；老库升级加 `--migrate` 补 `user.role` 列；给他人授权在管理台「授权」页。
+- **时区由 `COMIC_TZ` 统一（默认 `Asia/Shanghai`），别删**：基础镜像没有 TZ 就是 UTC，
+  而程序里所有"当前时间"（`log_record.created_at`、`comic/chapter.sync_time`、`logs/api.log`
+  的时间戳）都按**本机时间**写入 —— 不设 TZ 服务器上会比北京时间早 8 小时
+  （2026-09-18 排查「管理台日志时间对不上」的结论）。app / scheduler / mysql 三个服务共用它
+  （mysql 的 `time_zone=SYSTEM` 跟随容器时区，决定 `NOW()`，影响日志保留策略的 30 天边界）。
+  ⚠️ **改 `.env` 后要 `up -d` 重建容器才生效**；镜像自带 tzdata，无需额外装包。
 
 完整说明（环境变量、上线前必做清单、迁移脚本怎么跑）见 [`../docs/deploy.md`](../docs/deploy.md)。

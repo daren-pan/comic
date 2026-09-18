@@ -172,7 +172,7 @@ cd comic-web && npm install && npm run build    # 先构建前端 → comic-web/
 放 `src/` 下才能与开发态同构，运行时数据正好落在 `<out>/data/`。
 `core/config.py` 里三个候选路径就是为这件事准备的（开发态 / 打包态两种）。
 
-## 4. 环境变量（5 个，全部有默认值 —— 上线必须改）
+## 4. 环境变量（都有默认值 —— 上线必须改的见 §7）
 
 | 变量 | 默认值 | 上线要求 |
 |---|---|---|
@@ -183,6 +183,7 @@ cd comic-web && npm install && npm run build    # 先构建前端 → comic-web/
 | `COMIC_MYSQL_DB` | `comic` | — |
 | `COMIC_JWT_SECRET` | `comic-demo-secret-change-me` | ⚠️ **必须换强随机值**，否则 token 可被伪造 |
 | `COMIC_IMAGE_ROOT` | 空（= `<out>/data/image_store`） | 指向**持久盘**，且**必须绝对路径** |
+| `COMIC_TZ` | `Asia/Shanghai` | 容器时区（compose 用，app/scheduler/mysql 共用）。**别删**：镜像默认 UTC，而日志与 `sync_time` 都按本机时间写库 → 不设会让管理台日志时间早 8 小时。改完要 `up -d` 重建容器 |
 
 两条确定性行为（不是猜测，代码里写死了）：
 

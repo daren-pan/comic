@@ -42,6 +42,11 @@ x-app-env: &app-env
   # （本地转存的图容器读不到、反之亦然），也不必靠"记得同步"维持一致。
   COMIC_IMAGE_ROOT: /data/image_store
   COMIC_STATE_FILE: /data/source_state.json
+  # 时区：**必须显式设置** —— 基础镜像没配 TZ 时就是 UTC，而代码里所有"当前时间"都按
+  # **本机时间**写入（log_record.created_at、comic/chapter.sync_time、logs/api.log 的时间戳），
+  # 于是服务器上的日志时间会比北京时间早 8 小时（2026-09-18 排查「管理台日志时间对不上」）。
+  # 本地直跑时本机已是本地时区，容器必须对齐到同一时区，两边看到的时间才一致。
+  TZ: ${COMIC_TZ:-Asia/Shanghai}
 
 services:
   # ---------------- 数据库（本项目独占一个实例，不与别的系统共用）----------------
@@ -58,6 +63,10 @@ services:
       # 要让数据库端口对公网开放的话，请换成强随机值。
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
       MYSQL_DATABASE: ${COMIC_MYSQL_DB:-comic}
+      # 与 app 用**同一个时区**：MySQL 的 time_zone=SYSTEM 跟随容器时区，不设就是 UTC ——
+      # `NOW()` 会比北京时间早 8 小时，而它被日志保留策略（purge 30 天）用来和
+      # `log_record.created_at`（按本机时间写入）比较，两者不同会算错边界。
+      TZ: ${COMIC_TZ:-Asia/Shanghai}
     # 宿主端口 3309（避开 3307 上的其它系统），仅给 Navicat/IDEA 从本机连用；
     # comic-app 走编排内网连 comic-mysql:3306，不经过这里。
     ports: ["${MYSQL_BIND:-0.0.0.0}:${MYSQL_HOST_PORT:-3309}:3306"]

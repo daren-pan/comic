@@ -113,7 +113,10 @@ uvicorn main:app --port 8000   # 在 api-service 目录
 
 - **运行日志**（`log_record`）：逐条落库，由 `storage/mysql/log_handler.py`（logging Handler，后台线程 + 批量 `executemany`）写入，供 api-service 的「日志查询」页筛；与 `sync_log`（任务级统计）分工不同，后者保留。
 
-- **时间列一律用 `DATETIME`**：`chapter/comic.sync_time`、`comic.addtime`、`sync_log.started_at`/`finished_at`、`favorite.created_at`、`history.read_at`、`user.created_at`。**不要用 `VARCHAR` 存 ISO 串**——字符串比较/排序/时区语义都是坑（2026-09-10 已由 `varchar(32)` 统一迁移为 `DATETIME`，写入侧 `_now()` 直接给 `datetime`）；
+- **时间列一律用 `DATETIME`**：`chapter/comic.sync_time`、`comic.addtime`、`sync_log.started_at`/`finished_at`、`favorite.created_at`、`history.read_at`、`user.created_at`。**不要用 `VARCHAR` 存 ISO 串**——字符串比较/排序/时区语义都是坑（2026-09-10 已由 `varchar(32)` 统一迁移为 `DATETIME`，写入侧 `_now()` 直接给 `datetime`）。
+  ⚠️ 列里存的是 **naive 的本机时间**（`_now()` / `log_handler` 的 `datetime.fromtimestamp` 都取进程本地时区）：
+  容器**必须**配时区（compose 的 `COMIC_TZ`，默认 `Asia/Shanghai`），否则镜像默认 UTC ——
+  服务器上存进去的会比北京时间早 8 小时（2026-09-18 排查「管理台日志时间对不上」的结论）；
 - 标签走 `tag` + `comic_tag` 关联表（`comic.category` 保留源站原始串）；
 - 封面 / 分页图只存**图库内相对 key**（`covers/26.jpg`、`comic/26/34/001.jpg`）；
 - **热度不落库**：只存真实计数 `comic.views`（浏览次数），热度由 `heat_sql()` 实时算
