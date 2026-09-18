@@ -1,7 +1,7 @@
 """拷贝漫画适配器解析测试（纯逻辑：mock `_api_get` 返回 fixture，不联网不写库）。
 
 覆盖：
-- `_row_to_brief`：列表/搜索行 -> ComicBrief（path_word 作 ID、封面剥规格后缀、
+- `_row_to_brief`：列表/搜索行 -> ComicBrief（path_word 作 ID、**封面地址原样保留**、
   作者拼接、日期解析、列表 theme 恒空）；
 - `fetch_comic_list`：条数、has_next、page>MAX_PAGE 返回空、**增量按日期比较**；
 - `fetch_comic_detail`：标题/作者/状态/标签/分类/简介/封面 + 章节 index+1 连续唯一、
@@ -10,7 +10,7 @@
 - `_status_of`：已完結 -> 完结，連載中 -> 连载，缺失 -> 空串；
 - `fetch_chapter_pages`：contents[].url -> PageInfo（跳空项）；
 - `fetch_source_page_urls`：重拉 + 章级缓存（只请求一次）；
-- `search_comics` / `_parse_date` / `parse_comic_ref` / `_original_image`；
+- `search_comics` / `_parse_date` / `parse_comic_ref`；
 - `images.transfer._host_allowed`：`*.mangafunb.fun` 通配白名单（分片图床）。
 
 运行：PYTHONPATH=src python -m unittest discover -s tests -v
@@ -188,9 +188,10 @@ class TestCopymangaAdapter(unittest.TestCase):
         self.assertEqual(b.source_comic_id, "dianjuren")  # path_word，不是 uuid
         self.assertEqual(b.title, "電鋸人")
         self.assertEqual(b.author, "藤本タツキ")
-        # 封面剥掉 .328x422.jpg 规格后缀，取原图
+        # 封面地址原样保留（**不剥** `.328x422.jpg` 缩略后缀）
         self.assertEqual(
-            b.cover_url, "https://sd.mangafunb.fun/d/dianjuren/cover/1689304034.jpg"
+            b.cover_url,
+            "https://sd.mangafunb.fun/d/dianjuren/cover/1689304034.jpg.328x422.jpg",
         )
         self.assertEqual(b.detail_url, "https://copy4000.com/comic/dianjuren")
         self.assertEqual(b.status, "连载")  # 列表不给状态，默认连载（详情覆盖）
@@ -246,7 +247,8 @@ class TestCopymangaAdapter(unittest.TestCase):
         self.assertIn("\n", d.description)           # \r\n 归一为 \n
         self.assertNotIn("\r", d.description)
         self.assertEqual(
-            d.cover_url, "https://sd.mangafunb.fun/d/dianjuren/cover/1689304034.jpg"
+            d.cover_url,
+            "https://sd.mangafunb.fun/d/dianjuren/cover/1689304034.jpg.328x422.jpg",
         )
         # 章节：index 0 起 -> chapter_no = index + 1，连续且唯一
         self.assertEqual([c.chapter_no for c in d.chapters], [1, 2, 3])
@@ -272,7 +274,7 @@ class TestCopymangaAdapter(unittest.TestCase):
         )
         self.assertEqual(d.title, "電鋸人")
         self.assertEqual(d.author, "藤本タツキ")
-        self.assertTrue(d.cover_url.endswith("1689304034.jpg"))
+        self.assertTrue(d.cover_url.endswith("1689304034.jpg.328x422.jpg"))
         self.assertEqual(d.chapters, [])
 
     def test_fetch_chapters_pagination(self):
@@ -344,37 +346,46 @@ class TestCopymangaAdapter(unittest.TestCase):
         self.assertIsNone(self.ad._parse_date("2026-13-45"))  # 非法月日
         self.assertIsNone(self.ad._parse_date("not-a-date"))
 
-    def test_original_image(self):
-        f = self.ad._original_image
-        self.assertEqual(f("https://sd.mangafunb.fun/d/x/cover/1.jpg.328x422.jpg"),
-                         "https://sd.mangafunb.fun/d/x/cover/1.jpg")
-        self.assertEqual(f("https://sd.mangafunb.fun/d/x/1.jpg.c1500x.jpg"),
-                         "https://sd.mangafunb.fun/d/x/1.jpg")
-        self.assertEqual(f("https://sd.mangafunb.fun/d/x/1.jpg"),
-                         "https://sd.mangafunb.fun/d/x/1.jpg")   # 无后缀不动
-        self.assertEqual(f(""), "")
+    def test_cover_url_kept_as_is(self):
+        """封面地址**原样入库**，一个字都不改（2026-09-18 决定，撤销"剥后缀取原图"）。
 
-    def test_original_image_keeps_real_ext(self):
-        """剥后缀要留**原图**扩展名（缩略图恒为 jpg）——留末段会让 .jpeg/.png 封面 404。
-
-        2026-09-18 修：`1788335868.jpeg.328x422.jpg` 曾被算成 `….jpg`（NoSuchKey 404）。
+        原因：那个 `.328x422.jpg` 后缀**不是**可替换的 resize 参数 —— 实测图床上只有
+        「基址」与「精确 `.328x422.jpg`」两个真实文件，`.500x643` / `.c1500x` 等一律 404。
+        而剥离逻辑一旦取错扩展名就会整张 404（`.jpeg`/`.png` 封面曾被写成 `.jpg`），
+        收益不稳、风险实在，故不再改写。
         """
-        f = self.ad._original_image
-        self.assertEqual(
-            f("https://sq.mangafunb.fun/q/qingwanlewo/cover/1788335868.jpeg.328x422.jpg"),
-            "https://sq.mangafunb.fun/q/qingwanlewo/cover/1788335868.jpeg",
+        # 详情路径：brief 无 cover 时用详情字段，且原样保留
+        self.ad._api_get = _FakeApi({"detail": DETAIL_JSON, "chapters": {"list": []}})
+        d = self.ad.fetch_comic_detail(
+            ComicBrief(source="copymanga", source_comic_id="dianjuren", title="")
         )
         self.assertEqual(
-            f("https://sc.mangafunb.fun/c/cadws/cover/1789615473.png.328x422.jpg"),
-            "https://sc.mangafunb.fun/c/cadws/cover/1789615473.png",
+            d.cover_url, DETAIL_JSON["comic"]["cover"]
+        )  # 与源站字段逐字节相同
+
+        # 列表路径：同样原样保留
+        b = self.ad._row_to_brief(LIST_JSON["list"][0])
+        self.assertEqual(b.cover_url, LIST_JSON["list"][0]["cover"])
+
+        # 各种扩展名都不受影响（此前 `.jpeg`/`.png` 会被误改）
+        for raw in (
+            "https://sq.mangafunb.fun/q/qingwanlewo/cover/1788335868.jpeg.328x422.jpg",
+            "https://sc.mangafunb.fun/c/cadws/cover/1789615473.png.328x422.jpg",
+            "https://sd.mangafunb.fun/d/x/1.webp.328x422.jpg",
+            "https://sd.mangafunb.fun/d/x/1.jpg",
+            "",
+        ):
+            row = dict(LIST_JSON["list"][0], cover=raw)
+            self.assertEqual(self.ad._row_to_brief(row).cover_url, raw)
+
+        # brief 已带 cover 时优先用 brief 的（导入链路），同样不改写
+        given = "https://se.mangafunb.fun/e/x/cover/1788672090.jpeg.328x422.jpg"
+        d2 = self.ad.fetch_comic_detail(
+            ComicBrief(
+                source="copymanga", source_comic_id="x", title="t", cover_url=given
+            )
         )
-        self.assertEqual(
-            f("https://sd.mangafunb.fun/d/x/1.webp.c1500x.jpg"),
-            "https://sd.mangafunb.fun/d/x/1.webp",
-        )
-        # 原图已带扩展名（源站直接给原图）时不能被误改
-        self.assertEqual(f("https://sd.mangafunb.fun/d/x/1.png"),
-                         "https://sd.mangafunb.fun/d/x/1.png")
+        self.assertEqual(d2.cover_url, given)
 
     def test_search_comics(self):
         fake = _FakeApi({"search": SEARCH_JSON})
