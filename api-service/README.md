@@ -43,13 +43,21 @@ api-service/
     ├── public.py       #   健康/分类/作品/章节/封面/正文图（免登录）
     ├── auth.py         #   注册/登录/当前用户
     ├── users.py        #   收藏（需登录）/ 阅读历史（匿名 userId）
-    └── admin.py        #   采集管理台（免登录，运维用）
+    ├── admin.py        #   采集管理台（需管理员：超管或普通管理员）
+    └── admin_users.py  #   授权页：用户列表 + 授权/取消授权（**仅超级管理员**）
 ```
 
 > 新增接口：写进对应域的 `routers/*.py`；逻辑放 `services/`；入参模型放 `schemas.py`；
 > 跨层工具放 `core/`。**不要让 `main.py` 重新变胖。**
 
 ## 接口一览（统一响应格式 `{ code, message, data }`）
+
+> **成功**统一 `{ code, message, data }`（`code: 0`）；**失败**走 FastAPI 的 `HTTPException` →
+> `{"detail": "..."}`（Pydantic 校验失败则是 `{"detail": [{"loc": …, "msg": …}]}`）。
+> 前端 `comic-web/src/api/request.ts` 的 `errorMessage()` 优先取 `detail` 再取 `message` ——
+> 所以后端的中文提示能原样显示给用户。
+> ⚠️ 曾经只读 `message`：读不到就退化成 axios 的 `Request failed with status code 401`，
+> 用户只看到一句没信息量的状态码（2026-09-18 因此被误判成"注册失败"）。
 
 | 端点 | 说明 | 对应架构方案 |
 |---|---|---|
@@ -74,6 +82,8 @@ api-service/
 | `GET /api/admin/logs/{id}` | 单条日志（含异常堆栈全文；列表接口不带） | 同上（点开某行） |
 | `GET /api/admin/logs/options` | 筛选候选值（级别 / 事件类型） | 同上 |
 | `POST /api/admin/logs/purge?days=` | 删除 N 天前的日志（保留策略的手动入口） | 同上（「清理 30 天前」） |
+| `GET /api/admin/users` | **授权页**用户列表（关键字匹配用户名 / 昵称 + 分页） | 管理台「授权」页 |
+| `POST /api/admin/users/{id}/role` | 设置角色（`admin` / `user`）→ 授权 / 取消授权；**改自己会被拒**（400，防自锁） | 同上 |
 
 > 匿名用户模型：前端首次访问生成 `userId`（localStorage 持久化），收藏与历史按用户隔离；
 > 服务端历史支持**跨浏览器续读**（换设备/浏览器登录同一 userId 即可继续上次阅读）。
@@ -99,7 +109,7 @@ api-service/
 
 ## 采集管理控制台（`/api/admin/*`）
 
-面向本机运维的采集控制台（前端 `/#/admin`，无需登录）。采集/懒转存耗时，故用**后台线程执行 + 前端轮询**（`_run_admin_task`），触发后立即返回 `taskId`，再轮询 `GET /api/admin/tasks/{id}` 取结果。
+面向本机运维的采集控制台（前端 `/#/admin`，**需管理员角色**：超管或普通管理员；未登录 401 / 权限不足 403，见 `docs/auth.md` §8）。采集/懒转存耗时，故用**后台线程执行 + 前端轮询**（`_run_admin_task`），触发后立即返回 `taskId`，再轮询 `GET /api/admin/tasks/{id}` 取结果。
 
 - **按源开关**：`POST /api/admin/sources/{name}/toggle` 切换某源采集启用状态，持久化到 `paths.SOURCE_STATE_FILE`（= `crawler-service/data/source_state.json`，与图库同一个运行时数据目录；容器内是 bind 过来的 `/data/source_state.json`），重启不丢（默认读 `config.SOURCES.enabled`）；关闭的源拒绝触发采集（400）。
 - **触发采集**：`POST /api/admin/sync`，`since`（ISO，起始日期）**优先于上次同步水位**——留空按水位、填了按填的日期回补/前移；`limit` 限制本次收录数量（受控样本）。
@@ -109,6 +119,21 @@ api-service/
 - 数据层支撑（crawler-service）：`incremental_sync/full_sync` 增加 `since` 参数；`lazy_transfer`/`list_uncached_pages` 增加 `source` 按源过滤；新增 `heal_covers` 封面自愈。
 
 > 采集任务结果以 `{stats, summary, db}` 存入 `result`；转存任务为 `{checked, transferred, failed, pagesByStatus, coverHeal}`（`coverHeal` = `{checked, healed, failed, skipped}`）。
+
+## 测试（`tests/`）
+
+跑全部：仓库根 `./scripts/check.sh`（= crawler 单测 + api 分层守卫 + `tsc --noEmit`），
+或只跑这一层：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m unittest discover -s tests`。
+单跑某个文件：`-m unittest tests.test_admin_authz`（或直接 `python tests/test_admin_authz.py`）。
+
+约定：**单测纯逻辑、不连库、不起 HTTP** —— 需要存储时把 `core.db` 换成假存储。
+⚠️ **假存储只有一份**：`tests/_stub_db.py`，用它的测试文件在**导入应用模块之前**调 `install_stub()`。
+
+> 为什么必须共用：`unittest discover` 把所有测试文件跑在**同一个进程**里，而
+> `sys.modules['core.db']` 是进程级全局；应用模块写的是 `from core.db import db`
+> （**导入时绑定值**），所以先触发 `serializers` / `routers.*` 导入的那份桩会"锁死"后面的绑定 ——
+> 两个文件各造一份桩必然互相污染（表现为另一个文件断言"一次批量查询都没有"的假失败）。
+> 详见 `tests/_stub_db.py` 文件头。
 
 ## 数据流闭环
 

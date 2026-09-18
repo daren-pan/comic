@@ -37,6 +37,16 @@ async function submit() {
   }
 }
 
+/**
+ * 切换「登录 / 注册」。
+ * 必须**顺手清掉上一条报错** —— 否则"登录失败"的红字会留在注册表单下面，
+ * 让人误以为是"注册失败"（2026-09-18 用户就被这个误导过）。
+ */
+function toggleMode() {
+  mode.value = mode.value === 'login' ? 'register' : 'login'
+  error.value = ''
+}
+
 function onBack() {
   router.back()
 }
@@ -76,7 +86,7 @@ function onBack() {
         </button>
       </form>
 
-      <button class="switch" @click="mode = mode === 'login' ? 'register' : 'login'">
+      <button class="switch" @click="toggleMode">
         {{ mode === 'login' ? '没有账号？去注册' : '已有账号？去登录' }}
       </button>
     </div>

@@ -26,14 +26,41 @@ service.interceptors.request.use((config) => {
 })
 
 /**
+ * 从错误响应体里取出**能给人看**的一句话。
+ *
+ * 后端有两套错误形状，必须都认：
+ * - FastAPI 的 `HTTPException` → `{"detail": "用户名或密码错误"}`（我们所有业务错误都走这个）；
+ * - Pydantic 校验失败 → `{"detail": [{"loc": [...], "msg": "field required"}, ...]}`；
+ * - 自家成功信封是 `{code, message}`（错误不走它，但留着兜底）。
+ *
+ * 为什么值得单独抽出来：原先只读 `data.message`，读不到就退化成 axios 的
+ * `Request failed with status code 401` —— **后端的中文提示全被吞掉**，
+ * 用户只看到一句没信息量的 401（2026-09-18 用户就是被这句话误导，以为"注册失败"，
+ * 实际是"用户不存在/密码不对"的登录失败）。
+ */
+function errorMessage(data: unknown, fallback?: string): string {
+  const body = (data ?? {}) as { detail?: unknown; message?: unknown }
+  const detail = body.detail
+  if (typeof detail === 'string' && detail) return detail
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) => (d && typeof d === 'object' ? String((d as { msg?: unknown }).msg ?? '') : ''))
+      .filter(Boolean)
+    if (msgs.length) return msgs.join('；')
+  }
+  if (typeof body.message === 'string' && body.message) return body.message
+  return fallback || '网络错误'
+}
+
+/**
  * 响应拦截器（错误分支）：
  * - 401（token 过期/无效）→ 清登录态（广播 auth:changed）→ 跳登录页（仅当此前确实带 token，避免匿名历史接口误伤）
- * - 其它 HTTP 错误 → 透传后端 message（如 {detail: "..."} 或后端业务 message）
+ * - 其它 HTTP 错误 → 透传后端错误文案（见 `errorMessage`）
  * 成功响应不在此剥壳（需保持 AxiosResponse 类型），解包统一在 request() 泛型封装里做。
  */
 service.interceptors.response.use(
   (res) => res,
-  (err: { response?: { status?: number; data?: { message?: string } }; message?: string }) => {
+  (err: { response?: { status?: number; data?: unknown }; message?: string }) => {
     const status = err.response?.status
     if (status === 401) {
       const logged = isLoggedIn()
@@ -44,7 +71,7 @@ service.interceptors.response.use(
         window.location.hash = `#/login?redirect=${redirect}`
       }
     }
-    return Promise.reject(new Error(err.response?.data?.message || err.message || '网络错误'))
+    return Promise.reject(new Error(errorMessage(err.response?.data, err.message)))
   },
 )
 
