@@ -111,13 +111,16 @@ fi
 if [ "$MIGRATE" = "1" ]; then
   step "[3.5] 迁移已有库（幂等；全新库可跳过）"
   echo "   挂载 ../tools 到容器 /app/tools，逐个跑（都支持重复执行）"
-  for t in add_log_table.py add_perf_indexes.py drop_fingerprint_unique.py; do
+  for t in add_log_table.py add_perf_indexes.py drop_fingerprint_unique.py add_user_role.py; do
     echo "   → tools/$t"
     compose run --rm -v ../tools:/app/tools:ro comic-app python "tools/$t" \
       || die "tools/$t 失败 —— 单独跑它看详细输出：
   docker compose -f deploy/docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/$t"
   done
   echo "   ✅ 迁移脚本全部执行完（都是幂等的，没有改动就是已经迁过）"
+  echo "   提示：add_user_role.py 若发现库里**没有超级管理员**，会把最早的特权用户提升为 superadmin"
+  echo "         （转移超管身份：tools/add_user_role.py --superadmin <用户名>）"
+  echo "         （否则升级后谁都进不去管理台）；之后的授权在管理台「授权」页做"
   echo "   提示：指纹（comic.fingerprint）只作"可能重复"的观察字段，若也要对齐可手动跑
          tools/rebuild_fingerprint.py（它会往容器内 /app/backup 写回滚 SQL，宿主上跑更方便）"
 fi
@@ -177,8 +180,14 @@ cat <<EOF
 
   入口（宿主 HTTP_PORT=$PORT）
     站点        http://127.0.0.1:$PORT/
-    采集管理台  http://127.0.0.1:$PORT/#/admin      （免登录，可手动触发采集/转存/巡检）
+    管理台      http://127.0.0.1:$PORT/#/admin      （需管理员登录）
+    授权页      http://127.0.0.1:$PORT/#/admin/users （给其他用户授权）
     接口文档    http://127.0.0.1:$PORT/docs
+
+  ⚠️ 角色三档：superadmin 超管（管理台+日志+**授权页**，全库唯一）/ admin 普通管理员
+     （管理台+日志，**进不了授权页**）/ user 普通用户（无权限）。
+     全新库：**第一个注册的账号自动是超管**，部署完请立刻注册；
+     已有库（老环境）记得带 --migrate 补 user.role 列并定下超管。
 
   数据位置（备份就这两处）
     数据库      Docker 卷 comic_mysql_data      （备份：mysqldump）

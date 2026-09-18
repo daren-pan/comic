@@ -64,6 +64,7 @@ export interface User {
   id: number
   username: string
   nickname: string
+  role: string              // 'superadmin' 超管（管理台+日志+授权，全库唯一）/ 'admin' 普通管理员（管理台+日志）/ 'user' 普通用户
   createdAt: string
 }
 
@@ -182,4 +183,20 @@ export interface ImportResult {
   failed: number
   alreadySameSource: boolean  // 本源此前已收过（幂等重复导入；别的源收过是另一行）
   summary: string
+}
+
+// ---------------- 授权页（仅超级管理员） ----------------
+export interface AdminUser {
+  id: number
+  username: string
+  nickname: string
+  role: string              // 'superadmin' / 'admin' / 'user'
+  createdAt: string
+}
+
+export interface AdminUserPage {
+  items: AdminUser[]
+  total: number
+  page: number
+  pageSize: number
 }

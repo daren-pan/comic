@@ -202,8 +202,34 @@ class UserStore(ABC):
         """按用户名查用户（含 password_hash），用于注册去重与登录校验。"""
 
     @abstractmethod
-    def create_user(self, username: str, password_hash: str, nickname: str) -> dict:
-        """创建用户并返回完整记录。"""
+    def create_user(
+        self, username: str, password_hash: str, nickname: str, role: str = "user"
+    ) -> dict:
+        """创建用户并返回完整记录（`role` 默认 `'user'`）。
+
+        角色三档：`'superadmin'`（超级管理员，全库唯一）/ `'admin'`（普通管理员）/ `'user'`。
+        调用方负责决定角色 —— 「库里没有任何特权用户时，首个注册用户给 `superadmin`」
+        这条引导规则在 `api-service/routers/auth.py`（业务判断放业务层，存储层只存）。
+        """
+
+    @abstractmethod
+    def count_privileged(self) -> int:
+        """当前**特权用户**数（`role` 为 `superadmin` 或 `admin`）。
+
+        引导用：为 0 说明这个库还没人能做管理动作 → 首个注册者应成为 `superadmin`。
+        """
+
+    @abstractmethod
+    def list_users(self, keyword: str | None = None, page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
+        """用户列表（授权页用）→ `(rows, total)`。
+
+        `keyword` 模糊匹配用户名 / 昵称；分页在 SQL 层做（`LIMIT`/`OFFSET`），
+        **不是**取全表再切片。返回行按 `id` 升序（先注册的在前）。
+        """
+
+    @abstractmethod
+    def set_user_role(self, user_id: str, role: str) -> bool:
+        """设置用户角色（授权 / 取消授权），返回是否命中了行（False = 用户不存在）。"""
 
     @abstractmethod
     def get_user(self, user_id: str) -> dict | None:

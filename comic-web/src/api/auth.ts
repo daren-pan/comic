@@ -38,6 +38,18 @@ export function setAuth(result: AuthResult): void {
   broadcastAuthChanged()
 }
 
+/**
+ * 只更新缓存里的 user（token 不变）—— 用于 `GET /api/auth/me` 的结果回写
+ * @param user 后端返回的最新用户（含 role）；写 localStorage 并广播 auth:changed
+ * @remarks 路由守卫进管理台前会调一次 `/api/auth/me`：被取消授权后 role 会立刻变回来，
+ *          不用等 token 过期，也不用重新登录。
+ */
+export function setUser(user: User): void {
+  _me = user
+  localStorage.setItem(USER_KEY_STORE, JSON.stringify(user))
+  broadcastAuthChanged()
+}
+
 /** 解析 JWT 的 payload（第2段），失败返回 null。用于判断过期/有效性。 */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {

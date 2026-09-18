@@ -44,17 +44,57 @@ class MySQLUserStore(UserStore):
                 row = cur.fetchone()
                 return dict(row) if row else None
 
-    def create_user(self, username: str, password_hash: str, nickname: str) -> dict:
+    def create_user(
+        self, username: str, password_hash: str, nickname: str, role: str = "user"
+    ) -> dict:
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """INSERT INTO user (username, password_hash, nickname, created_at)
-                       VALUES (%s,%s,%s,%s)""",
-                    (username, password_hash, nickname, _now()),
+                    """INSERT INTO user (username, password_hash, nickname, role, created_at)
+                       VALUES (%s,%s,%s,%s,%s)""",
+                    (username, password_hash, nickname, role, _now()),
                 )
                 conn.commit()
                 cur.execute("SELECT * FROM user WHERE id=%s", (cur.lastrowid,))
                 return dict(cur.fetchone())
+
+    def count_privileged(self) -> int:
+        """特权用户数（`superadmin` + `admin`）—— 为 0 说明还没人能做管理动作。"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) AS n FROM user WHERE role IN ('superadmin','admin')")
+                return int(cur.fetchone()["n"])
+
+    def list_users(
+        self, keyword: str | None = None, page: int = 1, page_size: int = 20
+    ) -> tuple[list[dict], int]:
+        """用户列表（授权页）：一条 COUNT + 一条 `LIMIT` 查询，不在 Python 侧切片。
+
+        关键字为 `None`/空串时不加 `WHERE`（少一次全表 LIKE 判断）。
+        """
+        where, params = "", []
+        if keyword:
+            where = " WHERE username LIKE %s OR nickname LIKE %s"
+            like = f"%{keyword}%"
+            params = [like, like]
+        offset = (page - 1) * page_size
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT COUNT(*) AS n FROM user{where}", params)
+                total = int(cur.fetchone()["n"])
+                cur.execute(
+                    f"""SELECT id, username, nickname, role, created_at FROM user{where}
+                        ORDER BY id LIMIT %s OFFSET %s""",
+                    [*params, page_size, offset],
+                )
+                return [dict(r) for r in cur.fetchall()], total
+
+    def set_user_role(self, user_id: str, role: str) -> bool:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE user SET role=%s WHERE id=%s", (role, user_id))
+                conn.commit()
+                return cur.rowcount > 0
 
     def get_user(self, user_id: str) -> dict | None:
         with self._conn() as conn:

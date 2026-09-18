@@ -244,7 +244,69 @@ def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer
 | 请求体模型（`RegisterBody` 等） | `api-service/schemas.py` |
 | 用户对外视图（`user_out`） | `api-service/serializers.py` |
 | 存储句柄 `db` / `users` | `api-service/core/db.py` |
+| 两道门 `require_admin` / `require_superadmin` | `api-service/core/security.py` |
+| 管理台端点 / 授权页端点 | `api-service/routers/admin.py` · `routers/admin_users.py` |
+| 角色变更规则（禁改自己 / 禁授超管 / 禁改超管） | `api-service/services/accounts.py` |
+| 补 `user.role` 列 / 定首个超管 / 转移超管 | `tools/add_user_role.py` |
+| 鉴权守卫测试（结构 + 边界） | `api-service/tests/test_admin_authz.py` |
 
 ---
 
-*本文档整理于 2026-09-04，对应 api-service 登录/收藏功能改动；2026-09-10 同步 user 表 DDL（MySQL，时间列 `DATETIME`）；2026-09-11 改为按文件索引（api-service 已分层拆分）。*
+*本文档整理于 2026-09-04，对应 api-service 登录/收藏功能改动；2026-09-10 同步 user 表 DDL（MySQL，时间列 `DATETIME`）；2026-09-11 改为按文件索引（api-service 已分层拆分）；2026-09-18 增补 §8 角色与授权（当日先做两档，因实测到「普通管理员可降级超管」的漏洞，改为**三档**：`superadmin` / `admin` / `user` + 两道门）。*
+
+---
+
+## 8. 角色与授权（管理台 / 日志 / 授权页）
+
+### 8.1 三档角色
+
+| 值 | 名字 | 能做什么 | 怎么产生 |
+|---|---|---|---|
+| `superadmin` | **超级管理员** | 管理台（`/#/admin`）+ 运行日志（`/#/admin/logs`）+ **授权页**（`/#/admin/users`） | **全库唯一**：库里没有任何特权用户时，首个注册用户自动成为超管；转移用 `tools/add_user_role.py --superadmin <用户名>` |
+| `admin` | 普通管理员 | 管理台 + 日志；**进不了授权页**（授不了权） | 由超管在授权页授予（不能在授权页授予 `superadmin`） |
+| `user`（默认） | 普通用户 | 只能浏览 / 收藏 / 历史；访问 `/api/admin/*` 一律 **403** | 默认 |
+
+角色落在 `user.role`（`VARCHAR(32) NOT NULL DEFAULT 'user'`，DDL 见 `crawler-service/sql/mysql_schema.sql`）。
+
+> **为什么"能看管理台"和"能授权"必须分两档**（2026-09-18 实测到的漏洞）：
+> 原先只有 `admin` 一档、且授权页也只要 `admin` 就能进 —— 于是**被授权的普通管理员反手就能把
+> 真正的超管降级**，甚至互降。现在两个门槛分开：`require_admin` / `require_superadmin`。
+
+### 8.2 超级管理员怎么来（全库唯一）
+
+- **全新库**：`routers/auth.py` 的注册接口里，若 `count_privileged() == 0`（既没有超管也没有普通管理员），
+  就把这个新用户设为 `superadmin` —— 部署完**直接注册第一个账号**即可，无需任何手动步骤。
+  ⚠️ 所以站点对外且**尚无特权用户**时，谁先注册谁就是超管 —— 部署好请**立刻注册**；
+- **已有库**：跑 `tools/add_user_role.py`（`deploy/up.sh --migrate` 已包含）。它加完列后若发现
+  "没有任何超管"，会把**最早的特权用户**（没有则最早注册的用户）提升为超管，
+  避免升级完没人能进授权页；
+- **转移 / 修复**：`tools/add_user_role.py --superadmin <用户名>` —— 把指定用户设为超管，
+  **并把原超管降为普通管理员**（保持"全库唯一"）。要服务器权限，属运维动作。
+
+### 8.3 鉴权怎么落（两道门 + 三条硬规则）
+
+- **后端是真门**：
+  - `routers/admin.py`（采集 / 转存 / 巡检 / 导入 / 任务 / **日志**）挂 `require_admin` → 超管 + 普通管理员；
+  - `routers/admin_users.py`（**授权页**）挂 `require_superadmin` → **仅超管**；
+  - 未登录一律 **401**（前端拦截器据此跳登录页），权限不足 **403**（不清登录态）。
+- **授权动作还有三条硬规则**（`services/accounts.py`），保证"降级超管 / 造第二个超管"
+  在接口层面**不可能发生**：
+  1. **只能授予 `admin` / `user`** —— 授不出第二个超管；
+  2. **不能改自己** —— 唯一的超管把自己降级后再也没人能进授权页；
+  3. **不能改超级管理员** —— 超管不可被任何人降级（转移走上面那个脚本）。
+- **前端只是体验层**：`router.ts` 的 `requireRole(superOnly)` —— `/#/admin`、`/#/admin/logs` 要管理员，
+  `/#/admin/users` 要超管；顶栏「管理」对管理员可见、「授权」**仅超管可见**。
+  手改 localStorage 把 role 写成 `superadmin` **骗不过后端**，接口照样 403；
+- **角色不写进 token**：每次请求由 `get_current_user` 按 `sub` 查库取 `role`（`SELECT *` 顺带带出），
+  所以**刚被授权 / 刚被取消立刻生效**，不必等 7 天 token 过期、也不用重新登录
+  （代价是每个带鉴权请求多一次主键查询，可忽略）。
+
+### 8.4 相关测试
+
+`api-service/tests/test_admin_authz.py`（纯逻辑、不连库）守四件事：
+
+1. **结构上两个 router 各挂各的门**（`admin` → `require_admin`，`admin_users` → `require_superadmin`，
+   且后者**不能**误挂 `require_admin`）—— 漏挂就等于把超管交给普通管理员处置；
+2. 行为上 `require_admin` 放行超管与普通管理员、`require_superadmin` **只**放行超管；
+3. `role` 缺失时**按普通用户处理**（fail-closed，老库未迁移时不能默认放行）；
+4. 三条硬规则 + 注册引导只发生在"库里没有任何特权用户"时。

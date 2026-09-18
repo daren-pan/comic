@@ -35,7 +35,7 @@ comic/
 - **图库 / 运行时数据**：唯一真源 `comic_crawler.paths.DATA_ROOT`（= `<服务根>/data`，默认 `crawler-service/data`），
   里面是 `data/image_store`（图库，引用只存相对 key）与 `data/source_state.json`（管理台源开关状态）。
   **容器把整个 `/data` bind 到同一个宿主目录**，所以本地直跑与 Docker 读写的是同一批文件（不会出现两份图库互相看不见）。
-- **按需导入 / 管理台**：逻辑集中 `api-service/services/ondemand.py`；管理台 `/api/admin/*`，前端 `/#/admin` 免登录。
+- **按需导入 / 管理台**：逻辑集中 `api-service/services/ondemand.py`；管理台 `/api/admin/*`，前端 `/#/admin`。**角色三档**（未登录 401 / 权限不足 403，见 `docs/auth.md` §8）：`superadmin` 超管＝管理台+日志+**授权页**（**全库唯一**，库里没有任何特权用户时首个注册用户自动获得；转移用 `tools/add_user_role.py --superadmin <用户名>`）、`admin` 普通管理员＝管理台+日志但**进不了授权页**、`user` 默认无权限。两道门：管理台与日志 `require_admin`、授权页 `require_superadmin` —— 分开是硬要求，否则普通管理员能把超管降级。
 - **标签**：写入侧归一（`taxonomy.py` + `data/tag_synonyms.json`），查询侧零翻译。
 - **判重**：只看 `(source, source_comic_id)`（同源幂等）。**跨源不合并**（用户 2026-09-16 决策）：同一部作品在别的源收过就是**另一行**，各记各自章节进度 —— 不同翻译版本（繁简/中日英）进度往往不同，合并会丢信息。`comic.fingerprint` 只写不判重（"可能重复"的观测标记）。一行=一个收录源，所以章节归属由 `comic.source` 推导始终确定（`chapter` 表无 source 列）。详见 `docs/architecture.md` §2.3。
 

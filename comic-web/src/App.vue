@@ -16,7 +16,7 @@ const backend = ref<boolean | null>(null)
 
 // 登录态：全局唯一来源 = Pinia user store（登录/登出/401 后自动同步，无需路由 hack）
 const userStore = useUserStore()
-const { isLoggedIn: logged, user } = storeToRefs(userStore)
+const { isLoggedIn: logged, isAdmin, isSuperAdmin, user } = storeToRefs(userStore)
 
 // 消息中心：采集/转存任务结果 + 系统消息（顶栏入口，点击展开面板）
 const msgStore = useMessageStore()
@@ -98,7 +98,9 @@ watch(() => route.path, () => {
         <RouterLink to="/latest" :class="{ on: route.path === '/latest' }">最近更新</RouterLink>
         <RouterLink to="/rank" :class="{ on: route.path === '/rank' }">排行</RouterLink>
         <RouterLink to="/me" :class="{ on: route.path === '/me' }">我的</RouterLink>
-        <RouterLink to="/admin" :class="{ on: route.path === '/admin' }">管理</RouterLink>
+        <!-- 管理：管理员（含超管）可见；授权：**仅超管**（普通管理员没有授权权限） -->
+        <RouterLink v-if="isAdmin" to="/admin" :class="{ on: route.path === '/admin' }">管理</RouterLink>
+        <RouterLink v-if="isSuperAdmin" to="/admin/users" :class="{ on: route.path === '/admin/users' }">授权</RouterLink>
       </nav>
 
       <div class="nav-right">
@@ -165,7 +167,8 @@ watch(() => route.path, () => {
       <RouterLink to="/latest" @click="showMenu = false">最近更新</RouterLink>
       <RouterLink to="/rank" @click="showMenu = false">排行</RouterLink>
       <RouterLink to="/me" @click="showMenu = false">我的收藏与历史</RouterLink>
-      <RouterLink to="/admin" @click="showMenu = false">采集管理</RouterLink>
+      <RouterLink v-if="isAdmin" to="/admin" @click="showMenu = false">采集管理</RouterLink>
+      <RouterLink v-if="isSuperAdmin" to="/admin/users" @click="showMenu = false">授权管理</RouterLink>
       <RouterLink v-if="!logged" to="/login" @click="showMenu = false">登录</RouterLink>
       <a v-else href="#" @click.prevent="onLogout(); showMenu = false">退出登录</a>
     </div>

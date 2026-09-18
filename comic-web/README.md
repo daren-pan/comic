@@ -14,9 +14,12 @@
 | `/reader/:comicId/:chapterId` | 在线阅读器 | 双阅读模式（左右滑动/竖排连播）、主题切换、设置面板、章节切换、进度记忆续读 |
 | `/me` | 我的 | 最近阅读（续读/删除）+ 我的收藏 |
 | `/login` | 登录/注册 | JWT 登录，收藏需登录，历史匿名 |
-| `/admin` | 采集管理控制台 | 手动跑采集/懒转存（每源卡片）+ **全库失效巡检**（顶部单一面板）、每源开关、按参数控制范围（**无需登录**，运维用）；任务结果汇总到顶栏**消息中心** |
+| `/admin` | 采集管理控制台 | 手动跑采集/懒转存（每源卡片）+ **全库失效巡检**（顶部单一面板）、每源开关、按参数控制范围（**需管理员登录**：超管与普通管理员都可）；任务结果汇总到顶栏**消息中心** |
+| `/admin/logs` | 运行日志查询 | 按级别/源站/事件/作品/任务/关键字/时间窗筛（日志已落库 `log_record`）；**需管理员登录** |
+| `/admin/users` | 授权管理 | 用户列表 + 在**普通管理员 ⇄ 普通用户**之间切换；**仅超级管理员**可进（普通管理员进不来 —— 否则反手就能把超管降级） |
 
-顶栏导航：**首页 / 分类 / 最近更新 / 排行 / 我的 / 管理**（不再直挂具体分类标签，分类统一收敛到「分类」页）。
+顶栏导航：**首页 / 分类 / 最近更新 / 排行 / 我的 / 管理 / 授权** —— 其中「管理」对管理员（超管 + 普通管理员）可见、「授权」**仅超级管理员**可见（不再直挂具体分类标签，分类统一收敛到「分类」页）。
+三条 `/#/admin*` 路由都挂了守卫（`router.ts` 的 `requireRole(superOnly)`）：未登录跳登录页（带 `redirect`）、进门前向 `/api/auth/me` **复核角色**（角色是每请求查库的，被授权/被取消立即生效）、角色不够则回首页并留一条消息。
 
 ## 架构要点
 
@@ -29,7 +32,7 @@ src/api/
 ├── auth.ts       登录态与匿名身份（纯本地）：token 存取 + auth:changed 事件广播 + getUserId
 ├── content.ts    内容接口：漫画/章节/分页/分类（公开，无需登录）
 ├── user.ts       用户中心接口：认证/收藏（需登录）/历史（匿名）
-└── admin.ts      采集管理接口：源列表/开关/触发采集/触发懒转存/任务状态（运维，无需登录）
+└── admin.ts      管理台接口：源列表/开关/触发采集/触发懒转存/任务状态/日志查询/授权（**需管理员**；授权那组仅超管）
 ```
 
 - **请求**：`request.ts` 统一 `axios` 实例 + **请求拦截器**（自动附 `Authorization: Bearer <token>`）+ **响应拦截器**；
@@ -40,7 +43,7 @@ src/api/
 
 ### 登录态（Pinia，`src/stores/user.ts`）
 
-- **store**：登录态响应式内存镜像（state `token/user`、getter `isLoggedIn`、actions `login/register/logout/init`）；
+- **store**：登录态响应式内存镜像（state `token/user`、getter `isLoggedIn`/`isAdmin`/`isSuperAdmin`、actions `login/register/logout/init/refresh`）—— `refresh()` 拉 `/api/auth/me` 回写角色，供管理台路由守卫在进门前复核；`isAdmin` = 管理台权限（超管 + 普通管理员），`isSuperAdmin` = 仅超管；
 - **持久化**：token/user 落在 localStorage（`comic_web_token`/`comic_web_user`），刷新不丢；
 - **事件同步**：api 层 `setAuth`/`clearAuth` 广播 `window` 自定义事件 `auth:changed`，store `init()` 监听后从 localStorage 重读 → 全站组件（顶栏/收藏/书架）实时同步，无路由 hack；
 - **分工**：api 层管"数据 + 持久化真相"，store 管"共享 + 响应式"，两者单向依赖无循环。

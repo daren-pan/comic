@@ -1,7 +1,10 @@
 """收藏 / 历史列表的批量取数（消除逐条 `get_comic` 的 N+1）。
 
 **纯逻辑、不连库**：在导入 `routers.users` / `serializers` 之前，把 `core.db` 换成桩模块
-（`sys.modules` 预置），因此 `MySQLStorage` 根本不会被实例化，也不会打开任何连接。
+（`tests/_stub_db.py`，`sys.modules` 预置），因此 `MySQLStorage` 根本不会被实例化，也不会打开连接。
+
+⚠️ 桩**必须**用 `_stub_db` 那一份，不要在本文件里再造一个：`sys.modules['core.db']` 是进程级全局，
+而应用模块是 `from core.db import db`（导入时绑定值）—— 两份桩会互相污染（详见该模块文件头）。
 
 为什么值得单独守一条：这两个接口原先 `rows = [db.get_comic(cid) for cid in ...]` ——
 而 `MySQLStorage` 每次调用都新建连接，代价随收藏 / 历史条数线性增长。
@@ -11,72 +14,19 @@
 from __future__ import annotations
 
 import sys
-import types
 import unittest
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
+TESTS_DIR = Path(__file__).resolve().parent
+for _p in (str(APP_DIR), str(TESTS_DIR)):   # tests 目录也入 path：单跑本文件时 _stub_db 才可导入
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 
-class FakeDB:
-    """记录调用次数的假存储 —— 只实现本测试触达的方法。"""
+from _stub_db import DB as _DB, USERS as _USERS, install_stub  # noqa: E402
 
-    def __init__(self) -> None:
-        self.comics: dict[int, dict] = {}
-        self.batch_calls: list[list[int]] = []
-        self.single_calls: list[int] = []
-
-    def reset(self) -> None:
-        self.comics = {}
-        self.batch_calls = []
-        self.single_calls = []
-
-    # --- 被路由器 / 序列化层调用 ---
-    def get_comics_by_ids(self, comic_ids: list[int]) -> dict[int, dict]:
-        if not comic_ids:                    # 与 MySQLStorage 一致：空输入直接返回，不发查询
-            return {}
-        self.batch_calls.append(list(comic_ids))
-        return {i: self.comics[i] for i in comic_ids if i in self.comics}
-
-    def get_comic(self, comic_id: int):
-        self.single_calls.append(comic_id)          # ← 出现即说明 N+1 回来了
-        return self.comics.get(comic_id)
-
-    def get_comic_tags_bulk(self, comic_ids: list[int]) -> dict[int, list[str]]:
-        return {}
-
-    def get_comic_tags(self, comic_id: int) -> list[str]:
-        return []
-
-
-class FakeUsers:
-    """假用户中心：只给列表接口供 id / 历史行。"""
-
-    def __init__(self) -> None:
-        self.fav_ids: list[int] = []
-        self.history_rows: list[dict] = []
-
-    def reset(self) -> None:
-        self.fav_ids = []
-        self.history_rows = []
-
-    def list_favorites(self, user_id: str) -> list[int]:
-        return list(self.fav_ids)
-
-    def list_history(self, user_id: str) -> list[dict]:
-        return list(self.history_rows)
-
-
-_DB = FakeDB()
-_USERS = FakeUsers()
-
-# 预置桩模块：必须在下面 import 应用模块之前完成
-_STUB = types.ModuleType("core.db")
-_STUB.db = _DB
-_STUB.users = _USERS
-sys.modules["core.db"] = _STUB
+install_stub()  # 必须在导入应用模块之前装桩
 
 from routers.users import favorites, history   # noqa: E402  （必须在装桩之后导入）
 

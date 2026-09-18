@@ -14,6 +14,7 @@
 | `drop_fingerprint_unique.py` | **去掉 `comic.fingerprint` 的唯一约束**（改成普通索引）：跨源不再合并后，第二个源的同名作品要能作为新行插入 —— 不去约束会撞重复键 | 是（已无该约束则跳过；⚠️ 回滚受限制：库内可能已有同指纹多行） |
 | `add_log_table.py` | **补 `log_record` 表**（运行日志逐条落库；DDL 从 `mysql_schema.sql` 抠出，不重抄） | 是（`CREATE TABLE IF NOT EXISTS`，可重跑；回滚 = `DROP TABLE log_record`） |
 | `add_perf_indexes.py` | **补齐性能索引**：给已有库补上 `comic.idx_comic_sync` / `page.idx_page_cached`（新库由 `mysql_schema.sql` 直接带上） | 是（幂等可重跑；只加索引不动数据，回滚 = `DROP INDEX`） |
+| `add_user_role.py` | **补 `user.role` 列 + 定超级管理员**（角色三档：`superadmin` 管理台+日志+授权页、`admin` 普通管理员、`user` 普通用户）：加列后若库里**没有超管**，把最早的特权用户（无则最早注册的用户）提升为 `superadmin`；`--superadmin <用户名>` 可**转移**超管身份（原超管降为普通管理员） | 是（列已存在则跳过；已有超管则不动。回滚 = 撤销角色 + `DROP COLUMN role`） |
 
 运行方式：
 
@@ -23,6 +24,7 @@ cd crawler-service && .venv/Scripts/python.exe ../tools/backfill_comic_tag.py
 cd crawler-service && .venv/Scripts/python.exe ../tools/normalize_tags.py
 cd crawler-service && .venv/Scripts/python.exe ../tools/rebuild_fingerprint.py
 cd crawler-service && .venv/Scripts/python.exe ../tools/drop_fingerprint_unique.py
+cd crawler-service && .venv/Scripts/python.exe ../tools/add_user_role.py
 ```
 
 > 归一化口径变化时：`normalize_tags.py` 管**标签**（`tag` / `comic_tag`），

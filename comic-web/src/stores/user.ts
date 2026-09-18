@@ -13,8 +13,10 @@ import {
   currentUser,
   getToken,
   login as apiLogin,
+  me as apiMe,
   register as apiRegister,
   setAuth,
+  setUser,
 } from '../api'
 import type { User } from '../types'
 
@@ -26,6 +28,16 @@ export const useUserStore = defineStore('user', () => {
   const user = ref<User | null>(currentUser())
 
   const isLoggedIn = computed(() => !!token.value)
+
+  // 角色三档（见 docs/auth.md §8）：
+  //   superadmin 超级管理员 —— 管理台 + 日志 + **授权页**（全库唯一，只有首个注册用户）
+  //   admin      普通管理员 —— 管理台 + 日志，**进不了授权页**
+  //   user       普通用户（默认）—— 无管理台权限
+  // 这两个判断只是体验层（顶栏入口与路由守卫）；真正的门在后端 require_admin /
+  // require_superadmin，改 localStorage 骗不过去。
+  // 旧 token 里 localStorage 可能没有 role（本次改动前登录的），守卫会先刷新一次。
+  const isAdmin = computed(() => user.value?.role === 'admin' || user.value?.role === 'superadmin')
+  const isSuperAdmin = computed(() => user.value?.role === 'superadmin')
 
   // 从 localStorage 重读（事件触发后调用）
   function sync() {
@@ -59,5 +71,28 @@ export const useUserStore = defineStore('user', () => {
     clearAuth() // 清 localStorage + 派发事件 → sync 由事件触发
   }
 
-  return { token, user, isLoggedIn, init, sync, login, register, logout }
+  /**
+   * 拉一次 `/api/auth/me` 并回写本地用户（token 不变）。返回最新 user。
+   * 用途：路由守卫进管理台前确认角色 —— 角色是**每次请求从库里读**的，
+   * 本地缓存的 role 可能已过期（被授权 / 被取消授权）。
+   */
+  async function refresh() {
+    const fresh = await apiMe()
+    setUser(fresh) // 写 localStorage + 广播 → sync 由事件触发
+    return fresh
+  }
+
+  return {
+    token,
+    user,
+    isLoggedIn,
+    isAdmin,
+    isSuperAdmin,
+    init,
+    sync,
+    login,
+    register,
+    logout,
+    refresh,
+  }
 })

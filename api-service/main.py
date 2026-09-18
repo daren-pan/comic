@@ -8,10 +8,13 @@
 | `schemas.py` | 请求体模型（Pydantic） |
 | `serializers.py` | 领域对象 → 前端驼峰契约 |
 | `services/` | 业务动作：`images` 图片读写与占位图、`tasks` 后台任务、`sources` 数据源开关 |
-| `routers/` | HTTP 接口：`public` 公开浏览、`auth` 认证、`users` 收藏/历史、`admin` 采集管理台 |
+| `routers/` | HTTP 接口：`public` 公开浏览、`auth` 认证、`users` 收藏/历史、`admin` 采集管理台、`admin_users` 授权页 |
 
 约定：响应统一为 `{ code, message, data }`；图片端点优先返回已转存的真实文件，
 缺失时回退生成 SVG 占位图（保证页面不裂图）。
+门禁分两级：**管理台与日志**（`admin`）要 `require_admin`（超管或普通管理员），
+**授权页**（`admin_users`）要 `require_superadmin`（仅超管）—— 未登录 401 / 权限不足 403。
+角色三档见 `core/security.py` 与 `docs/auth.md` §8。
 
 运行（本文件自动把 crawler-service/src 加入 sys.path，无需设 PYTHONPATH）：
 
@@ -26,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 from core.config import DIST_DIR  # 必须最先导入：内部完成 sys.path 引导
 from core.logging_setup import setup as setup_logging
-from routers import admin, auth, public, users
+from routers import admin, admin_users, auth, public, users
 
 # 日志：自家日志加时间戳 + 轮询/探活接口不进访问日志（见 core/logging_setup.py）
 setup_logging()
@@ -40,6 +43,7 @@ app.include_router(public.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(admin.router)
+app.include_router(admin_users.router)
 
 # 托管前端构建产物（同源部署，免 CORS/代理）。挂载在最后，避免 "/" 抢走 API 路由。
 if DIST_DIR.is_dir():

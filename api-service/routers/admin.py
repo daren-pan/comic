@@ -1,7 +1,7 @@
-"""采集管理台接口。
+"""采集管理台接口（**仅超级管理员**）。
 
-⚠️ **本模块全部接口当前免登录**（`router` 上无 `dependencies`）—— 本地/内网开发用。
-对外部署前必须先加鉴权（见 `docs/deploy.md` 的「上线前必做」）。
+`router` 上挂了 `require_admin`（一处覆盖下面全部接口）：超管与**普通管理员都能过** —— **未登录 401 / 无管理员权限 403**。授权页在另一个 router，门槛更高（见 `routers/admin_users.py`）。
+角色定义与判断见 `core/security.py`；给他人授权在 `routers/admin_users.py`（授权页）。
 
 能力：列出数据源 / 开关采集 / 手动触发采集 / 手动触发懒转存（转存完成后自动封面自愈）
 / 手动触发失效巡检（转存 + 全表校验已转存对象、缺失则恢复）/ 按需导入单部作品
@@ -12,10 +12,11 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from core.db import db  # noqa: F401  —— 先导入以完成 sys.path 引导
 from core.responses import ok
+from core.security import require_admin
 from schemas import (
     AdminImportBody,
     AdminInspectBody,
@@ -27,7 +28,7 @@ from services.images import admin_image_store
 
 from comic_crawler.storage.mysql import MySQLStorage
 
-router = APIRouter(tags=["admin"])
+router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 
 
 @router.get("/api/admin/sources")

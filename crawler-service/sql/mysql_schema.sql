@@ -101,6 +101,11 @@ CREATE TABLE IF NOT EXISTS user (
     password_hash VARCHAR(255) NOT NULL,
     nickname VARCHAR(64) NOT NULL DEFAULT '',
     avatar_url VARCHAR(512) NOT NULL DEFAULT '',
+    -- 角色三档：'superadmin' = 超级管理员（管理台/日志/授权页，**全库唯一**，只由"首个注册用户"产生）；
+    --          'admin'      = 普通管理员（管理台/日志，**进不了授权页**）；
+    --          'user'       = 普通用户（默认，无管理台权限）。
+    -- 引导与迁移见 api-service/routers/auth.py 与 tools/add_user_role.py。
+    role VARCHAR(32) NOT NULL DEFAULT 'user',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

@@ -99,8 +99,11 @@ docker compose -f deploy/docker-compose.yml up -d
   与本地直跑是**同一份**，见 §12。备份 = `mysqldump` + 那个数据目录；
 - **容器名固定**为 `comic-app` / `comic-nginx`（+ `comic-scheduler`），宿主端口由 `.env` 的 `HTTP_PORT` 控制（默认 80，被占用就改）；
 - **app 单进程**（不加 `--workers`），原因见 §8；
-- **管理台不做限制**（`/api/admin/*` 直接放行）—— 它目前没有鉴权，这是**已知项、后续处理**：
-  现阶段只用于测试上线，别长期挂在公网；详见 §7 第 1 条；
+- **管理台 / 日志 / 授权页要管理员角色**（`/api/admin/*` 全挂鉴权）：管理台与日志要 `require_admin`
+  （超管 + 普通管理员），**授权页要 `require_superadmin`（仅超管）** —— 分开是硬要求，
+  否则被授权的普通管理员反手就能把超管降级。未登录 401、权限不足 403。
+  全新库**首个注册用户自动成为超管**；老库升级跑 `up.sh --migrate`（`add_user_role.py` 会把**最早的特权用户**
+  提升为超管，否则升级后没人能授权）。给他人授权用管理台「授权」页（`/#/admin/users`）；
 - **定时采集是可选服务**，默认不启动：`docker compose -f deploy/docker-compose.yml --profile collect up -d`。
   ⚠️ 调度器读的是**代码里的** `SOURCES[].enabled`，**不读**管理台那个开关文件 ——
   在管理台关掉的源，调度器仍会采集；不想采就手动触发或改代码默认值；
@@ -110,14 +113,15 @@ docker compose -f deploy/docker-compose.yml up -d
   ```
 - **现有库升级**（不是全新初始化）时，新表/索引/去约束用 `tools/` 里的迁移脚本补。镜像里**不带**
   `tools/`（全新部署由 `mysql_schema.sql` 建全表，用不到它们），需要在容器里跑就把目录挂进去。
-  三个都是**幂等**的，可以照抄（注意 `-f` 后面的路径按你的实际位置写）：
+  四个都是**幂等**的，可以照抄（注意 `-f` 后面的路径按你的实际位置写）：
   ```bash
   cd deploy    # 相对挂载路径按 compose 文件所在目录解析，服务器与 Git Bash 都成立
   docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/add_log_table.py
   docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/add_perf_indexes.py
   docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/drop_fingerprint_unique.py
+  docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/add_user_role.py
   ```
-  懒得逐条敲就 **`bash deploy/up.sh --migrate`** —— 起完服务自动把上面三个跑一遍
+  懒得逐条敲就 **`bash deploy/up.sh --migrate`** —— 起完服务自动把上面四个跑一遍
   （见 §1 的 up.sh 用法）。
 
 ## 2. 方式 B：直接在仓库里跑（**本地开发用这个**）
@@ -205,10 +209,13 @@ mysql -h <host> -P <port> -u root -p < crawler-service/sql/mysql_schema.sql
 
 - 脚本是 `CREATE TABLE IF NOT EXISTS` + 带 `UNIQUE KEY`，**幂等可重跑**，且**不含任何 `DROP`**；
 - 新库会自动带上 `log_record` 表、性能索引，且 `comic.fingerprint` 是**普通索引**；
-  **已有库**（老环境升级）对应补三个脚本：`add_log_table.py`（补表）、`add_perf_indexes.py`（补索引）、
-  **`drop_fingerprint_unique.py`（把 fingerprint 的唯一约束改成普通索引）** ——
-  第三个是"跨源不再合并"改造所必需：不去掉唯一约束，第二个源的同名作品会插不进去（`Duplicate entry`）。
-  三个都可重跑、都写了回滚方式（⚠️ 第三个的回滚受限制：库内可能已有同指纹多行）；
+  **已有库**（老环境升级）对应补四个脚本：`add_log_table.py`（补表）、`add_perf_indexes.py`（补索引）、
+  **`drop_fingerprint_unique.py`（把 fingerprint 的唯一约束改成普通索引）**、
+  **`add_user_role.py`（补 `user.role` 列，并在库里没有超管时把最早的特权用户提升为 `superadmin`；
+  另支持 `--superadmin <用户名>` 转移超管身份）** ——
+  第三个是"跨源不再合并"改造所必需：不去掉唯一约束，第二个源的同名作品会插不进去（`Duplicate entry`）；
+  第四个是"管理台要鉴权"改造所必需：不补列 `require_admin` 读不到 `role`，会把**所有人**都当普通用户
+  （谁也进不去管理台）。四个都可重跑、都写了回滚方式（⚠️ 第三个的回滚受限制：库内可能已有同指纹多行）；
 - `scripts/init_mysql.sh` / `.bat` 是上面这条路的脚本化：同样幂等、同样**不含 `DROP`**（不会清空数据），
   额外先来一步 `CREATE DATABASE IF NOT EXISTS`（库不存在也一步到位），口令自动读 `deploy/.env`。
 
@@ -234,7 +241,7 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 | # | 事项 | 现状 | 要做什么 |
 |---|---|---|---|
-| 1 | **管理台接口没有鉴权**（⏸ 已知，暂缓——用户决定后续处理） | `routers/admin.py` 全部 12 个接口（采集/转存/巡检/导入/日志/清理）**裸奔**，`router` 上无任何 `dependencies` | 待处理。可选做法：给 `router` 挂 `dependencies=[Depends(require_admin)]`，或在 nginx 里限制 `/api/admin/*` 只允许内网 IP |
+| 1 | ~~管理台接口没有鉴权~~ ✅ **已处理（2026-09-18）** | `routers/admin.py` 12 个接口挂 `require_admin`（超管 + 普通管理员）；`routers/admin_users.py` 2 个接口挂 `require_superadmin`（**仅超管**）—— 未登录 401 / 权限不足 403；前端 `/#/admin*` 三条路由有对应守卫 | 无。⚠️ 老库升级要跑 `up.sh --migrate` 补 `user.role` 列 |
 | 2 | **JWT 密钥是演示值** | 默认 `comic-demo-secret-change-me` | 注入强随机 `COMIC_JWT_SECRET` |
 | 3 | **CORS 全开** | `allow_origins=["*"]` | 同源部署本不需要 CORS，收敛为实际域名或直接关掉 |
 | 4 | **数据库口令是默认值** | `root/password` | 改口令 + 建最小权限账号 |
@@ -305,7 +312,7 @@ python -m comic_crawler.cli serve
 | 导出 | `mysqldump --single-transaction --add-drop-table` → `backup/comic_3307_20260915_142703.sql(.gz)`（1.5 MB / 338 KB） |
 | 导入独占实例 | 10 张表**逐表精确行数一致**：comic 92 / chapter 650 / page 6437 / comic_tag 400 / tag 61 / user 11 / favorite 8 / history 15 / log_record 9 / sync_log 43 |
 | 备份可用性 | 把 dump 恢复到临时库比对（差异仅来自导出后的新写入，已逐条核实）→ **可完整回滚** ✅ |
-| 端到端接口 | **35 项全过**（列表/分页/排序/关键字/分类/详情/章节/分页图/封面/源站搜索/注册登录/鉴权 401/收藏/历史/管理台） |
+| 端到端接口 | **35 项全过**（列表/分页/排序/关键字/分类/详情/章节/分页图/封面/源站搜索/注册登录/鉴权 401/收藏/历史/管理台）。<br>2026-09-18 追加「三档角色鉴权」验证：匿名 401；**普通管理员**管理台/日志/任务 200 但**授权页 403**；普通用户全 403；超管全 200；授权与取消授权**即时生效**（同一 token 403→200→403，无需重新登录）；改自己 400 / 授予 superadmin 400 / 动超管 400 / 不存在用户 404 |
 | 采集服务 | 容器内 `cli list` / `cli show` 正常读新库（源站、中文、章节号均正确） |
 | 本地开发 | **零配置**跑通（不设任何 `COMIC_MYSQL_*`，自动读 `deploy/.env` 连 `127.0.0.1:3309`） |
 | 旧库处置 | `DROP DATABASE comic`；同实例上 `ry-cloud`(27) / `ry-config`(13) / `ry-flowable`(47) **未受影响** |

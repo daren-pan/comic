@@ -69,3 +69,13 @@ class AdminImportBody(BaseModel):
     first_chapters: int | None = None
 
 
+class AdminUserRoleBody(BaseModel):
+    """授权页入参：给某个用户设置角色。
+
+    取值只接受 `admin`（超级管理员）/ `user`（普通用户）—— **合法性在 `services/accounts.py`
+    里判**（那里可单元测试），这里只描述形状。
+    """
+
+    role: str
+
+

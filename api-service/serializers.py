@@ -76,11 +76,27 @@ def to_page(row: dict, comic_id: int, chapter_id: int) -> dict:
 
 
 def user_out(user) -> dict:
-    """用户对外视图（隐藏 password_hash）。"""
+    """用户对外视图（隐藏 password_hash）。
+
+    `role` 必须给前端：顶栏「管理」入口、`/#/admin*` 路由守卫都靠它判断
+    （服务端另有 `require_admin` 兜底，前端这层只是体验）。
+    """
     return {
         "id": user["id"],
         "username": user["username"],
         "nickname": user["nickname"] or user["username"],
+        "role": user.get("role") or "user",
         "createdAt": user["created_at"],
+    }
+
+
+def to_admin_user(row) -> dict:
+    """授权页的用户行（管理台视角：含角色与注册时间，不含任何凭据）。"""
+    return {
+        "id": int(row["id"]),
+        "username": row["username"],
+        "nickname": row["nickname"] or row["username"],
+        "role": row.get("role") or "user",
+        "createdAt": row["created_at"],
     }
 

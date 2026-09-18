@@ -1,9 +1,14 @@
-// 采集管理接口（运维控制台）—— 无需登录，本地演示
+// 采集管理接口（运维控制台）—— **需超级管理员**（role='admin'）
 // 职责：列出数据源 / 开关采集 / 手动触发采集（增量|全量 + since/limit）/
 //      手动触发懒转存（source/since/until/limit）/
-//      手动触发失效巡检（source/since/until）/ 查询后台任务状态 / 读取运行日志末尾。
+//      手动触发失效巡检（source/since/until）/ 查询后台任务状态 / 读取运行日志末尾 /
+//      授权页：列用户 + 设置角色。
+// 鉴权：后端在 router 上挂了 require_admin（超管或普通管理员）—— 未登录 401（拦截器跳登录页）、
+//       权限不足 403。授权页那组接口门槛更高：仅超管（require_superadmin）。
 import type {
   AdminTask,
+  AdminUser,
+  AdminUserPage,
   LogOptions,
   LogQuery,
   LogQueryResult,
@@ -124,4 +129,34 @@ export function getLogOptions(): Promise<LogOptions> {
  */
 export function purgeLogs(days: number): Promise<{ deleted: number }> {
   return request('/api/admin/logs/purge', { method: 'POST', params: { days } })
+}
+
+// ================= 授权页（给其他用户授权） =================
+// ⚠️ 这一组接口**仅超级管理员**可用（后端挂的是 require_superadmin，不是 require_admin）：
+// 普通管理员能进管理台与日志页，但进不了授权页、也调不通这两个接口（403）。
+
+/**
+ * 用户列表（授权页）
+ * @param params keyword 匹配用户名/昵称；page/pageSize 分页
+ * @returns AdminUserPage（items + total + page + pageSize）；role 为 superadmin/admin/user
+ * @see GET /api/admin/users
+ */
+export function getAdminUsers(params: {
+  keyword?: string
+  page?: number
+  pageSize?: number
+} = {}): Promise<AdminUserPage> {
+  return request<AdminUserPage>('/api/admin/users', { params })
+}
+
+/**
+ * 设置用户角色（授权 / 取消授权）—— 只能在 **普通管理员 ⇄ 普通用户** 之间切
+ * @param userId 目标用户 id
+ * @param role 'admin'（普通管理员）/ 'user'（普通用户）
+ * @returns 更新后的 { id, role }
+ * @remarks 后端会拒绝：改自己、授予 superadmin、目标是超级管理员（400）
+ * @see POST /api/admin/users/{userId}/role
+ */
+export function setUserRole(userId: number, role: string): Promise<{ id: number; role: string }> {
+  return request(`/api/admin/users/${userId}/role`, { method: 'POST', data: { role } })
 }

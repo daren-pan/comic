@@ -69,7 +69,7 @@ docker compose -f deploy/docker-compose.yml up -d
 **3)** `compose up -d` → **4)** 自检（mysql healthy → 容器内 `/api/health` →
 数据目录可写 → 对外入口 HTTP 码）。**幂等**：重复跑就是重新构建 + `up -d`，不会清数据。
 加了 `--migrate` 就在 3 与 4 之间多跑一步"已有库迁移"（`add_log_table` / `add_perf_indexes` /
-`drop_fingerprint_unique`，逐个挂 `../tools` 进容器执行，都是幂等的）。
+`drop_fingerprint_unique` / `add_user_role`，逐个挂 `../tools` 进容器执行，都是幂等的）。
 
 ## 几个不显然的点
 
@@ -94,6 +94,8 @@ docker compose -f deploy/docker-compose.yml up -d
   （bind 到容器 `/data`，默认 `../crawler-service/data`，可用 `.env` 的 `COMIC_DATA_HOST` 改）——
   **与本地直跑共用同一份**，所以本地转存的图容器立刻能读（反之亦然）。服务器请指到仓库外的独立盘，
   并保证目录可写（`sudo chown -R 10001:10001 <dir>`，容器内进程 uid 10001）；
-- **管理台接口目前无鉴权**（`/api/admin/*` 不做限制）—— 已知项，后续处理；现阶段仅用于测试上线。
+- **管理台 / 日志 / 授权页要管理员角色**：管理台与日志要 `require_admin`（超管 + 普通管理员），
+  **授权页要 `require_superadmin`（仅超管）**；未登录 401 / 权限不足 403。
+  全新库**首个注册用户自动成为超管**；老库升级加 `--migrate` 补 `user.role` 列；给他人授权在管理台「授权」页。
 
 完整说明（环境变量、上线前必做清单、迁移脚本怎么跑）见 [`../docs/deploy.md`](../docs/deploy.md)。
