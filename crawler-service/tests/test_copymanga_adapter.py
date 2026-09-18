@@ -354,6 +354,28 @@ class TestCopymangaAdapter(unittest.TestCase):
                          "https://sd.mangafunb.fun/d/x/1.jpg")   # 无后缀不动
         self.assertEqual(f(""), "")
 
+    def test_original_image_keeps_real_ext(self):
+        """剥后缀要留**原图**扩展名（缩略图恒为 jpg）——留末段会让 .jpeg/.png 封面 404。
+
+        2026-09-18 修：`1788335868.jpeg.328x422.jpg` 曾被算成 `….jpg`（NoSuchKey 404）。
+        """
+        f = self.ad._original_image
+        self.assertEqual(
+            f("https://sq.mangafunb.fun/q/qingwanlewo/cover/1788335868.jpeg.328x422.jpg"),
+            "https://sq.mangafunb.fun/q/qingwanlewo/cover/1788335868.jpeg",
+        )
+        self.assertEqual(
+            f("https://sc.mangafunb.fun/c/cadws/cover/1789615473.png.328x422.jpg"),
+            "https://sc.mangafunb.fun/c/cadws/cover/1789615473.png",
+        )
+        self.assertEqual(
+            f("https://sd.mangafunb.fun/d/x/1.webp.c1500x.jpg"),
+            "https://sd.mangafunb.fun/d/x/1.webp",
+        )
+        # 原图已带扩展名（源站直接给原图）时不能被误改
+        self.assertEqual(f("https://sd.mangafunb.fun/d/x/1.png"),
+                         "https://sd.mangafunb.fun/d/x/1.png")
+
     def test_search_comics(self):
         fake = _FakeApi({"search": SEARCH_JSON})
         self.ad._api_get = fake

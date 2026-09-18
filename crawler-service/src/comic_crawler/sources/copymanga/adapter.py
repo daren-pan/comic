@@ -29,6 +29,8 @@
   故 `image_hosts` 用通配 `*.mangafunb.fun`（见 images/transfer._host_allowed）。
 - 图片 URL **明文直出、无签名、无 Referer 限制**（实测带/不带 Referer 均 HTTP 200 /
   image/jpeg）；封面带 `.328x422.jpg` 缩略后缀，去掉即原图（77KB -> 1.27MB，实测可用）。
+  ⚠️ 剥离时**保留原图扩展名**（`xxx.jpeg.328x422.jpg` -> `xxx.jpeg`，不是 `xxx.jpg`）——
+    缩略图恒输出 jpg，照搬末段会让 `.jpeg`/`.png` 封面 404（见 `_original_image`）。
 
 模型映射：
 - 1 部漫画 = 站内一个 `path_word`                       -> comic 表
@@ -88,7 +90,11 @@ PREFERRED_GROUPS = ("default",)
 REF_HOSTS = ("copy4000.com", "www.copy4000.com")
 
 # 封面/正文图末尾的规格后缀：`xxx.jpg.328x422.jpg` / `xxx.jpg.c1500x.jpg`
-_RESIZE_RE = re.compile(r"\.(?:jpg|jpeg|png|webp)\.(?:[a-z]?\d+x\d*(?:x)?|c\d+x)\.(?:jpg|jpeg|png|webp)$", re.I)
+# 第 1 个捕获组 = **原图**的扩展名（第 2 个点是缩略规格、第 3 个是缩略图的格式），剥离时
+# 必须留第 1 组 —— 不能留最后一个（源站缩略图**一律输出 jpg**，见 `_original_image`）。
+_RESIZE_RE = re.compile(
+    r"\.(jpg|jpeg|png|webp)\.(?:[a-z]?\d+x\d*(?:x)?|c\d+x)\.(?:jpg|jpeg|png|webp)$", re.I
+)
 _DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 
 UA_DESKTOP = (
@@ -350,11 +356,19 @@ class CopymangaAdapter(CrawlerAdapter):
 
         `.../cover/1689304034.jpg.328x422.jpg` -> `.../cover/1689304034.jpg`
         （实测缩略图 77KB / 原图 1.27MB，两者都可用；入库取原图）。
+
+        ⚠️ **要保留的是原图自己的扩展名（第 1 段），不是缩略图的扩展名（最后一段）**：
+        源站缩略图**一律输出 `.jpg`**，所以 `1788335868.jpeg.328x422.jpg`、
+        `1789615473.png.328x422.jpg` 这类封面若照搬末段就会变成 `….jpg`，而原图只有
+        `….jpeg` / `….png` —— 直接 **404**（2026-09-18 服务器日志里那批「封面落盘失败」
+        就是这么来的：只有 `.jpg` 原图的封面侥幸能下）。实测：
+        `1789615473.png` → 200(1.1MB) / `1789615473.jpg` → 404。
+
         ⚠️ 只用于**封面**：正文图（`contents[].url`，带 `.c1500x.jpg` 宽度限制后缀）
         按源站给的地址原样入库 —— 画质与体积是源站定好的平衡，不替它改。
         """
         s = (url or "").strip()
-        return _RESIZE_RE.sub(lambda m: f".{m.group(0).rsplit('.', 1)[-1]}", s)
+        return _RESIZE_RE.sub(lambda m: f".{m.group(1)}", s)
 
     @staticmethod
     def _status_of(info: dict) -> str:
