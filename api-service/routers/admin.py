@@ -4,12 +4,13 @@
 角色定义与判断见 `core/security.py`；给他人授权在 `routers/admin_users.py`（授权页）。
 
 能力：列出数据源 / 开关采集 / 手动触发采集 / 手动触发懒转存（转存完成后自动封面自愈）
-/ 手动触发全库封面自愈 / 手动触发失效巡检（转存 + 全表校验已转存对象、缺失则恢复）
+/ 手动触发**按作品**封面自愈（填漫画名称或 ID，强制回源重下覆盖）/ 手动触发失效巡检（转存 + 全表校验已转存对象、缺失则恢复）
 / 按需导入单部作品 / 查询运行日志（`log_record` 表，支持条件筛选与分页）。
 采集 / 转存 / 巡检 / 导入耗时，统一交给 `services.tasks` 后台线程执行，返回 `taskId` 供前端轮询。
 """
 from __future__ import annotations
 
+import re
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -89,18 +90,30 @@ def admin_transfer(body: AdminTransferBody):
 
 @router.post("/api/admin/heal-covers")
 def admin_heal_covers(body: AdminHealBody):
-    """封面自愈：修复外链未落盘 / 本地文件缺失的封面（`source` 留空 = **全库**）。
+    """封面自愈（**按作品**）：填漫画名称或 ID（可多个），**强制**回源重抓封面并覆盖。
 
-    与「触发转存」的区别：转存会顺带转存正文页、并只自愈**所点源**的封面；
-    本入口只做封面自愈，且默认覆盖**全库**，是封面问题的独立运维入口。
+    用于修复「封面文件在、但内容是错的」—— 普通自愈只看文件在不在，永远修不到错图；
+    这里 `force=True` 跳过「文件在即健康」的早返回，对命中作品重新下载覆盖。
+    `keyword` **必填**：逗号 / 空格 / 换行分隔，每项是作品 ID 或名称（可混填，一次多部）。
     """
     from comic_crawler.sources import create_adapter
     from comic_crawler.scheduling import heal_covers
 
+    # 拆成若干 token：纯数字 = 作品 ID，其余 = 名称子串（OR 命中，见 Storage.find_comics）
+    tokens = [t for t in re.split(r"[,，、;；\s]+", body.keyword or "") if t]
+    if not tokens:
+        raise HTTPException(status_code=400, detail="请填写漫画名称或 ID（可多个，用逗号/空格/换行分隔）")
+    comic_ids = [int(t) for t in tokens if t.isdigit()]
+    title_like = [t for t in tokens if not t.isdigit()]
+
     def job():
         storage = MySQLStorage()
         store = admin_image_store()
-        return heal_covers(storage, store, adapter_provider=create_adapter, source=body.source)
+        return heal_covers(
+            storage, store, adapter_provider=create_adapter,
+            source=body.source, force=True,
+            comic_ids=comic_ids or None, title_like=title_like or None,
+        )
 
     task_id = tasks.new_task_id("heal")
     tasks.run_task(task_id, "heal", job)

@@ -27,12 +27,13 @@ const sources = ref<SourceVM[]>([])
 const loaded = ref(false)
 const error = ref('')
 
-// 失效巡检与封面自愈都是**全库**动作（前者扫整张 page 表、后者扫整张 comic 表），
-// 故都不放进各源卡片，统一在页面顶部各占一个面板
+// 失效巡检是**全库**动作（扫描整张 page 表），故不放进各源卡片，页面顶部独占一个面板；
+// 封面自愈面板则按**指定作品**（名称/ID）强制刷新封面。
 const inspectSince = ref('')
 const inspectUntil = ref('')
 const inspecting = ref(false)
-const healing = ref(false)   // 全库封面自愈是否正在触发
+const healing = ref(false)       // 按作品封面自愈是否正在触发
+const healKeyword = ref('')      // 漫画名称或 ID（可多个，逗号/空格/换行分隔）—— 不允许留空
 
 // 任务结果一律写入全局消息中心（顶栏 🔔 展开可见，离开本页也会继续跟踪到结束）
 const msgStore = useMessageStore()
@@ -141,13 +142,18 @@ async function runInspect() {
   }
 }
 
-// 全库封面自愈：只修封面（外链未落盘 → 重下；本地文件缺失 → 回源重抓），不转存正文页
+// 按作品封面自愈：填漫画名称或 ID（可多个）→ **强制**回源重抓封面并覆盖（修「文件在但内容错」的封面）
 async function runHealCovers() {
   if (healing.value) return
+  const keyword = healKeyword.value.trim()
+  if (!keyword) {
+    alert('请填写漫画名称或 ID（可多个，用逗号/空格/换行分隔）')
+    return
+  }
   healing.value = true
   try {
-    const { taskId } = await startAdminHealCovers()
-    msgStore.trackTask(taskId, 'heal', '全库')
+    const { taskId } = await startAdminHealCovers({ keyword })
+    msgStore.trackTask(taskId, 'heal', keyword)
   } catch (e) {
     alert((e as Error).message || '触发封面自愈失败')
   } finally {
@@ -168,7 +174,7 @@ onMounted(load)
     <p class="lead">
       手动触发各数据源的采集与懒转存；关闭的源将拒绝触发采集。
       转存会把所选时间范围内的未转存页<b>全部转存</b>（起止留空=全部）。
-      顶部的<b>失效巡检</b>与<b>封面自愈</b>是两个<b>全库</b>动作，不针对单个源。
+      顶部的<b>失效巡检</b>是<b>全库</b>动作；<b>封面自愈</b>按<b>指定作品</b>（名称/ID）强制刷新。
       任务进度与结果见右上角 <b>🔔 消息</b>（含历史记录，执行完毕会有提示）。
     </p>
 
@@ -176,7 +182,7 @@ onMounted(load)
     <div v-else-if="!loaded" class="empty">加载数据源中…</div>
 
     <template v-else>
-      <!-- 全库维护：失效巡检 / 封面自愈都是「全库」动作，故不放各源卡片内，页面顶部各占一个面板 -->
+      <!-- 全库维护区：失效巡检（全库）+ 封面自愈（按指定作品），不放各源卡片内 -->
       <div class="maint-row">
         <!-- 失效巡检：全库动作（扫描整张 page 表） -->
         <div class="maintenance">
@@ -201,18 +207,22 @@ onMounted(load)
           </button>
         </div>
 
-        <!-- 封面自愈：全库动作（扫描整张 comic 表），只修封面、不转存正文页 -->
+        <!-- 封面自愈：按指定作品（名称/ID）强制刷新封面，只修封面、不转存正文页 -->
         <div class="maintenance">
           <div class="maint-head">
             <span class="maint-title">封面自愈</span>
-            <span class="maint-tag cover">全库</span>
+            <span class="maint-tag cover">指定作品</span>
           </div>
           <p class="maint-desc">
-            逐部检查封面：外链未落盘的<b>重新下载</b>，本地文件缺失的<b>回源重抓</b>，健康的跳过。
-            与「触发转存」的区别是它<b>只修封面、不转存正文页</b>（转存只自愈所点那个源）。
+            填漫画名称或 ID（可多个）→ <b>强制</b>回源重抓封面并覆盖，专治<b>「封面文件在、但内容是错的」</b>
+            （普通自愈只看文件在不在，永远修不到错图）。只修封面、<b>不转存正文页</b>。
           </p>
+          <label class="heal-field">
+            漫画名称或 ID（可多个，逗号 / 空格 / 换行分隔）
+            <textarea v-model="healKeyword" rows="2" placeholder="如：电锯人, 17, 海贼王"></textarea>
+          </label>
           <button class="btn ghost" :disabled="healing" @click="runHealCovers">
-            {{ healing ? '运行中…' : '触发全库自愈' }}
+            {{ healing ? '运行中…' : '触发封面自愈' }}
           </button>
         </div>
       </div>
@@ -317,6 +327,14 @@ onMounted(load)
 .maint-tag.cover { background: #fff4e5; color: #a15c00; }
 .maint-desc { color: var(--text-2); font-size: 13px; margin: 0 0 12px; }
 .maint-desc b { color: var(--primary-dark); }
+
+/* 封面自愈：漫画名称/ID 输入（可多个，支持换行） */
+.heal-field { display: flex; flex-direction: column; font-size: 12px; color: var(--text-2); gap: 4px; margin-bottom: 10px; }
+.heal-field textarea {
+  border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px;
+  font-size: 13px; background: #fff; color: var(--text); font-family: inherit;
+  width: 100%; box-sizing: border-box; resize: vertical;
+}
 
 .card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); }
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
