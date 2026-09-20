@@ -412,6 +412,7 @@ class MySQLStorage(Storage):
         sort: str = "updated",
         page: int = 1,
         page_size: int = 12,
+        source: str | None = None,
     ) -> tuple[list[dict], int]:
         sql = f"""SELECT {_COMIC_COLS}
                  FROM comic c
@@ -421,6 +422,9 @@ class MySQLStorage(Storage):
                  LEFT JOIN favorite f ON f.comic_id = c.id"""
         conds: list[str] = []
         params: list = []
+        if source:
+            conds.append("c.source = %s")
+            params.append(source)
         if category and category != "全部":
             conds.append("t.name = %s")
             params.append(category)

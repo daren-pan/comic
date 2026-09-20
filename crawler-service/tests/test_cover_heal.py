@@ -22,13 +22,19 @@ from comic_crawler.scheduling import heal_covers  # noqa: E402
 
 
 class FakeStorage:
-    """duck-type 存储：只实现 heal_covers 用到的方法。"""
+    """duck-type 存储：只实现 heal_covers 用到的方法。
+
+    `list_comics` 记下最近一次收到的 `source`（供「自愈要按源限定」用例断言）——
+    真实的 MySQLStorage.list_comics 会据此只返回该源的作品。
+    """
 
     def __init__(self, comics: list[dict]) -> None:
         self.comics = comics
         self.covers: dict[int, str] = {}
+        self.last_source = "<unset>"
 
     def list_comics(self, page: int = 1, page_size: int = 12, **kw):
+        self.last_source = kw.get("source", "<missing>")
         return self.comics, len(self.comics)
 
     def set_comic_cover(self, comic_id: int, key: str) -> None:
@@ -92,7 +98,7 @@ def _fake_ensure(ok_urls: set[str], calls: list[tuple[int, str]], titles: dict |
 
 
 class TestHealCovers(unittest.TestCase):
-    def _run(self, comics, existing=None, ok_urls=None, adapter_url=None, use_adapter=True):
+    def _run(self, comics, existing=None, ok_urls=None, adapter_url=None, use_adapter=True, source=None):
         storage = FakeStorage(comics)
         store = FakeStore(existing)
         calls: list[tuple[int, str]] = []
@@ -102,7 +108,7 @@ class TestHealCovers(unittest.TestCase):
             "comic_crawler.images.transfer.ensure_cover_local",
             _fake_ensure(ok_urls or set(), calls, self.titles),
         ):
-            stats = heal_covers(storage, store, adapter_provider=provider)
+            stats = heal_covers(storage, store, adapter_provider=provider, source=source)
         return storage, stats, calls
 
     def test_local_healthy_skipped(self):
@@ -216,6 +222,16 @@ class TestHealCovers(unittest.TestCase):
             comics, existing={"covers/1.jpg"}, ok_urls={"https://img.x/e.jpg"}, use_adapter=False
         )
         self.assertEqual(stats["checked"], 3)
+
+    def test_source_forwarded_to_list_comics(self):
+        """给了 source → 原样透传给 list_comics，只自愈该源。"""
+        storage, _, _ = self._run([_row(1, "covers/1.jpg")], source="copymanga")
+        self.assertEqual(storage.last_source, "copymanga")
+
+    def test_no_source_scans_all(self):
+        """不给 source → 传 None（= 全库），保持默认全量兜底语义。"""
+        storage, _, _ = self._run([_row(1, "covers/1.jpg")])
+        self.assertIsNone(storage.last_source)
 
 
 if __name__ == "__main__":

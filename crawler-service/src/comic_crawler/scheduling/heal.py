@@ -3,7 +3,8 @@
 - `inspect_sync` —— 每小时巡检：未转存页触发懒转存（带 adapter_provider 时对签名过期
   URL 现场重拉）；已转存页校验对象是否存在，缺失则标记失效并尝试恢复。
 - `heal_covers` —— 封面自愈：外链未落盘 / 本地文件缺失的封面按状态修复。
-  **由转存任务在结束后自动调用**（管理台「触发转存」→ 无需单独按钮）。
+  **由转存任务在结束后自动调用**（管理台「触发转存」→ 无需单独按钮），
+  并透传触发时的 `source` 以便只自愈该源（None = 全库）。
 """
 from __future__ import annotations
 
@@ -104,8 +105,17 @@ def inspect_sync(
     return stats
 
 
-def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> dict[str, int]:
+def heal_covers(
+    storage: Storage,
+    image_store=None,
+    adapter_provider=None,
+    source: str | None = None,
+) -> dict[str, int]:
     """封面自愈（管理台触发「懒转存」后自动执行）：修复图库中缺失/未落盘的封面。
+
+    `source`：只自愈该数据源的封面；None = 全部源。
+    管理台「触发转存」会透传所点的源，使这次任务的**转存与封面自愈都只作用于同一个源**
+    （此前 heal 无 source 参数、遍历全库，出现「点了 A 源却改了 B 源封面」的越界日志）。
 
     逐部漫画判断（封面统一存「图库内相对 key」，见 image_service.ensure_cover_local）：
     - 封面仍是外链（http/https，此前下载失败留下的）→ 先按登记地址重试下载；**失败则回源**
@@ -131,7 +141,7 @@ def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> di
     from ..images.transfer import ensure_cover_local
 
     stats = {"checked": 0, "healed": 0, "failed": 0, "skipped": 0}
-    rows, _ = storage.list_comics(page=1, page_size=10000)
+    rows, _ = storage.list_comics(page=1, page_size=10000, source=source)
     need_refetch: dict[str, list[dict]] = {}  # source -> 需回源取封面的漫画行
 
     for row in rows:
@@ -209,7 +219,9 @@ def heal_covers(storage: Storage, image_store=None, adapter_provider=None) -> di
 
     logger.info(
         "封面自愈完成: %s", stats,
-        extra={"log_fields": {"event": "cover.heal", "pages": stats.get("healed", 0)}},
+        extra={"log_fields": {
+            "event": "cover.heal", "source": source or "", "pages": stats.get("healed", 0),
+        }},
     )
     return stats
 

@@ -76,8 +76,9 @@ def admin_transfer(body: AdminTransferBody):
             limit=body.limit, adapter_provider=create_adapter,
             since=body.since, until=body.until, source=body.source,
         )
-        # 转存完成后自动封面自愈：修复外链未落盘 / 本地文件缺失的封面（无需单独按钮）
-        cover = heal_covers(storage, store, adapter_provider=create_adapter)
+        # 转存完成后自动封面自愈：修复外链未落盘 / 本地文件缺失的封面（无需单独按钮）。
+        # 透传 body.source —— 让自愈与本次转存同源，避免"点了 A 源却改了 B 源封面"。
+        cover = heal_covers(storage, store, adapter_provider=create_adapter, source=body.source)
         return {**stats, "coverHeal": cover, "pagesByStatus": storage.count_pages_by_status()}
 
     task_id = tasks.new_task_id("transfer")
