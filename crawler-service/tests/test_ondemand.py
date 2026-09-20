@@ -94,6 +94,9 @@ class FakeStorage(Storage):
     def list_comics(self, category=None, keyword=None, sort="updated", page=1, page_size=12):
         return [], 0
 
+    def find_comics(self, comic_ids=None, title_like=None, source=None):
+        return []
+
     def get_comic(self, comic_id):
         return None
 

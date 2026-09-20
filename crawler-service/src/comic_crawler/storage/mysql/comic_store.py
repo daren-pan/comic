@@ -450,6 +450,45 @@ class MySQLStorage(Storage):
                 rows = list(cur.fetchall())
         return rows, total
 
+    def find_comics(
+        self,
+        comic_ids: list[int] | None = None,
+        title_like: list[str] | None = None,
+        source: str | None = None,
+    ) -> list[dict]:
+        """按 id 集合 **或** 标题子串取作品行（见 `Storage.find_comics` 契约）。
+
+        走最优路径：id 用主键 `IN`、标题用 `LIKE`；两者 OR 合并（用户一次混填 id 与名称）。
+        两个筛选都为空 → 返回 `[]`（**不**退化成全表，全库由 `list_comics` 负责）。
+        不需要 tag/comic_tag JOIN（只按 id/标题筛），比 `list_comics` 更轻。
+        """
+        ids = [int(i) for i in (comic_ids or [])]
+        names = [str(t).strip() for t in (title_like or []) if str(t).strip()]
+        if not ids and not names:
+            return []
+        or_parts: list[str] = []
+        params: list = []
+        if ids:
+            or_parts.append("c.id IN (" + ", ".join(["%s"] * len(ids)) + ")")
+            params.extend(ids)
+        if names:
+            or_parts.append("(" + " OR ".join(["c.title LIKE %s"] * len(names)) + ")")
+            params.extend([f"%{n}%" for n in names])
+        sql = f"""SELECT {_COMIC_COLS}
+                  FROM comic c
+                  LEFT JOIN chapter ch ON ch.comic_id = c.id
+                  LEFT JOIN favorite f ON f.comic_id = c.id
+                  WHERE ({" OR ".join(or_parts)})"""
+        if source:
+            sql += " AND c.source = %s"
+            params.append(source)
+        sql += " GROUP BY c.id"
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                rows = list(cur.fetchall())
+        return rows
+
     def get_comic(self, comic_id: int) -> dict | None:
         sql = f"""SELECT {_COMIC_COLS}
                   FROM comic c

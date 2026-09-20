@@ -135,6 +135,26 @@ class Storage(ABC):
         """
 
     @abstractmethod
+    def find_comics(
+        self,
+        comic_ids: list[int] | None = None,
+        title_like: list[str] | None = None,
+        source: str | None = None,
+    ) -> list[dict]:
+        """按「作品 id 集合」**或**「标题子串」取作品行（投影同 `list_comics`）。
+
+        供封面自愈等「按作品筛选」的批处理使用：用户一次可填多部作品，每项是 id 或名称。
+
+        - `comic_ids`：命中这些 id 的行（走主键，最优）；
+        - `title_like`：标题**包含任一**子串的行（`LIKE %子串%`）；
+        - 二者是 **OR** 关系（id 与名称混填时，谁命中算谁）；
+        - `source`：在其上再按源收窄（AND）；None = 不限源。
+
+        ⚠️ **不返回"全部"**：两个筛选都为空时返回 `[]`（"全库"由 `list_comics` 负责，
+        以免调用方误以为空筛选=全表扫描）。返回顺序不保证，调用方自行处理。
+        """
+
+    @abstractmethod
     def get_comic(self, comic_id: int) -> dict | None:
         """作品详情。"""
 

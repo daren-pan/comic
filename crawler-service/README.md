@@ -265,14 +265,21 @@ name = canonical_tag(raw)     # 命中换成中文规范名；未命中保持原
   全部留空 = 全库巡检。
 - **管理台「触发巡检」**（`POST /api/admin/inspect`）与命令行 `inspect` 走同一函数；与「触发转存」的区别是多做了上面的第 2 步校验。巡检是**全库**动作，故管理台只在页面顶部放**一块**面板，不随源卡片复制。
   命令行可选参数：`--source <name>`（只巡检某源）、`--since/--until`（只限定「转存」部分的时间窗，校验始终覆盖全表）。
-- **封面自愈**（`scheduling.heal.heal_covers(storage, image_store, adapter_provider, source)`）：修复图库中缺失/未落盘的封面——封面仍是外链 → 重试下载；
+- **封面自愈**（`scheduling.heal.heal_covers(storage, image_store, adapter_provider, source, force, comic_ids, title_like)`）：修复图库中缺失/未落盘的封面——封面仍是外链 → 重试下载；
   本地 key 但文件缺失 → 按 `source_comic_id` 回源重抓 `cover_url` 再落盘；健康/无法修复的跳过。
   `source` 限定只自愈该源（`None` = 全库），走 `list_comics(source=…)` 过滤。
-  返回 `{checked, healed, failed, skipped}`。两个调用入口：
+  **按作品筛选**（2026-09-20 加）：`comic_ids` / `title_like` 限定范围（OR 命中，走 `Storage.find_comics`，
+  id 用主键、名称用 `LIKE`，不整表拉取）；两者都给/都空即全库。
+  **`force=True`**：跳过「文件在即健康」的早返回，一律回源重下**覆盖** —— 修**「封面文件在、但内容是错的」**
+  （普通自愈判据只看文件在不在，永远修不到错图）。
+  返回 `{checked, healed, failed, skipped}`。三个调用入口：
   ① 管理台「触发转存」后**自动执行**（并**透传所点的源**，转存与自愈同源）；
-  ② 管理台「**封面自愈 · 全库**」面板 / `POST /api/admin/heal-covers`（`source` 留空 = 全库，只修封面、不转存正文页）。
-- `ensure_cover_local` 是单部作品的封面落盘原语（同步链路每轮幂等调用）；`heal_covers` 是
-  按源（或不限源）的批量自愈编排；
+  ② 管理台「**封面自愈 · 指定作品**」面板 / `POST /api/admin/heal-covers`（`keyword` 必填：漫画名称或 ID，
+     可多个 → `force=True` **强制刷新指定作品封面**，只修封面、不转存正文页）；
+  ③ CLI / 脚本直接调 `heal_covers(...)`。
+- `ensure_cover_local` 是单部作品的封面落盘原语（同步链路每轮幂等调用；`force=True` 时强制覆盖重下）；
+  `heal_covers` 是按源 / 按作品的批量自愈编排；
+- `find_comics(comic_ids, title_like, source)` 是「按 id 集合 或 标题子串」取作品行的查询（封面自愈筛选用）。
 - 生产环境实现 OSS/COS 版的 `ImageStore` 替换 `LocalImageStore` 即可。
 
 ## 采集时间窗口（`since`，增量 vs 全量）

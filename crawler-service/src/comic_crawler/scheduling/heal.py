@@ -5,6 +5,9 @@
 - `heal_covers` —— 封面自愈：外链未落盘 / 本地文件缺失的封面按状态修复。
   **由转存任务在结束后自动调用**（管理台「触发转存」→ 无需单独按钮），
   并透传触发时的 `source` 以便只自愈该源（None = 全库）。
+  另支持**按作品筛选**（`comic_ids` / `title_like`）与 **`force` 强制重下**：
+  管理台「封面自愈」面板填漫画名称/ID 即可**指定作品强制刷新封面**（修错图，
+  数据量可控，不整库重下）。
 """
 from __future__ import annotations
 
@@ -110,6 +113,9 @@ def heal_covers(
     image_store=None,
     adapter_provider=None,
     source: str | None = None,
+    force: bool = False,
+    comic_ids: list[int] | None = None,
+    title_like: list[str] | None = None,
 ) -> dict[str, int]:
     """封面自愈（管理台触发「懒转存」后自动执行）：修复图库中缺失/未落盘的封面。
 
@@ -131,6 +137,15 @@ def heal_covers(
     地址，本地却一直照着错地址下）。回源还顺带覆盖了分片迁移、作品下架改链等情况。
     代价：每次巡检对仍失败的封面多一次详情请求（低频任务，可接受）。
 
+    **按作品筛选**（2026-09-20 新增，管理台「封面自愈」面板用）：
+    `comic_ids` / `title_like` 限定作用范围（OR 关系，见 `Storage.find_comics`）；
+    两者都给/都空之外的组合都支持；**都给 = 全库**（走 `list_comics`，保持旧行为）。
+
+    **`force=True`**（2026-09-20 新增）：**跳过「文件在即健康」的早返回**，对命中的作品
+    一律回源重抓封面并**覆盖**落盘 —— 用于修复"文件在但内容是错的"封面。这是普通自愈
+    永远做不到的：判据只看文件在不在、不看内容，故错图会被当健康跳过。
+    按作品 + force 组合即「指定作品强制刷新封面」（数据量可控，不整库重下）。
+
     返回统计：{checked, healed, failed, skipped}
     """
     if image_store is None:
@@ -141,7 +156,11 @@ def heal_covers(
     from ..images.transfer import ensure_cover_local
 
     stats = {"checked": 0, "healed": 0, "failed": 0, "skipped": 0}
-    rows, _ = storage.list_comics(page=1, page_size=10000, source=source)
+    if comic_ids or title_like:
+        # 按作品筛选：只取命中行（id 走主键、标题走 LIKE），不整表拉取
+        rows = storage.find_comics(comic_ids=comic_ids, title_like=title_like, source=source)
+    else:
+        rows, _ = storage.list_comics(page=1, page_size=10000, source=source)
     need_refetch: dict[str, list[dict]] = {}  # source -> 需回源取封面的漫画行
 
     for row in rows:
@@ -152,7 +171,7 @@ def heal_covers(
         if cover.startswith(("http://", "https://")):
             if ensure_cover_local(
                 storage, image_store, int(row["id"]), cover,
-                comic_title=row.get("title"), source=row.get("source"),
+                comic_title=row.get("title"), source=row.get("source"), force=force,
             ):
                 stats["healed"] += 1
                 continue
@@ -163,9 +182,9 @@ def heal_covers(
             need_refetch.setdefault(str(row.get("source") or ""), []).append(row)
             continue
 
-        # 本地 key：文件在 → 健康；文件缺失 → 需回源
+        # 本地 key：文件在且非 force → 健康跳过；文件缺失 / force → 需回源重取
         if cover.startswith("covers/"):
-            if image_store.exists(cover):
+            if image_store.exists(cover) and not force:
                 stats["skipped"] += 1
                 continue
         # 空封面 → 需回源；非空非外链非本地（占位路径）→ 跳过
@@ -203,7 +222,7 @@ def heal_covers(
                     continue
                 if ensure_cover_local(
                     storage, image_store, int(row["id"]), url,
-                    comic_title=row.get("title"), source=row.get("source"),
+                    comic_title=row.get("title"), source=row.get("source"), force=force,
                 ):
                     stats["healed"] += 1
                 else:

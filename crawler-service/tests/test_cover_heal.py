@@ -26,16 +26,28 @@ class FakeStorage:
 
     `list_comics` 记下最近一次收到的 `source`（供「自愈要按源限定」用例断言）——
     真实的 MySQLStorage.list_comics 会据此只返回该源的作品。
+    `find_comics` 记下收到的筛选参数（`last_find`）并按 id/标题子串做内存过滤，
+    供「按作品筛选」用例断言（真实的走主键 IN / title LIKE）。
     """
 
     def __init__(self, comics: list[dict]) -> None:
         self.comics = comics
         self.covers: dict[int, str] = {}
         self.last_source = "<unset>"
+        self.last_find: dict | None = None
 
     def list_comics(self, page: int = 1, page_size: int = 12, **kw):
         self.last_source = kw.get("source", "<missing>")
         return self.comics, len(self.comics)
+
+    def find_comics(self, comic_ids=None, title_like=None, source=None):
+        self.last_find = {"comic_ids": comic_ids, "title_like": title_like, "source": source}
+        ids = set(comic_ids or [])
+        names = [str(t) for t in (title_like or [])]
+        return [
+            c for c in self.comics
+            if c["id"] in ids or any(n in str(c.get("title") or "") for n in names)
+        ]
 
     def set_comic_cover(self, comic_id: int, key: str) -> None:
         self.covers[comic_id] = key
@@ -78,17 +90,21 @@ def _row(cid: int, cover: str, source: str = "fake") -> dict:
     }
 
 
-def _fake_ensure(ok_urls: set[str], calls: list[tuple[int, str]], titles: dict | None = None):
+def _fake_ensure(ok_urls: set[str], calls: list[tuple[int, str]], titles: dict | None = None,
+                 forces: list | None = None):
     """替身：url 在 ok_urls 内视为下载成功，回填相对 key。
 
-    `**kw` 用来吃掉调用方补充的 `comic_title` / `source`（只进日志，不影响落盘行为）——
-    顺便断言它们确实被传了下来（`titles` 里收一份，供"日志要带作品名"的用例检查）。
+    `**kw` 用来吃掉调用方补充的 `comic_title` / `source` / `force`（只进日志与落盘分支，
+    不影响统计）—— 顺便断言它们确实被传了下来（`titles` / `forces` 各收一份，
+    供"日志要带作品名" / "force 要透传"的用例检查）。
     """
 
     def _ensure(storage, image_store, comic_id, cover_url, **kw):
         calls.append((comic_id, cover_url))
         if titles is not None:
             titles[comic_id] = kw.get("comic_title")
+        if forces is not None:
+            forces.append(kw.get("force"))
         if cover_url in ok_urls:
             storage.set_comic_cover(comic_id, f"covers/{comic_id}.jpg")
             return True
@@ -98,17 +114,22 @@ def _fake_ensure(ok_urls: set[str], calls: list[tuple[int, str]], titles: dict |
 
 
 class TestHealCovers(unittest.TestCase):
-    def _run(self, comics, existing=None, ok_urls=None, adapter_url=None, use_adapter=True, source=None):
+    def _run(self, comics, existing=None, ok_urls=None, adapter_url=None, use_adapter=True,
+             source=None, force=False, comic_ids=None, title_like=None):
         storage = FakeStorage(comics)
         store = FakeStore(existing)
         calls: list[tuple[int, str]] = []
         self.titles: dict = {}
+        self.forces: list = []
         provider = (lambda name: FakeAdapter(adapter_url)) if use_adapter and adapter_url is not None else None
         with patch(
             "comic_crawler.images.transfer.ensure_cover_local",
-            _fake_ensure(ok_urls or set(), calls, self.titles),
+            _fake_ensure(ok_urls or set(), calls, self.titles, self.forces),
         ):
-            stats = heal_covers(storage, store, adapter_provider=provider, source=source)
+            stats = heal_covers(
+                storage, store, adapter_provider=provider, source=source,
+                force=force, comic_ids=comic_ids, title_like=title_like,
+            )
         return storage, stats, calls
 
     def test_local_healthy_skipped(self):
@@ -231,6 +252,80 @@ class TestHealCovers(unittest.TestCase):
     def test_no_source_scans_all(self):
         """不给 source → 传 None（= 全库），保持默认全量兜底语义。"""
         storage, _, _ = self._run([_row(1, "covers/1.jpg")])
+        self.assertIsNone(storage.last_source)
+
+    # ---------------- 按作品筛选 + force 强制重下（2026-09-20） ----------------
+
+    def test_force_redownloads_healthy_cover(self):
+        """force=True：文件在也强制回源重下覆盖 —— 修「文件在但内容是错的」封面。
+
+        这是普通自愈做不到的：判据只看文件在不在、不看内容，错图会被当健康跳过。
+        """
+        storage, stats, calls = self._run(
+            [_row(1, "covers/1.jpg")],
+            existing={"covers/1.jpg"},
+            adapter_url="https://img.x/new.jpg",
+            ok_urls={"https://img.x/new.jpg"},
+            force=True,
+        )
+        self.assertEqual(stats["healed"], 1)
+        self.assertEqual(stats["skipped"], 0)
+        self.assertEqual(calls, [(1, "https://img.x/new.jpg")])
+        self.assertEqual(self.forces, [True])          # force 透传给了落盘原语
+
+    def test_no_force_skips_healthy_cover(self):
+        """默认 force=False：文件在 → 健康跳过，不下载（保持旧行为，避免整库重下）。"""
+        storage, stats, calls = self._run(
+            [_row(1, "covers/1.jpg")],
+            existing={"covers/1.jpg"},
+            adapter_url="https://img.x/new.jpg",
+            ok_urls={"https://img.x/new.jpg"},
+        )
+        self.assertEqual(stats["skipped"], 1)
+        self.assertEqual(calls, [])
+        self.assertEqual(self.forces, [])
+
+    def test_filter_by_comic_ids(self):
+        """comic_ids：只处理命中的 id（走 find_comics，不整表拉取）。"""
+        storage, stats, calls = self._run(
+            [_row(1, "covers/1.jpg"), _row(2, "covers/2.jpg")],
+            existing={"covers/1.jpg", "covers/2.jpg"},
+            adapter_url="https://img.x/a.jpg",
+            ok_urls={"https://img.x/a.jpg"},
+            force=True, comic_ids=[2],
+        )
+        self.assertEqual(stats["checked"], 1)          # 只有 1 部被处理
+        self.assertEqual(calls, [(2, "https://img.x/a.jpg")])
+        self.assertEqual(storage.last_find["comic_ids"], [2])
+
+    def test_filter_by_title(self):
+        """title_like：按标题子串命中（名称入口）。"""
+        storage, stats, calls = self._run(
+            [_row(1, "covers/1.jpg"), _row(2, "covers/2.jpg")],
+            existing={"covers/1.jpg", "covers/2.jpg"},
+            adapter_url="https://img.x/a.jpg",
+            ok_urls={"https://img.x/a.jpg"},
+            force=True, title_like=["作品2"],
+        )
+        self.assertEqual(stats["checked"], 1)
+        self.assertEqual(calls, [(2, "https://img.x/a.jpg")])
+
+    def test_filter_supports_multiple_works(self):
+        """一次多部：comic_ids 与 title_like 混填 → OR 命中（多部一起自愈）。"""
+        storage, stats, calls = self._run(
+            [_row(1, "covers/1.jpg"), _row(2, "covers/2.jpg"), _row(3, "covers/3.jpg")],
+            existing={"covers/1.jpg", "covers/2.jpg", "covers/3.jpg"},
+            adapter_url="https://img.x/a.jpg",
+            ok_urls={"https://img.x/a.jpg"},
+            force=True, comic_ids=[1], title_like=["作品3"],
+        )
+        self.assertEqual(stats["checked"], 2)          # id=1 与 名称含「作品3」的 id=3
+        self.assertEqual({c[0] for c in calls}, {1, 3})
+
+    def test_no_filter_uses_list_comics(self):
+        """不给筛选 → 走 list_comics（全库，保持旧行为），不碰 find_comics。"""
+        storage, _, _ = self._run([_row(1, "covers/1.jpg")], existing={"covers/1.jpg"})
+        self.assertIsNone(storage.last_find)
         self.assertIsNone(storage.last_source)
 
 

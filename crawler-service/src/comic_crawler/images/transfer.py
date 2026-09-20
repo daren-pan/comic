@@ -120,6 +120,7 @@ def ensure_cover_local(
     *,
     comic_title: object = "",
     source: object = "",
+    force: bool = False,
 ) -> bool:
     """外链封面落盘为图库内相对 key（covers/{comic_id}.jpg）。
 
@@ -139,11 +140,15 @@ def ensure_cover_local(
     （`scheduling.heal.heal_covers`）会回源重取。⚠️ 注意：**定时巡检（`inspect_sync`）不碰封面**，
     所以删了文件后不会自动被修，必须有转存 / 重新导入这类动作把它带一遍。
 
+    `force=True`（2026-09-20 新增，供「按作品强制自愈」用）：**跳过"文件在即健康"的早返回**，
+    只要 `cover_url` 是 http(s) 就重新下载并**覆盖**图库文件 —— 用于修复"文件在但内容是错的"
+    封面（判据只看文件在不在，不看内容，故普通自愈永远修不到错图）。仍非 http(s) 时照旧跳过。
+
     `comic_title` / `source` 是**可选**的补充信息，只用于日志（调用方手上有就传，
     传了日志里才会显示作品名、管理台才筛得到）；不传不影响任何落盘行为。
     """
     key = f"covers/{comic_id}.jpg"
-    if image_store.exists(key):
+    if image_store.exists(key) and not force:
         # 文件在：本地已落盘。若库里还记着外链（此前下载成功但回填失败等），顺手补回填 ——
         # 否则接口会一直按外链取图，白存了这份本地文件。
         if cover_url.startswith(("http://", "https://")):
