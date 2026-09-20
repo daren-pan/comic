@@ -56,9 +56,10 @@ wheel 里只有包本身与依赖声明：**测试、文档、样例夹具自动
 `sources/*/README.md`、`guazi/fixtures/*.html` 都不在包里），依赖清单也只写一份（`pyproject.toml`）。
 
 ```bash
-# 一条命令干完下面四步（含前置检查与自检）：
-./deploy/up.sh                  # 一键：前端 build + 镜像 build + 起服务 + 自检
+# 一条命令干完下面几步（含代码更新、前置检查与自检）：
+./deploy/up.sh                  # 一键：git pull + 前端 build + 镜像 build + 起服务 + 自检
 #   ./deploy/up.sh --skip-web    前端没改 → 跳过 npm build（快很多）
+#   ./deploy/up.sh --skip-pull   不更新代码 → 直接按当前工作区构建
 #   ./deploy/up.sh --collect     额外起定时采集 comic-scheduler
 #   ./deploy/up.sh --migrate     ★ 服务器上**已有旧库**时加上它（跑幂等迁移脚本，见 §5）
 
@@ -68,9 +69,15 @@ cd comic-web && npm run build           # 前端产物（build.sh 会把它复�
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-> `up.sh` 就是把这四步串起来的**幂等**一键脚本：前置检查 → 前端 build →
+> `up.sh` 就是把这几步串起来的**幂等**一键脚本：**`git pull` 更新代码** → 前置检查 → 前端 build →
 > `build.sh` → `up -d` → 自检（mysql healthy → 容器内 `/api/health` → 数据目录可写 →
-> 对外入口 HTTP 码）。重复跑只是重新构建 + `up -d`，**不会清数据**。
+> 对外入口 HTTP 码）。重复跑只是更新代码 + 重新构建 + `up -d`，**不会清数据**。
+>
+> ⚠️ 开头的 `git pull` 只做**快进**（`--ff-only`），并把「更新了哪几条提交」打出来；
+> 不是 git 工作区（方式 C 的发布包）/ 断网 / 本地有冲突时不中止，**按当前工作区继续构建**，
+> 所以看到那几条 `⚠️` 就要留意：它意味着这次可能不是最新代码。想跳过更新用 `--skip-pull`。
+> 顺带：若本次更新动了 `deploy/up.sh` 或 `build.sh` 本身，脚本会提示「再跑一次」——
+> 当前进程跑的仍是旧脚本。
 >
 > ⚠️ **老环境升级**（服务器上已经有漫画库）请用 `./deploy/up.sh --migrate`：
 > 本次"跨源不再合并"改造去掉了 `comic.fingerprint` 的唯一约束（见 §5），

@@ -2,36 +2,42 @@
 # ============================================================
 #  一键：构建前后端产物 + 镜像 → 启动整套服务 → 自检
 #
-#  依次做五件事：
-#    0) 前置检查（docker / compose v2 / deploy/.env / 运行时数据目录）
-#    1) 构建前端产物 comic-web/dist（默认 npm run build）
-#    2) 调 deploy/build.sh：生成 wheel、复制前端产物，按序构建 5 个镜像
-#    3) docker compose up -d
-#    4) 自检：mysql 健康 → 容器内接口可用 → 数据目录可写 → 对外入口 HTTP 码
+#  依次做六件事：
+#    0) 更新代码（`git pull`，只快进不合并；--skip-pull 跳过）
+#    1) 前置检查（docker / compose v2 / deploy/.env / 运行时数据目录）
+#    2) 构建前端产物 comic-web/dist（默认 npm run build）
+#    3) 调 deploy/build.sh：生成 wheel、复制前端产物，按序构建 5 个镜像
+#    4) docker compose up -d
+#    5) 自检：mysql 健康 → 容器内接口可用 → 数据目录可写 → 对外入口 HTTP 码
 #
 #  用法：
-#    bash deploy/up.sh                 # 全量：前端 build + 镜像 build + 起服务
+#    bash deploy/up.sh                 # 全量：更新代码 + 前端 build + 镜像 build + 起服务
 #    bash deploy/up.sh --skip-web      # 前端没改，跳过 npm build（快很多）
+#    bash deploy/up.sh --skip-pull     # 不更新代码，直接按当前工作区构建
 #    bash deploy/up.sh --collect       # 额外启动定时采集（comic-scheduler）
 #    bash deploy/up.sh --migrate       # 起完服务后，对**已有库**跑一遍幂等迁移脚本
 #                                      #   （老环境升级用；全新库不需要 —— 建表脚本已带全）
 #    bash deploy/up.sh -h
 #
 #  说明：
-#    · 脚本是**幂等**的 —— 重复跑就是重新构建 + `up -d`，不会清数据；
+#    · 脚本是**幂等**的 —— 重复跑就是更新代码 + 重新构建 + `up -d`，不会清数据；
 #      真正会丢数据的只有 `docker compose down -v`（删数据库卷）与手动删数据目录。
+#    · 开头会把代码更新到最新，并打出「更新了哪几条提交」，避免"改了没生效"；
+#      只有拿不到新代码时（不是 git 工作区 / 断网 / 冲突）才按当前工作区继续构建。
 #    · 前端产物是烘进 comic-api 镜像的（COPY --from=comic-web），所以改前端必须重跑本脚本。
 # ============================================================
 set -euo pipefail
 
 SKIP_WEB=0
+SKIP_PULL=0
 COLLECT=0
 MIGRATE=0
 for a in "$@"; do
   case "$a" in
-    --skip-web) SKIP_WEB=1 ;;
-    --collect)  COLLECT=1 ;;
-    --migrate)  MIGRATE=1 ;;
+    --skip-web)  SKIP_WEB=1 ;;
+    --skip-pull) SKIP_PULL=1 ;;
+    --collect)   COLLECT=1 ;;
+    --migrate)   MIGRATE=1 ;;
     -h|--help)  # 打印文件头那段说明（按内容定位，不写死行号，免得改了头部就漏出正文）
                 awk 'NR==1{next} {sub(/^# ?/,"")} NR>2 && /^=+$/ {print; exit} {print}' "$0"; exit 0 ;;
     *) echo "!! 未知参数：$a（-h 看用法）" >&2; exit 1 ;;
@@ -50,8 +56,47 @@ die()  { printf '!! %s\n' "$*" >&2; exit 1; }
 #    这也是 build.sh 里一律用相对路径的同一个原因。
 compose() { docker compose -f docker-compose.yml "$@"; }
 
-# ---------- 0. 前置检查 ----------
-step "[0/5] 前置检查"
+# ---------- 0. 更新代码 ----------
+# 「改了代码没生效」的头号原因就是漏了这一步（2026-09-18 排查）。放在最前面，
+# 后面所有构建都按拉下来的代码走，省得靠人记得先 pull。
+step "[0/6] 更新代码"
+if [ "$SKIP_PULL" = "1" ]; then
+  echo "   跳过（--skip-pull），按当前工作区构建"
+elif ! command -v git >/dev/null 2>&1; then
+  echo "   ⚠️ 没找到 git —— 跳过更新，按当前工作区构建"
+elif ! git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  # 方式 C 的发布包 / 解压出来的目录没有 .git，属正常形态，不是错误
+  echo "   ⚠️ $ROOT 不是 git 工作区（发布包形态？）—— 跳过更新，按现有文件构建"
+else
+  BEFORE="$(git -C "$ROOT" rev-parse HEAD)"
+  echo "   pull 前 : $(git -C "$ROOT" log --oneline -1)"
+  [ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null || true)" ] \
+    || echo "   ⚠️ 工作区有未提交改动 —— 可能与 pull 冲突（真失败会按当前工作区继续）"
+
+  # --ff-only：服务器上只做快进，绝不在这里生成合并提交；有本地提交时会失败并给出提示。
+  # 刻意不让 `set -e` 直接炸掉：pull 失败（断网 / 冲突）不该拦住"用现有代码起服务"。
+  if PULL_OUT="$(git -C "$ROOT" pull --ff-only 2>&1)"; then
+    AFTER="$(git -C "$ROOT" rev-parse HEAD)"
+    if [ "$BEFORE" = "$AFTER" ]; then
+      echo "   ✅ 已是最新，没有新提交（${AFTER:0:7}）"
+    else
+      N="$(git -C "$ROOT" rev-list --count "$BEFORE..$AFTER")"
+      echo "   ✅ 代码已更新：${BEFORE:0:7} → ${AFTER:0:7}，共 $N 个新提交"
+      git -C "$ROOT" log --oneline "$BEFORE..$AFTER" | sed 's/^/        /'
+      # up.sh / build.sh 本身也在仓库里：这次拉下来的新版本要下一次跑才生效
+      if git -C "$ROOT" diff --name-only "$BEFORE" "$AFTER" | grep -qE '^deploy/(up|build)\.sh$'; then
+        echo "   ⚠️ 这次更新动了 deploy/up.sh 或 build.sh —— 当前跑的还是旧脚本，建议再跑一次"
+      fi
+    fi
+  else
+    echo "   ⚠️ git pull 失败 —— 按当前工作区继续构建。git 原话如下："
+    printf '%s\n' "$PULL_OUT" | sed 's/^/        /'
+    echo "        （想丢弃本地改动后重跑：git -C '$ROOT' checkout -- . && bash deploy/up.sh）"
+  fi
+fi
+
+# ---------- 1. 前置检查 ----------
+step "[1/6] 前置检查"
 command -v docker >/dev/null 2>&1 || die "没找到 docker"
 docker compose version >/dev/null 2>&1 \
   || die "需要 Docker Compose v2（命令形式是 'docker compose'，不是老的独立 'docker-compose'）"
@@ -79,8 +124,8 @@ fi
    容器内进程以 uid 10001 运行，宿主上需执行：sudo chown -R 10001:10001 '$DATA_HOST'"
 echo "   数据目录: $DATA_HOST ✅"
 
-# ---------- 1. 前端 ----------
-step "[1/5] 前端产物"
+# ---------- 2. 前端 ----------
+step "[2/6] 前端产物"
 if [ "$SKIP_WEB" = "1" ]; then
   [ -d "$ROOT/comic-web/dist" ] || die "--skip-web 但 comic-web/dist 不存在，去掉该参数重跑"
   echo "   跳过（--skip-web），复用现有 comic-web/dist"
@@ -95,21 +140,21 @@ else
   [ -d "$ROOT/comic-web/dist" ] || die "前端构建后仍然没有 comic-web/dist"
 fi
 
-# ---------- 2. 产物 + 镜像 ----------
-step "[2/5] 生成 wheel/产物 + 按序构建 5 个镜像（mysql → web → crawler → api → nginx）"
+# ---------- 3. 产物 + 镜像 ----------
+step "[3/6] 生成 wheel/产物 + 按序构建 5 个镜像（mysql → web → crawler → api → nginx）"
 bash "$DEPLOY/build.sh"
 
-# ---------- 3. 起服务 ----------
-step "[3/5] 启动服务"
+# ---------- 4. 起服务 ----------
+step "[4/6] 启动服务"
 if [ "$COLLECT" = "1" ]; then
   compose --profile collect up -d
 else
   compose up -d
 fi
 
-# ---------- 3.5 已有库迁移（可选） ----------
+# ---------- 4.5 已有库迁移（可选） ----------
 if [ "$MIGRATE" = "1" ]; then
-  step "[3.5] 迁移已有库（幂等；全新库可跳过）"
+  step "[4.5] 迁移已有库（幂等；全新库可跳过）"
   echo "   挂载 ../tools 到容器 /app/tools，逐个跑（都支持重复执行）"
   for t in add_log_table.py add_perf_indexes.py drop_fingerprint_unique.py add_user_role.py; do
     echo "   → tools/$t"
@@ -125,8 +170,8 @@ if [ "$MIGRATE" = "1" ]; then
          tools/rebuild_fingerprint.py（它会往容器内 /app/backup 写回滚 SQL，宿主上跑更方便）"
 fi
 
-# ---------- 4. 自检 ----------
-step "[4/5] 自检"
+# ---------- 5. 自检 ----------
+step "[5/6] 自检"
 for i in $(seq 1 40); do
   st="$(docker inspect comic-mysql --format '{{.State.Health.Status}}' 2>/dev/null || echo unknown)"
   if [ "$st" = "healthy" ]; then
@@ -173,8 +218,8 @@ if command -v curl >/dev/null 2>&1; then
   fi
 fi
 
-# ---------- 5. 汇总 ----------
-step "[5/5] 完成"
+# ---------- 6. 汇总 ----------
+step "[6/6] 完成"
 compose ps
 cat <<EOF
 
@@ -194,6 +239,7 @@ cat <<EOF
     图库/开关   $DATA_HOST
 
   常用命令
+    更新部署  bash deploy/up.sh        # 先 git pull 再重建（代码已是最新则只重建）
     日志  docker compose -f deploy/docker-compose.yml logs -f comic-app
     状态  docker compose -f deploy/docker-compose.yml ps
     停止  docker compose -f deploy/docker-compose.yml down     # 卷与数据目录都保留
