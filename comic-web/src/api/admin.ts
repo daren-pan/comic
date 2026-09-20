@@ -1,8 +1,8 @@
 // 采集管理接口（运维控制台）—— **需超级管理员**（role='admin'）
 // 职责：列出数据源 / 开关采集 / 手动触发采集（增量|全量 + since/limit）/
 //      手动触发懒转存（source/since/until/limit）/
-//      手动触发失效巡检（source/since/until）/ 查询后台任务状态 / 读取运行日志末尾 /
-//      授权页：列用户 + 设置角色。
+//      手动触发失效巡检（source/since/until）/ 手动触发全库封面自愈 /
+//      查询后台任务状态 / 读取运行日志末尾 / 授权页：列用户 + 设置角色。
 // 鉴权：后端在 router 上挂了 require_admin（超管或普通管理员）—— 未登录 401（拦截器跳登录页）、
 //       权限不足 403。授权页那组接口门槛更高：仅超管（require_superadmin）。
 import type {
@@ -80,6 +80,21 @@ export interface AdminInspectRequest {
  */
 export function startAdminInspect(body: AdminInspectRequest): Promise<{ taskId: string }> {
   return request('/api/admin/inspect', { method: 'POST', data: body })
+}
+
+export interface AdminHealCoversRequest {
+  source?: string     // 仅自愈某源；空 = 全库
+}
+
+/**
+ * 触发一次封面自愈（后台线程执行，返回 taskId 供轮询）
+ *
+ * 与「触发转存」的区别：转存会顺带转存正文页、且只自愈所点源的封面；
+ * 本接口**只修封面**、默认覆盖**全库**（外链未落盘 → 重下载；本地文件缺失 → 回源重抓）。
+ * @see POST /api/admin/heal-covers
+ */
+export function startAdminHealCovers(body: AdminHealCoversRequest = {}): Promise<{ taskId: string }> {
+  return request('/api/admin/heal-covers', { method: 'POST', data: body })
 }
 
 /**

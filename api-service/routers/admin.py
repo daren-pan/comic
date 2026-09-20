@@ -4,8 +4,8 @@
 角色定义与判断见 `core/security.py`；给他人授权在 `routers/admin_users.py`（授权页）。
 
 能力：列出数据源 / 开关采集 / 手动触发采集 / 手动触发懒转存（转存完成后自动封面自愈）
-/ 手动触发失效巡检（转存 + 全表校验已转存对象、缺失则恢复）/ 按需导入单部作品
-/ 查询运行日志（`log_record` 表，支持条件筛选与分页）。
+/ 手动触发全库封面自愈 / 手动触发失效巡检（转存 + 全表校验已转存对象、缺失则恢复）
+/ 按需导入单部作品 / 查询运行日志（`log_record` 表，支持条件筛选与分页）。
 采集 / 转存 / 巡检 / 导入耗时，统一交给 `services.tasks` 后台线程执行，返回 `taskId` 供前端轮询。
 """
 from __future__ import annotations
@@ -18,6 +18,7 @@ from core.db import db  # noqa: F401  —— 先导入以完成 sys.path 引导
 from core.responses import ok
 from core.security import require_admin
 from schemas import (
+    AdminHealBody,
     AdminImportBody,
     AdminInspectBody,
     AdminSyncBody,
@@ -83,6 +84,26 @@ def admin_transfer(body: AdminTransferBody):
 
     task_id = tasks.new_task_id("transfer")
     tasks.run_task(task_id, "transfer", job)
+    return ok({"taskId": task_id})
+
+
+@router.post("/api/admin/heal-covers")
+def admin_heal_covers(body: AdminHealBody):
+    """封面自愈：修复外链未落盘 / 本地文件缺失的封面（`source` 留空 = **全库**）。
+
+    与「触发转存」的区别：转存会顺带转存正文页、并只自愈**所点源**的封面；
+    本入口只做封面自愈，且默认覆盖**全库**，是封面问题的独立运维入口。
+    """
+    from comic_crawler.sources import create_adapter
+    from comic_crawler.scheduling import heal_covers
+
+    def job():
+        storage = MySQLStorage()
+        store = admin_image_store()
+        return heal_covers(storage, store, adapter_provider=create_adapter, source=body.source)
+
+    task_id = tasks.new_task_id("heal")
+    tasks.run_task(task_id, "heal", job)
     return ok({"taskId": task_id})
 
 

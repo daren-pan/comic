@@ -96,7 +96,7 @@ export interface SyncStats {
 
 export interface AdminTask {
   id: string
-  type: 'sync' | 'transfer' | 'inspect' | 'import'
+  type: 'sync' | 'transfer' | 'inspect' | 'heal' | 'import'
   status: 'running' | 'done' | 'failed'
   message: string
   result: Record<string, unknown> | null

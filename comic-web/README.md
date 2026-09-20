@@ -51,12 +51,12 @@ src/api/
 ### 消息中心（`src/stores/message.ts`）
 
 - **定位**：顶栏登录账号旁的 **🔔 消息入口**（带未读角标），点击展开面板查看**采集/转存任务结果**，并预留**系统消息推送**（`addSystem`）。
-- **消息类型**：`sync`(采集) / `transfer`(转存) / `system`(系统)，统一 `NoticeItem { kind,status,summary,detail,source,mode,time,read }`。
+- **消息类型**：`sync`(采集) / `transfer`(转存) / `inspect`(巡检) / `heal`(封面自愈) / `system`(系统)，统一 `NoticeItem { kind,status,summary,detail,source,mode,time,read }`。
 - **轮询在 store（单例）而非组件**：触发任务后 `trackTask` 登记 running 占位 → `getAdminTask` 每 1.5s 轮询到 done/failed → 回填摘要、置未读、弹 **toast**（6s，全站可见，不再是管理页局部提示）。因此**离开 `/admin` 页任务仍会跟踪**。
 - **持久化**：已完成消息落 `localStorage`（`comic_msg_notices`，上限 50 条），刷新不丢；刷新时仍在 running 的消息标记为「任务已中断」（后端任务不跨会话恢复）。
 - **管理页解耦**：`AdminView.vue` 只负责触发表单，结果统一交给 store（页面内不再自持历史与 toast）。
-- **消息只保留一行摘要**（2026-09-10 精简）：采集 `扫描 N | 新增 N | 更新 N | 新增章节 N | 失败 N`；转存 `检查 N | 成功 N | 失败 N`。`detail` 字段保留为预留槽位但**恒为空、不渲染**。
-- **封面自愈在 UI 上完全隐身**：后端「触发转存」会在转存后自动跑 `scheduler.heal_covers`（结果在 `result.coverHeal`），但前端**不展示**——无按钮、无页面文案、无消息行；以后要恢复展示，把该字段接回 `noticeSummary` 即可。
+- **消息只保留一行摘要**（2026-09-10 精简）：采集 `扫描 N | 新增 N | 更新 N | 新增章节 N | 失败 N`；转存 `检查 N | 成功 N | 失败 N`；巡检 `校验 N | 转存 N | 恢复 N | 失效 N`；自愈 `检查 N | 修复 N | 跳过 N | 失败 N`。`detail` 字段保留为预留槽位但**恒为空、不渲染**。
+- **封面自愈**（2026-09-20 起）：后端「触发转存」跑完后会自动自愈**所点那个源**的封面（结果在 `result.coverHeal`，**不往消息中心写**）；管理台页面顶部另有**「封面自愈 · 全库」独立面板**（`POST /api/admin/heal-covers`），只修封面、不转存正文页，走 `heal` 消息类型在消息中心可见。
 
 ### 阅读器（架构方案 §4.2）
 

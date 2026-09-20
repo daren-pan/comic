@@ -5,7 +5,7 @@
 //
 // 关键点：
 // - 轮询放在 store（单例）而非组件，任务即使离开 /admin 页也会继续跟踪到 done/failed；
-// - 消息类型：sync(采集) / transfer(转存) / system(系统推送)；
+// - 消息类型：sync(采集) / transfer(转存) / inspect(巡检) / heal(封面自愈) / system(系统推送)；
 // - 持久化：已完成消息落 localStorage（key=comic_msg_notices，上限 50 条），刷新不丢；
 //   刷新时仍在 running 的消息视为「任务已中断」（后端任务无法跨会话恢复），标记为 failed；
 // - toast 结果弹窗也由 store 持有，App 顶栏统一渲染，任何页面都能看到执行完毕提示。
@@ -14,8 +14,8 @@ import { defineStore } from 'pinia'
 import { getAdminTask } from '../api'
 import type { AdminTask } from '../types'
 
-/** 消息类型：采集 / 懒转存 / 失效巡检 / 系统推送 */
-export type NoticeKind = 'sync' | 'transfer' | 'inspect' | 'system'
+/** 消息类型：采集 / 懒转存 / 失效巡检 / 封面自愈 / 系统推送 */
+export type NoticeKind = 'sync' | 'transfer' | 'inspect' | 'heal' | 'system'
 /** 消息状态：运行中 / 完成 / 失败 / 通知（系统消息） */
 export type NoticeStatus = 'running' | 'done' | 'failed' | 'info'
 
@@ -36,7 +36,7 @@ const MAX_NOTICES = 50
 const POLL_INTERVAL = 1500   // 轮询间隔（ms）
 const TOAST_DURATION = 6000  // 结果弹窗停留（ms）
 
-/** 任务结果摘要（采集：扫描/新增/更新/章节/失败；转存：检查/成功/失败；巡检：校验/转存/恢复/失效） */
+/** 任务结果摘要（采集：扫描/新增/更新/章节/失败；转存：检查/成功/失败；巡检：校验/转存/恢复/失效；自愈：检查/修复/跳过/失败） */
 export function noticeSummary(t: AdminTask): string {
   if (t.status !== 'done' || !t.result) return ''
   if (t.type === 'sync') {
@@ -48,6 +48,9 @@ export function noticeSummary(t: AdminTask): string {
   const r = t.result as Record<string, number>
   if (t.type === 'inspect') {
     return `校验 ${r.checked ?? 0} | 转存 ${r.transferred ?? 0} | 恢复 ${r.recovered ?? 0} | 失效 ${r.invalid ?? 0}`
+  }
+  if (t.type === 'heal') {
+    return `检查 ${r.checked ?? 0} | 修复 ${r.healed ?? 0} | 跳过 ${r.skipped ?? 0} | 失败 ${r.failed ?? 0}`
   }
   return `检查 ${r.checked ?? 0} | 成功 ${r.transferred ?? 0} | 失败 ${r.failed ?? 0}`
 }
@@ -125,12 +128,18 @@ export const useMessageStore = defineStore('message', () => {
   /** 触发任务后登记（占位 running，确保能检测到 running→结束 的跳变） */
   function trackTask(
     taskId: string,
-    kind: 'sync' | 'transfer' | 'inspect',
+    kind: 'sync' | 'transfer' | 'inspect' | 'heal',
     source: string,
     mode?: string,
   ) {
     const running =
-      kind === 'sync' ? '采集进行中…' : kind === 'transfer' ? '转存进行中…' : '巡检进行中…'
+      kind === 'sync'
+        ? '采集进行中…'
+        : kind === 'transfer'
+          ? '转存进行中…'
+          : kind === 'inspect'
+            ? '巡检进行中…'
+            : '封面自愈进行中…'
     notices.value = notices.value.filter((n) => n.id !== taskId)
     notices.value.unshift({
       id: taskId,

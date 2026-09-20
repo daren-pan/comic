@@ -115,10 +115,11 @@ api-service/
 - **触发采集**：`POST /api/admin/sync`，`since`（ISO，起始日期）**优先于上次同步水位**——留空按水位、填了按填的日期回补/前移；`limit` 限制本次收录数量（受控样本）。
 - **触发懒转存**：`POST /api/admin/transfer`，`source` 只转存指定源、`since/until` 按章节 `sync_time`（DATETIME）窗口过滤——**语义是把窗口内所有未转存页全部转存**；边界**双端含**（`until` 只给日期时**含当天全天**）；`limit` 为可选兜底阀门（留空/≤0 = 不限制）。**转存完成后自动附带封面自愈**（无需单独按钮，见下）。
 - **触发失效巡检**：`POST /api/admin/inspect`，body `{source, since, until}`。与「转存」的区别：转存只做「未转存 → 转存」；巡检在此基础上**再多做一步「已转存对象校验 + 丢失恢复」**，因此能发现图库文件被误删/写错目录的情况。校验按 `id` **键集分页遍历全表**（每次 1000 条 + 游标推进，**不会被固定条数截断**），`source` 同时限定校验范围；结果摘要为 `校验 N | 转存 N | 恢复 N | 失效 N`。**管理台只提供「全库」一个入口**（页面顶部一块面板，不随源卡片复制）；`source` 是可选参数，供 CLI / 脚本做单源巡检。
-- **封面自愈（自动）**：转存任务内接着跑 `scheduling.heal.heal_covers` —— 外链未落盘的封面重下落盘；本地 key 但图库文件缺失的按 `source_comic_id` 回源重抓 `cover_url` 再落盘；结果并入转存任务 `result.coverHeal`。
-- 数据层支撑（crawler-service）：`incremental_sync/full_sync` 增加 `since` 参数；`lazy_transfer`/`list_uncached_pages` 增加 `source` 按源过滤；新增 `heal_covers` 封面自愈。
+- **封面自愈（自动）**：转存任务内接着跑 `scheduling.heal.heal_covers`，并**透传本次的 `source`**（只自愈该源的封面，避免「点了 A 源却改了 B 源封面」）—— 外链未落盘的封面重下落盘；本地 key 但图库文件缺失的按 `source_comic_id` 回源重抓 `cover_url` 再落盘；结果并入转存任务 `result.coverHeal`。
+- **触发全库封面自愈**：`POST /api/admin/heal-covers`，body `{source?}`（**留空 = 全库**）。只修封面、**不转存正文页**，是封面问题的独立运维入口（管理台页面顶部「封面自愈 · 全库」面板）；后台任务类型 `heal`，结果 `{checked, healed, failed, skipped}`。
+- 数据层支撑（crawler-service）：`incremental_sync/full_sync` 增加 `since` 参数；`lazy_transfer`/`list_uncached_pages` 增加 `source` 按源过滤；`list_comics` 增加 `source` 过滤；新增 `heal_covers` 封面自愈（带 `source`）。
 
-> 采集任务结果以 `{stats, summary, db}` 存入 `result`；转存任务为 `{checked, transferred, failed, pagesByStatus, coverHeal}`（`coverHeal` = `{checked, healed, failed, skipped}`）。
+> 采集任务结果以 `{stats, summary, db}` 存入 `result`；转存任务为 `{checked, transferred, failed, pagesByStatus, coverHeal}`（`coverHeal` = `{checked, healed, failed, skipped}`）；封面自愈任务（`heal`）为 `{checked, healed, failed, skipped}`。
 
 ## 测试（`tests/`）
 

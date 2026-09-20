@@ -7,6 +7,7 @@ import {
   startAdminSync,
   startAdminTransfer,
   startAdminInspect,
+  startAdminHealCovers,
 } from '../api'
 import { useMessageStore } from '../stores/message'
 import type { SourceInfo } from '../types'
@@ -26,10 +27,12 @@ const sources = ref<SourceVM[]>([])
 const loaded = ref(false)
 const error = ref('')
 
-// 失效巡检是**全库**动作（扫描整张 page 表），故不在每个源卡片里，页面顶部单独一个面板
+// 失效巡检与封面自愈都是**全库**动作（前者扫整张 page 表、后者扫整张 comic 表），
+// 故都不放进各源卡片，统一在页面顶部各占一个面板
 const inspectSince = ref('')
 const inspectUntil = ref('')
 const inspecting = ref(false)
+const healing = ref(false)   // 全库封面自愈是否正在触发
 
 // 任务结果一律写入全局消息中心（顶栏 🔔 展开可见，离开本页也会继续跟踪到结束）
 const msgStore = useMessageStore()
@@ -138,6 +141,20 @@ async function runInspect() {
   }
 }
 
+// 全库封面自愈：只修封面（外链未落盘 → 重下；本地文件缺失 → 回源重抓），不转存正文页
+async function runHealCovers() {
+  if (healing.value) return
+  healing.value = true
+  try {
+    const { taskId } = await startAdminHealCovers()
+    msgStore.trackTask(taskId, 'heal', '全库')
+  } catch (e) {
+    alert((e as Error).message || '触发封面自愈失败')
+  } finally {
+    healing.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -151,6 +168,7 @@ onMounted(load)
     <p class="lead">
       手动触发各数据源的采集与懒转存；关闭的源将拒绝触发采集。
       转存会把所选时间范围内的未转存页<b>全部转存</b>（起止留空=全部）。
+      顶部的<b>失效巡检</b>与<b>封面自愈</b>是两个<b>全库</b>动作，不针对单个源。
       任务进度与结果见右上角 <b>🔔 消息</b>（含历史记录，执行完毕会有提示）。
     </p>
 
@@ -158,27 +176,45 @@ onMounted(load)
     <div v-else-if="!loaded" class="empty">加载数据源中…</div>
 
     <template v-else>
-      <!-- 失效巡检：全库动作（扫描整张 page 表），故不放各源卡片内，页面顶部一个即可 -->
-      <div class="maintenance">
-        <div class="maint-head">
-          <span class="maint-title">失效巡检</span>
-          <span class="maint-tag">全库</span>
+      <!-- 全库维护：失效巡检 / 封面自愈都是「全库」动作，故不放各源卡片内，页面顶部各占一个面板 -->
+      <div class="maint-row">
+        <!-- 失效巡检：全库动作（扫描整张 page 表） -->
+        <div class="maintenance">
+          <div class="maint-head">
+            <span class="maint-title">失效巡检</span>
+            <span class="maint-tag">全库</span>
+          </div>
+          <p class="maint-desc">
+            把所选时间范围内的未转存页<b>全部转存</b>，并<b>全表校验</b>已转存对象是否还在、
+            缺失则自动恢复（起止留空 = 全库）。与「触发转存」的唯一区别就是这一步校验。
+          </p>
+          <div class="row-inputs">
+            <label>起始
+              <input v-model="inspectSince" type="date" />
+            </label>
+            <label>截止（含当天）
+              <input v-model="inspectUntil" type="date" />
+            </label>
+          </div>
+          <button class="btn ghost" :disabled="inspecting" @click="runInspect">
+            {{ inspecting ? '运行中…' : '触发巡检' }}
+          </button>
         </div>
-        <p class="maint-desc">
-          把所选时间范围内的未转存页<b>全部转存</b>，并<b>全表校验</b>已转存对象是否还在、
-          缺失则自动恢复（起止留空 = 全库）。与「触发转存」的唯一区别就是这一步校验。
-        </p>
-        <div class="row-inputs">
-          <label>起始
-            <input v-model="inspectSince" type="date" />
-          </label>
-          <label>截止（含当天）
-            <input v-model="inspectUntil" type="date" />
-          </label>
+
+        <!-- 封面自愈：全库动作（扫描整张 comic 表），只修封面、不转存正文页 -->
+        <div class="maintenance">
+          <div class="maint-head">
+            <span class="maint-title">封面自愈</span>
+            <span class="maint-tag cover">全库</span>
+          </div>
+          <p class="maint-desc">
+            逐部检查封面：外链未落盘的<b>重新下载</b>，本地文件缺失的<b>回源重抓</b>，健康的跳过。
+            与「触发转存」的区别是它<b>只修封面、不转存正文页</b>（转存只自愈所点那个源）。
+          </p>
+          <button class="btn ghost" :disabled="healing" @click="runHealCovers">
+            {{ healing ? '运行中…' : '触发全库自愈' }}
+          </button>
         </div>
-        <button class="btn ghost" :disabled="inspecting" @click="runInspect">
-          {{ inspecting ? '运行中…' : '触发巡检' }}
-        </button>
       </div>
 
       <!-- 数据源卡片 -->
@@ -262,14 +298,23 @@ onMounted(load)
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
 
-/* 全库失效巡检：单个独立面板（不随源卡片复制） */
+/* 全库维护区：失效巡检 / 封面自愈 两块并排（窄屏自动堆叠） */
+.maint-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* 全库维护面板（不随源卡片复制） */
 .maintenance {
   background: #fff; border: 1px solid var(--border); border-radius: 14px;
-  padding: 16px; box-shadow: var(--shadow); margin-bottom: 16px;
+  padding: 16px; box-shadow: var(--shadow);
 }
 .maint-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .maint-title { font-weight: 800; font-size: 16px; }
 .maint-tag { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: #eef7ec; color: #2f6d1f; }
+.maint-tag.cover { background: #fff4e5; color: #a15c00; }
 .maint-desc { color: var(--text-2); font-size: 13px; margin: 0 0 12px; }
 .maint-desc b { color: var(--primary-dark); }
 

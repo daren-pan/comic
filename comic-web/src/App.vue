@@ -40,7 +40,9 @@ function kindLabel(k: NoticeKind): string {
       ? '转存'
       : k === 'inspect'
         ? '巡检'
-        : '系统'
+        : k === 'heal'
+          ? '自愈'
+          : '系统'
 }
 function statusLabel(n: NoticeItem): string {
   if (n.status === 'running') return '运行中'
@@ -374,6 +376,7 @@ watch(() => route.path, () => {
 .msg-kind { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--primary-soft); color: var(--primary-dark); }
 .msg-item.transfer .msg-kind { background: #eef6ff; color: #2b6cb0; }
 .msg-item.inspect .msg-kind { background: #eef7ec; color: #2f6d1f; }
+.msg-item.heal .msg-kind { background: #fff4e5; color: #a15c00; }
 .msg-item.system .msg-kind { background: #f0f0f0; color: var(--text-2); }
 .msg-status { font-size: 12px; font-weight: 700; }
 .msg-item .msg-status { color: var(--text-2); }

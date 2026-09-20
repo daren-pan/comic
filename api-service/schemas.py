@@ -51,6 +51,16 @@ class AdminInspectBody(BaseModel):
     until: str | None = None
 
 
+class AdminHealBody(BaseModel):
+    """封面自愈入参：修复外链未落盘 / 本地文件缺失的封面。
+
+    `source` 留空（默认）= **全库**自愈 —— 管理台「触发全库自愈」用的就是这个形态；
+    给值则只自愈该源（供脚本按源调用）。
+    """
+
+    source: str | None = None
+
+
 class AdminImportBody(BaseModel):
     """按需导入入参：收录一部用户指定的作品（三选一提供定位方式）。
 

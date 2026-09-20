@@ -105,7 +105,7 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 
 > 采集与 API 均直连 MySQL（`COMIC_MYSQL_*` 配置）。
 > 除 CLI 外，也可在站点 `/#/admin` **采集管理控制台**手动触发采集/懒转存/失效巡检（按源开关；采集支持 `mode`/`since`/`limit`，转存支持 `since`/`until` 且**把窗口内所有未转存页全部转掉**；巡检是**全库单一入口**（页面顶部一块面板，不随源卡片复制），支持 `since`/`until`，并额外**全表校验**已转存对象是否还在、缺失则恢复；**需管理员登录**，仅超管能给人授权）。
-> 转存完成后会自动顺带执行**封面自愈**（`scheduling.heal.heal_covers`，无独立入口）。
+> 转存完成后会自动顺带执行**封面自愈**（`scheduling.heal.heal_covers`）；自愈会**透传本次所选的源**，即「点了哪个源的转存，就只修哪个源的封面」。要修**全库**封面（不转存正文页）用管理台页面顶部的**「封面自愈 · 全库」**面板（`POST /api/admin/heal-covers`）。
 
 图片约定（务必遵守）：
 
