@@ -3,10 +3,14 @@
 `router` 上挂了 `require_admin`（一处覆盖下面全部接口）：超管与**普通管理员都能过** —— **未登录 401 / 无管理员权限 403**。授权页在另一个 router，门槛更高（见 `routers/admin_users.py`）。
 角色定义与判断见 `core/security.py`；给他人授权在 `routers/admin_users.py`（授权页）。
 
-能力：列出数据源 / 开关采集 / 手动触发采集 / 手动触发懒转存（转存完成后自动封面自愈）
-/ 手动触发**按作品**封面自愈（填漫画名称或 ID，强制回源重下覆盖）/ 手动触发失效巡检（转存 + 全表校验已转存对象、缺失则恢复）
-/ 按需导入单部作品 / 查询运行日志（`log_record` 表，支持条件筛选与分页）。
-采集 / 转存 / 巡检 / 导入耗时，统一交给 `services.tasks` 后台线程执行，返回 `taskId` 供前端轮询。
+能力：列出数据源 / 开关采集 / 手动触发采集 / 手动触发**失效巡检**（转存未转存页 + 全表校验
+已转存对象、缺失则恢复 + 全库封面自愈）/ 手动触发**按作品**封面自愈（填漫画名称或 ID，
+强制回源重下覆盖）/ 按需导入单部作品 / 查询运行日志（`log_record` 表，支持条件筛选与分页）。
+采集 / 巡检 / 导入耗时，统一交给 `services.tasks` 后台线程执行，返回 `taskId` 供前端轮询。
+
+⚠️ **独立的「触发转存」入口已删除（2026-09-21）**：巡检第 1 步本就是 `lazy_transfer`
+（转存未转存页），单独按钮是它的子集、无独立价值；原挂在转存上的「全库封面自愈」
+已并入巡检任务。CLI 的 `transfer-images` 保留（脚本/运维用），`lazy_transfer` 函数保留。
 """
 from __future__ import annotations
 
@@ -23,7 +27,6 @@ from schemas import (
     AdminImportBody,
     AdminInspectBody,
     AdminSyncBody,
-    AdminTransferBody,
 )
 from services import logs, ondemand, sources, tasks
 from services.images import admin_image_store
@@ -64,30 +67,6 @@ def admin_sync(body: AdminSyncBody):
     return ok({"taskId": task_id})
 
 
-@router.post("/api/admin/transfer")
-def admin_transfer(body: AdminTransferBody):
-    from comic_crawler.sources import create_adapter
-    from comic_crawler.images.transfer import lazy_transfer
-    from comic_crawler.scheduling import heal_covers
-
-    def job():
-        storage = MySQLStorage()
-        store = admin_image_store()
-        stats = lazy_transfer(
-            storage, store,
-            limit=body.limit, adapter_provider=create_adapter,
-            since=body.since, until=body.until, source=body.source,
-        )
-        # 转存完成后自动封面自愈：修复外链未落盘 / 本地文件缺失的封面（无需单独按钮）。
-        # 透传 body.source —— 让自愈与本次转存同源，避免"点了 A 源却改了 B 源封面"。
-        cover = heal_covers(storage, store, adapter_provider=create_adapter, source=body.source)
-        return {**stats, "coverHeal": cover, "pagesByStatus": storage.count_pages_by_status()}
-
-    task_id = tasks.new_task_id("transfer")
-    tasks.run_task(task_id, "transfer", job)
-    return ok({"taskId": task_id})
-
-
 @router.post("/api/admin/heal-covers")
 def admin_heal_covers(body: AdminHealBody):
     """封面自愈（**按作品**）：填漫画名称或 ID（可多个），**强制**回源重抓封面并覆盖。
@@ -122,14 +101,20 @@ def admin_heal_covers(body: AdminHealBody):
 
 @router.post("/api/admin/inspect")
 def admin_inspect(body: AdminInspectBody):
-    """失效巡检：把窗口内未转存页转存 + **全表**校验已转存对象是否还在（缺失则恢复）。
+    """失效巡检（**全库维护的唯一入口**）：转存未转存页 + **全表**校验已转存对象 + 全库封面自愈。
 
-    与「转存」的区别：转存只做「未转存 → 转存」；巡检在此基础上再多做一步
-    「已转存对象校验 + 丢失恢复」，因此能发现图库文件被误删/写错目录的情况。
-    校验按 id 键集分页遍历全表，不会被固定条数截断。
+    三步：
+    1. 窗口内未转存页 → 转存（`inspect_sync` 内部调 `lazy_transfer`）；
+    2. 已转存页 → **全表**校验图库对象是否还在，缺失则恢复（按 id 键集分页，不会截断）；
+    3. 封面自愈（`heal_covers`）—— 外链未落盘 / 本地文件缺失的封面按状态修复。
+
+    ⚠️ 第 3 步原挂在已删除的「触发转存」上（2026-09-21 并到这里）：这样「巡检」一个按钮
+    就覆盖了原来「转存 + 校验 + 封面自愈」的全部能力。**注意定时巡检（`scheduler` 里的
+    `inspect_sync`）不含第 3 步**（那是本接口在 job 里额外调的），避免每小时多打源站请求。
+    只修「文件在但内容错」的封面用「按作品封面自愈」（`/api/admin/heal-covers`，`force=True`）。
     """
     from comic_crawler.sources import create_adapter
-    from comic_crawler.scheduling import inspect_sync
+    from comic_crawler.scheduling import heal_covers, inspect_sync
 
     def job():
         storage = MySQLStorage()
@@ -142,7 +127,9 @@ def admin_inspect(body: AdminInspectBody):
             since=body.since,
             until=body.until,
         )
-        return {**stats, "pagesByStatus": storage.count_pages_by_status()}
+        # 第 3 步：全库封面自愈（透传 source —— 让自愈与本次巡检同源）
+        cover = heal_covers(storage, store, adapter_provider=create_adapter, source=body.source)
+        return {**stats, "coverHeal": cover, "pagesByStatus": storage.count_pages_by_status()}
 
     task_id = tasks.new_task_id("inspect")
     tasks.run_task(task_id, "inspect", job)

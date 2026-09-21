@@ -31,19 +31,11 @@ class AdminSyncBody(BaseModel):
     limit: int | None = None
 
 
-class AdminTransferBody(BaseModel):
-    source: str | None = None
-    since: str | None = None
-    until: str | None = None
-    # None = 不限制：把 source/since/until 所选范围内的未转存页全部转掉
-    limit: int | None = None
-
-
 class AdminInspectBody(BaseModel):
-    """失效巡检入参：转存窗口内未转存页 + **全表**校验已转存对象是否还在。
+    """失效巡检入参（**全库维护的唯一入口**）：转存窗口内未转存页 + **全表**校验已转存对象
+    + 全库封面自愈。
 
-    source/since/until 只作用于「转存」部分（与管理台转存同语义）；
-    source 同时限定校验范围；全部留空 = 全库巡检。
+    source/since/until 只作用于「转存」部分；source 同时限定校验范围；全部留空 = 全库巡检。
     """
 
     source: str | None = None

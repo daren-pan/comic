@@ -87,7 +87,7 @@ class TestDoorsAreSeparated(unittest.TestCase):
 
     def test_route_counts_are_expected(self):
         """数量断言：新增接口时会被提醒"顺便确认它该挂哪道门"。"""
-        self.assertEqual(len(admin_module.router.routes), 13)      # 采集/转存/巡检/封面自愈/导入/任务/日志
+        self.assertEqual(len(admin_module.router.routes), 12)      # 采集/巡检/封面自愈/导入/任务/日志（转存入口 2026-09-21 已删）
         self.assertEqual(len(admin_users_module.router.routes), 2)  # 授权页：列表 + 设角色
 
 

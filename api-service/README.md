@@ -74,8 +74,7 @@ api-service/
 | `GET/PUT /api/users/{user_id}/history` · `DELETE /api/users/{user_id}/history/{comic_id}` | 阅读历史：查询（含作品+章节信息）/写入进度/删除 | 用户中心 |
 | `GET /api/admin/sources` · `POST /api/admin/sources/{name}/toggle` | 数据源列表（enabled/库内数/上次同步）/ 开关采集（持久化 `source_state.json`） | 采集管理控制台 |
 | `POST /api/admin/sync` | 手动触发采集，body `{source, mode, since, limit}`，返回 `taskId`（后台线程执行） | 采集管理控制台 |
-| `POST /api/admin/transfer` | 手动触发懒转存，body `{source, since, until, limit?}`（`limit` 留空=窗口内全部），返回 `taskId` | 采集管理控制台 |
-| `POST /api/admin/inspect` | 手动触发**全库**失效巡检，body `{source?, since, until}`（`source` 可选，管理台不传 = 全库），返回 `taskId` | 采集管理控制台 |
+| `POST /api/admin/inspect` | 手动触发**全库**失效巡检（**全库维护的唯一入口**），body `{source?, since, until}`（`source` 可选，管理台不传 = 全库），返回 `taskId`。三步：转存未转存页 + 全表校验已转存对象（缺失恢复）+ 全库封面自愈 | 采集管理控制台 |
 | `POST /api/admin/import` | **按需导入单部作品**，body `{source, keyword?\|ref?\|source_comic_id?}`（三选一定位），返回 `taskId`。与采集相反：收录**榜单之外**的作品、**全量收目录**、**不下载正文图**。失败原因（站内搜不到 / 源站取不到图）写在任务 `message` 里 | 搜索页 / 管理台 |
 | `GET /api/admin/tasks[/{task_id}]` | 后台任务状态轮询（running/done/failed + 结果统计） | 采集管理控制台 |
 | `GET /api/admin/logs` | **运行日志查询**（`log_record` 表）：级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / `since`·`until`（含当天）+ 分页 | 管理台「日志查询」页 |
@@ -109,18 +108,23 @@ api-service/
 
 ## 采集管理控制台（`/api/admin/*`）
 
-面向本机运维的采集控制台（前端 `/#/admin`，**需管理员角色**：超管或普通管理员；未登录 401 / 权限不足 403，见 `docs/auth.md` §8）。采集/懒转存耗时，故用**后台线程执行 + 前端轮询**（`_run_admin_task`），触发后立即返回 `taskId`，再轮询 `GET /api/admin/tasks/{id}` 取结果。
+面向本机运维的采集控制台（前端 `/#/admin`，**需管理员角色**：超管或普通管理员；未登录 401 / 权限不足 403，见 `docs/auth.md` §8）。采集/巡检耗时，故用**后台线程执行 + 前端轮询**（`_run_admin_task`），触发后立即返回 `taskId`，再轮询 `GET /api/admin/tasks/{id}` 取结果。
 
 - **按源开关**：`POST /api/admin/sources/{name}/toggle` 切换某源采集启用状态，持久化到 `paths.SOURCE_STATE_FILE`（= `crawler-service/data/source_state.json`，与图库同一个运行时数据目录；容器内是 bind 过来的 `/data/source_state.json`），重启不丢（默认读 `config.SOURCES.enabled`）；关闭的源拒绝触发采集（400）。
 - **触发采集**：`POST /api/admin/sync`，`since`（ISO，起始日期）**优先于上次同步水位**——留空按水位、填了按填的日期回补/前移；`limit` 限制本次收录数量（受控样本）。
-- **触发懒转存**：`POST /api/admin/transfer`，`source` 只转存指定源、`since/until` 按章节 `sync_time`（DATETIME）窗口过滤——**语义是把窗口内所有未转存页全部转存**；边界**双端含**（`until` 只给日期时**含当天全天**）；`limit` 为可选兜底阀门（留空/≤0 = 不限制）。**转存完成后自动附带封面自愈**（无需单独按钮，见下）。
-- **触发失效巡检**：`POST /api/admin/inspect`，body `{source, since, until}`。与「转存」的区别：转存只做「未转存 → 转存」；巡检在此基础上**再多做一步「已转存对象校验 + 丢失恢复」**，因此能发现图库文件被误删/写错目录的情况。校验按 `id` **键集分页遍历全表**（每次 1000 条 + 游标推进，**不会被固定条数截断**），`source` 同时限定校验范围；结果摘要为 `校验 N | 转存 N | 恢复 N | 失效 N`。**管理台只提供「全库」一个入口**（页面顶部一块面板，不随源卡片复制）；`source` 是可选参数，供 CLI / 脚本做单源巡检。
-- **封面自愈（自动）**：转存任务内接着跑 `scheduling.heal.heal_covers`，并**透传本次的 `source`**（只自愈该源的封面，避免「点了 A 源却改了 B 源封面」）—— 外链未落盘的封面重下落盘；本地 key 但图库文件缺失的按 `source_comic_id` 回源重抓 `cover_url` 再落盘；结果并入转存任务 `result.coverHeal`。
+- **触发失效巡检（全库维护的唯一入口）**：`POST /api/admin/inspect`，body `{source, since, until}`，三步：
+  1. **转存未转存页**（`inspect_sync` 内部即 `lazy_transfer`）：`since/until` 按章节 `sync_time`（DATETIME）窗口过滤，**语义是把窗口内所有未转存页全部转存**；边界**双端含**（`until` 只给日期时**含当天全天**）；
+  2. **全表校验已转存对象 + 丢失恢复**：按 `id` **键集分页遍历全表**（每次 1000 条 + 游标推进，**不会被固定条数截断**），能发现图库文件被误删/写错目录；
+  3. **全库封面自愈**（`heal_covers`，透传 `source`）—— 原挂在已删除的「触发转存」上，2026-09-21 并入巡检。
+
+  结果摘要为 `校验 N | 转存 N | 恢复 N | 失效 N`。**管理台只提供「全库」一个入口**（页面顶部一块面板，不随源卡片复制）；`source` 是可选参数，供 CLI / 脚本做单源巡检。
+  - ⚠️ **独立的「触发转存」接口已删除**（`POST /api/admin/transfer`，2026-09-21）：巡检第 1 步本就是 `lazy_transfer`，单独按钮是它的子集、无独立价值；原挂在转存上的「全库封面自愈」已并入巡检。CLI 的 `transfer-images` 与 `lazy_transfer` 函数保留。
+  - ⚠️ **定时巡检（`scheduler` 里的 `inspect_sync`）不含第 3 步**（封面自愈是本接口在 job 里额外调的），避免每小时多打源站请求。
 - **触发按作品封面自愈**：`POST /api/admin/heal-covers`，body `{keyword, source?}`。`keyword` **必填、不允许留空** —— 漫画**名称或 ID**，可一次填多部（逗号 / 空格 / 换行分隔，混填即可）；后端拆成 id（纯数字）与名称子串两组，**OR 命中**（`Storage.find_comics`），再 `force=True` 调 `heal_covers` **强制回源重抓封面并覆盖**。只修封面、**不转存正文页**（管理台页面顶部「封面自愈 · 指定作品」面板）；后台任务类型 `heal`，结果 `{checked, healed, failed, skipped}`。
-  - 与自动自愈的区别：自动自愈只看「文件在不在」（错图会被当健康跳过）；本入口 `force=True` **跳过该判断**，专治**「封面文件在、但内容是错的」**。留空 `keyword` → `400`。
+  - 与巡检里那次封面自愈的区别：巡检自愈只看「文件在不在」（错图会被当健康跳过）；本入口 `force=True` **跳过该判断**，专治**「封面文件在、但内容是错的」**。留空 `keyword` → `400`。
 - 数据层支撑（crawler-service）：`incremental_sync/full_sync` 增加 `since` 参数；`lazy_transfer`/`list_uncached_pages` 增加 `source` 按源过滤；`list_comics` 增加 `source` 过滤；新增 `find_comics`（按 id 集合 / 标题子串取行，供按作品自愈筛选）；`heal_covers` 增加 `force` / `comic_ids` / `title_like`。
 
-> 采集任务结果以 `{stats, summary, db}` 存入 `result`；转存任务为 `{checked, transferred, failed, pagesByStatus, coverHeal}`（`coverHeal` = `{checked, healed, failed, skipped}`）；封面自愈任务（`heal`）为 `{checked, healed, failed, skipped}`。
+> 采集任务结果以 `{stats, summary, db}` 存入 `result`；巡检任务为 `{checked, transferred, verified, recovered, invalid, coverHeal, pagesByStatus}`（`coverHeal` = `{checked, healed, failed, skipped}`）；封面自愈任务（`heal`）为 `{checked, healed, failed, skipped}`。
 
 ## 测试（`tests/`）
 
@@ -150,7 +154,7 @@ crawler-service（采集/去重/入库）→ MySQL → api-service（RESTful API
 
 已接入真实源站（需联网采集，见 crawler-service/README.md）：**再漫画 zaimanhua（主源，H5 通道，
 学习用受控样本）**、**MangaDex（v5 API，学习用受控样本，config 中 `enabled=False`，
-仅手动 `run --source mangadex`）**、**WeebCentral（学习用受控样本）**。图片有**两条**取回路径：① 后台懒转存 / 巡检批量预转（`/api/admin/transfer`）；
+仅手动 `run --source mangadex`）**、**WeebCentral（学习用受控样本）**。图片有**两条**取回路径：① 管理台「触发巡检」批量预转（`/api/admin/inspect`）；
 ② **读时穿透** —— `/api/images/...` 本地没有就现场从源站取回这一张并落盘（签名过期会自动重签），
 所以「未转存」的图在用户点开时也能立刻显示，不需要先等一整话下载完。
 自 2026-09-12 起 `/api/covers/{id}`、`/api/images/{cid}/{chid}/{pno}` 返回的都是**真实图片字节**（非 SVG 占位），

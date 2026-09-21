@@ -44,7 +44,7 @@ class TestQuietPollingFilter(unittest.TestCase):
         """三个纯轮询/探活入口（含带 query 与带子路径的形态）都不记。"""
         for path in (
             "/api/admin/tasks",
-            "/api/admin/tasks/transfer-2-1789373866",
+            "/api/admin/tasks/inspect-2-1789373866",
             "/api/admin/logs?level=WARNING&page=1",  # query string 要能被切掉
             "/api/admin/logs",
             "/api/health",

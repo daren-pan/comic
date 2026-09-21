@@ -145,7 +145,7 @@ onMounted(async () => {
       <RouterLink class="btn ghost" to="/admin">← 返回采集管理</RouterLink>
     </div>
     <p class="lead">
-      采集 / 转存 / 巡检 / 按需导入 / 读图的运行日志（与后端 <code>logs/api.log</code> 同一批记录，已落库）。
+      采集 / 巡检 / 按需导入 / 读图的运行日志（与后端 <code>logs/api.log</code> 同一批记录，已落库）。
       失败日志的正文带作品 id 与名称，点某行展开详情（含异常堆栈全文）。
     </p>
 
@@ -173,7 +173,7 @@ onMounted(async () => {
         <input v-model="f.comicId" type="number" min="1" placeholder="如 151" @keyup.enter="search" />
       </label>
       <label>任务 ID
-        <input v-model="f.taskId" placeholder="如 transfer-2-…" @keyup.enter="search" />
+        <input v-model="f.taskId" placeholder="如 inspect-2-…" @keyup.enter="search" />
       </label>
       <label>起始
         <input v-model="f.since" type="date" />

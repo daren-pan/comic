@@ -1,10 +1,11 @@
 // 采集管理接口（运维控制台）—— **需超级管理员**（role='admin'）
 // 职责：列出数据源 / 开关采集 / 手动触发采集（增量|全量 + since/limit）/
-//      手动触发懒转存（source/since/until/limit）/
-//      手动触发失效巡检（source/since/until）/ 手动触发按作品封面自愈（keyword 必填）/
+//      手动触发失效巡检（source/since/until；含转存未转存页 + 全表校验恢复 + 全库封面自愈）/
+//      手动触发按作品封面自愈（keyword 必填）/
 //      查询后台任务状态 / 读取运行日志末尾 / 授权页：列用户 + 设置角色。
 // 鉴权：后端在 router 上挂了 require_admin（超管或普通管理员）—— 未登录 401（拦截器跳登录页）、
 //       权限不足 403。授权页那组接口门槛更高：仅超管（require_superadmin）。
+// ⚠️ 独立的「触发转存」接口已删除（2026-09-21）：巡检第 1 步本就是 lazy_transfer，无独立价值。
 import type {
   AdminTask,
   AdminUser,
@@ -50,21 +51,6 @@ export function startAdminSync(body: AdminSyncRequest): Promise<{ taskId: string
   return request('/api/admin/sync', { method: 'POST', data: body })
 }
 
-export interface AdminTransferRequest {
-  source?: string     // 仅转存某源；空 = 不限源
-  since?: string
-  until?: string
-  limit?: number
-}
-
-/**
- * 触发一次懒转存（后台线程执行，返回 taskId 供轮询）
- * @see POST /api/admin/transfer
- */
-export function startAdminTransfer(body: AdminTransferRequest): Promise<{ taskId: string }> {
-  return request('/api/admin/transfer', { method: 'POST', data: body })
-}
-
 export interface AdminInspectRequest {
   source?: string     // 仅巡检某源；空 = 不限源
   since?: string
@@ -74,8 +60,9 @@ export interface AdminInspectRequest {
 /**
  * 触发一次失效巡检（后台线程执行，返回 taskId 供轮询）
  *
- * 与「转存」的区别：转存只做「未转存 → 转存」；巡检在此基础上再多做一步
- * 「已转存对象校验 + 丢失恢复」（按 id 键集分页遍历全表，不会截断）。
+ * **全库维护的唯一入口**，三步：① 转存窗口内未转存页（内部即 `lazy_transfer`）；
+ * ② **全表**校验已转存对象是否还在，缺失则恢复（按 id 键集分页遍历全表，不会截断）；
+ * ③ 全库封面自愈（原挂在已删除的「触发转存」上，2026-09-21 并入这里）。
  * @see POST /api/admin/inspect
  */
 export function startAdminInspect(body: AdminInspectRequest): Promise<{ taskId: string }> {

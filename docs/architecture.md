@@ -140,7 +140,7 @@ API 网关（JWT 鉴权 · 限流熔断 · 路由转发）
 | 阅读 | `GET /api/chapters/{id}/pages` |
 | 收藏 | `POST /api/favorites/{comicId}`、`DELETE /api/favorites/{comicId}` |
 | 历史 | `GET /api/history`、`PUT /api/history/{comicId}` |
-| 采集管理 | `GET /api/admin/sources`、`POST /api/admin/sources/{name}/toggle`、`POST /api/admin/sync`、`POST /api/admin/transfer`、`GET /api/admin/tasks`、`GET /api/admin/tasks/{id}` |
+| 采集管理 | `GET /api/admin/sources`、`POST /api/admin/sources/{name}/toggle`、`POST /api/admin/sync`、`POST /api/admin/inspect`、`POST /api/admin/heal-covers`、`GET /api/admin/tasks`、`GET /api/admin/tasks/{id}` |
 
 ### 4.3 缓存策略
 

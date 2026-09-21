@@ -18,7 +18,7 @@ const backend = ref<boolean | null>(null)
 const userStore = useUserStore()
 const { isLoggedIn: logged, isAdmin, isSuperAdmin, user } = storeToRefs(userStore)
 
-// 消息中心：采集/转存任务结果 + 系统消息（顶栏入口，点击展开面板）
+// 消息中心：采集/巡检/自愈任务结果 + 系统消息（顶栏入口，点击展开面板）
 const msgStore = useMessageStore()
 const showMsg = ref(false)
 
@@ -111,7 +111,7 @@ watch(() => route.path, () => {
           <button type="submit" aria-label="搜索">🔍</button>
         </form>
 
-        <!-- 消息中心：采集/转存任务结果 + 系统消息（点击展开） -->
+        <!-- 消息中心：任务结果 + 系统消息（点击展开） -->
         <div class="msg-wrap">
           <button class="msg-btn" :class="{ on: showMsg }" @click.stop="toggleMsg" title="消息">
             <span class="msg-icon">🔔</span>
@@ -190,7 +190,7 @@ watch(() => route.path, () => {
     </div>
   </footer>
 
-  <!-- 任务结果 toast：采集/转存执行完毕提示（全站可见） -->
+  <!-- 任务结果 toast：任务执行完毕提示（全站可见） -->
   <transition name="toast">
     <div v-if="msgStore.toast" class="toast" :class="msgStore.toast.status">
       <div class="toast-head">

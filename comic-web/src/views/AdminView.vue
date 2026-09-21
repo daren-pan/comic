@@ -5,21 +5,18 @@ import {
   getAdminSources,
   toggleAdminSource,
   startAdminSync,
-  startAdminTransfer,
   startAdminInspect,
   startAdminHealCovers,
 } from '../api'
 import { useMessageStore } from '../stores/message'
 import type { SourceInfo } from '../types'
 
-// 每个源的采集/转存操作表单状态（独立参数）
+// 每个源的采集操作表单状态（独立参数）
 interface SourceVM {
   info: SourceInfo
   syncMode: 'incremental' | 'full'
   syncSince: string   // 起始日期（yyyy-MM-dd 或空）
   syncLimit: string   // 数量（空=不限）
-  transferSince: string
-  transferUntil: string
   running: boolean    // 是否正在触发（防重复点击）
 }
 
@@ -39,7 +36,7 @@ const healKeyword = ref('')      // 漫画名称或 ID（可多个，逗号/空�
 const msgStore = useMessageStore()
 const router = useRouter()
 
-// 「采集/转存日志」入口：跳到独立的日志查询页（/#/admin/logs）
+// 「运行日志」入口：跳到独立的日志查询页（/#/admin/logs）
 // 日志已落库（log_record 表），查询页支持按级别/源站/事件/作品/任务/时间/关键字筛，故不再需要弹窗轮询
 function openLogs() {
   router.push('/admin/logs')
@@ -67,8 +64,6 @@ async function load() {
       syncMode: 'incremental',
       syncSince: '',
       syncLimit: '',
-      transferSince: '',
-      transferUntil: '',
       running: false,
     }))
     loaded.value = true
@@ -105,26 +100,7 @@ async function runSync(vm: SourceVM) {
   }
 }
 
-async function runTransfer(vm: SourceVM) {
-  if (vm.running) return
-  vm.running = true
-  try {
-    // 转存即「窗口内全部未转存页」，不传 limit（后端 None = 不限制）
-    const body = {
-      source: vm.info.name,
-      since: vm.transferSince || undefined,
-      until: vm.transferUntil || undefined,
-    }
-    const { taskId } = await startAdminTransfer(body)
-    msgStore.trackTask(taskId, 'transfer', vm.info.name)
-  } catch (e) {
-    alert((e as Error).message || '触发懒转存失败')
-  } finally {
-    vm.running = false
-  }
-}
-
-// 全库失效巡检：转存窗口内未转存页 + 全表校验已转存对象、缺失则恢复
+// 全库失效巡检：转存窗口内未转存页 + 全表校验已转存对象、缺失则恢复 + 全库封面自愈
 async function runInspect() {
   if (inspecting.value) return
   inspecting.value = true
@@ -166,15 +142,15 @@ onMounted(load)
 
 <template>
   <div>
-    <!-- 标题行：右侧放「采集/转存日志」入口（跳转日志查询页） -->
+    <!-- 标题行：右侧放「运行日志」入口（跳转日志查询页） -->
     <div class="title-row">
       <h2 class="section-title">采集管理</h2>
-      <button class="btn ghost" @click="openLogs">📄 采集/转存日志</button>
+      <button class="btn ghost" @click="openLogs">📄 运行日志</button>
     </div>
     <p class="lead">
-      手动触发各数据源的采集与懒转存；关闭的源将拒绝触发采集。
-      转存会把所选时间范围内的未转存页<b>全部转存</b>（起止留空=全部）。
-      顶部的<b>失效巡检</b>是<b>全库</b>动作；<b>封面自愈</b>按<b>指定作品</b>（名称/ID）强制刷新。
+      手动触发各数据源的采集；关闭的源将拒绝触发采集。
+      顶部的<b>失效巡检</b>是<b>全库维护的唯一入口</b>（转存未转存页 + 全表校验恢复 + 封面自愈）；
+      <b>封面自愈</b>按<b>指定作品</b>（名称/ID）强制刷新。
       任务进度与结果见右上角 <b>🔔 消息</b>（含历史记录，执行完毕会有提示）。
     </p>
 
@@ -191,8 +167,9 @@ onMounted(load)
             <span class="maint-tag">全库</span>
           </div>
           <p class="maint-desc">
-            把所选时间范围内的未转存页<b>全部转存</b>，并<b>全表校验</b>已转存对象是否还在、
-            缺失则自动恢复（起止留空 = 全库）。与「触发转存」的唯一区别就是这一步校验。
+            <b>全库维护的唯一入口</b>：把所选时间范围内的未转存页<b>全部转存</b>、
+            <b>全表校验</b>已转存对象是否还在（缺失自动恢复），并做<b>全库封面自愈</b>
+            （起止留空 = 全库）。
           </p>
           <div class="row-inputs">
             <label>起始
@@ -268,22 +245,6 @@ onMounted(load)
               {{ vm.running ? '运行中…' : '触发采集' }}
             </button>
           </div>
-
-          <!-- 懒转存区 -->
-          <div class="panel">
-            <div class="panel-title">懒转存</div>
-            <div class="row-inputs">
-              <label>起始
-                <input v-model="vm.transferSince" type="date" />
-              </label>
-              <label>截止（含当天）
-                <input v-model="vm.transferUntil" type="date" />
-              </label>
-            </div>
-            <button class="btn ghost" :disabled="vm.running" @click="runTransfer(vm)">
-              {{ vm.running ? '运行中…' : '触发转存' }}
-            </button>
-          </div>
         </div>
       </div>
     </template>
@@ -292,7 +253,7 @@ onMounted(load)
 </template>
 
 <style scoped>
-/* 标题行：标题 + 右侧「采集/转存日志」入口（外层间距由本行统一控制，故标题自身 margin 归零） */
+/* 标题行：标题 + 右侧「运行日志」入口（外层间距由本行统一控制，故标题自身 margin 归零） */
 .title-row {
   display: flex;
   align-items: center;
