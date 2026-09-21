@@ -199,19 +199,48 @@ class TestCopymangaAdapter(unittest.TestCase):
         self.assertEqual(b.source_updated_at, datetime(2026, 9, 16))
 
     # ------------------------------------------------------------------
-    def test_fetch_list_and_page_cap(self):
+    def test_fetch_list_and_request_params(self):
         fake = _FakeApi({"list": LIST_JSON})
         self.ad._api_get = fake
         res = self.ad.fetch_comic_list(page=1, since=None)
         self.assertEqual(len(res.items), 3)
-        self.assertFalse(res.has_next)          # MAX_PAGE=1，不再翻页
-        self.assertEqual(len(self.ad.fetch_comic_list(page=2).items), 0)
+        # 全量模式（since=None）：total 远大于本页条数 → 仍可继续翻页（由 MAX_PAGE 安全阀兜底）
+        self.assertTrue(res.has_next)
         # 请求参数走「最近更新」倒序
         path, params = fake.calls[0]
         self.assertEqual(path, "/api/v3/comics")
         self.assertEqual(params["ordering"], "-datetime_updated")
         self.assertEqual(params["limit"], 20)
         self.assertEqual(params["offset"], 0)
+
+    def test_fetch_list_paginate_to_window_edge(self):
+        """窗口内更新超一页时应继续翻页；翻到某页全部越过 since 才停（对齐 mangadex）。"""
+        def row(name: str, pw: str, day: str) -> dict:
+            return {
+                "name": name,
+                "path_word": pw,
+                "cover": "",
+                "author": [],
+                "datetime_updated": day,
+            }
+
+        # 第 1 页（offset=0）：09-16 当天（窗口内）；第 2 页（offset=20）：09-01（窗口外）
+        pages = {
+            0: {"total": 60, "list": [row("A", "a", "2026-09-16"), row("B", "b", "2026-09-16")]},
+            20: {"total": 60, "list": [row("C", "c", "2026-09-01"), row("D", "d", "2026-09-01")]},
+        }
+
+        def fake(path, params=None):
+            return pages.get((params or {}).get("offset", 0), {"total": 60, "list": []})
+
+        self.ad._api_get = fake
+        since = datetime(2026, 9, 10)
+        r1 = self.ad.fetch_comic_list(page=1, since=since)
+        self.assertEqual([it.title for it in r1.items], ["A", "B"])
+        self.assertTrue(r1.has_next)                 # 窗口内可能还有 → 继续翻
+        r2 = self.ad.fetch_comic_list(page=2, since=since)
+        self.assertEqual(r2.items, [])               # 本页全在窗口外 → 无收集
+        self.assertFalse(r2.has_next)                # 已越过 since 边界 → 停，不翻第 3 页
 
     def test_fetch_list_since_window_by_date(self):
         """源站时间只到「天」，增量按**日期**比较（用 > 会漏掉当天更新）。"""

@@ -86,7 +86,7 @@
 ## 限流策略
 
 - 默认 `priority=backup`、`crawl_interval_seconds=3600`（1 小时一轮）；
-- `MAX_PAGE=1`：单轮最多扫 20 部（受控样本口径，与 zaimanhua 一致）；需要多收时调大即可；
+- `MAX_PAGE=50`：列表翻页安全阀（仅全量/首采触达）；增量模式按时间窗口边界翻页，翻到某页全在窗口外即停（与 mangadex/zaimanhua 同一口径）；
 - `_api_get` 重试 3 次、退避 0.8s×n；无并发请求。
 
 ## 已知坑

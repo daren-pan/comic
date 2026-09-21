@@ -75,9 +75,9 @@ API_DETAIL = "/api/v3/comic2/{path_word}"
 API_GROUP_CHAPTERS = "/api/v3/comic/{path_word}/group/{group}/chapters"
 API_CHAPTER = "/api/v3/comic/{path_word}/chapter2/{uuid}"
 
-# 受控参数：列表单次最多扫描页数（每页 20 部）。与 zaimanhua 同一口径，
-# 目的是让新源默认低频；需要多收时把它调大即可（翻页由 has_next 驱动）。
-MAX_PAGE = 1
+# 受控参数：列表翻页安全阀（每页 20 部）。增量模式下实际按时间窗口边界提前停
+# （见 fetch_comic_list），只有全量/首采才会翻到这一页数；与 mangadex 同一口径。
+MAX_PAGE = 50
 PAGE_SIZE = 20
 
 # 章节列表单次拉取上限（实测 500 可用、1000 直接返回空），超出用 offset 翻页累加
@@ -106,7 +106,8 @@ class CopymangaAdapter(CrawlerAdapter):
     """拷贝漫画（copy4000.com）适配器。
 
     列表语义 = 「最近更新」（`/api/v3/comics?ordering=-datetime_updated`），
-    按源站更新时间倒序；受控参数 MAX_PAGE 限制单次扫描页数（默认只扫 1 页 = 20 部）。
+    按源站更新时间倒序；增量模式按时间窗口边界翻页（防遗漏批量更新），
+    MAX_PAGE 是翻页安全阀（仅全量/首采才会触达）。
     """
 
     source_name = "copymanga"
@@ -142,7 +143,12 @@ class CopymangaAdapter(CrawlerAdapter):
                 if it.source_updated_at is not None and it.source_updated_at.date() >= day
             ]
 
+        # 翻页：列表按源站更新时间倒序——增量模式下当某页没有任何窗口内作品（items 空）
+        # 说明已翻过 since 边界，后续页只会更旧，停止翻页，避免固定页数漏掉窗口内的大批量更新；
+        # 无 since（全量/首采）则翻到 MAX_PAGE 安全阀为止。
         has_next = (offset + len(rows)) < total and page < MAX_PAGE
+        if since is not None and not items:
+            has_next = False
         return ComicListResult(items=items, page=page, has_next=has_next)
 
     # ------------------------------------------------------------------

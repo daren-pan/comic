@@ -46,8 +46,8 @@ GET /api/app/v1/comic/update/list/0/{page}
   - `last_updatetime` / `last_update_volumn`
 - **`last_updatetime`（Unix 秒级时间戳）是增量窗口过滤的字段** → 适配器解析成
   `ComicBrief.source_updated_at`（见 §3.1.1）
-- 无明确 `has_next` 标志：以「本页满 20 部 && page < MAX_PAGE」判断
-- 受控参数：`MAX_PAGE = 1`（只扫首页，避免一次收录过多）
+- 无明确 `has_next` 标志：以「本页满 20 部 && page < MAX_PAGE」判断；增量模式再叠加「本页无窗口内作品即停」（翻页至时间窗口边界，防遗漏批量更新）
+- 受控参数：`MAX_PAGE = 50`（翻页安全阀，仅全量/首采才会触达）
 
 ### 3.1.1 时间窗口增量（`since` 过滤）
 
@@ -141,7 +141,7 @@ GET /api/app/v1/search/index?keyword=..&source=0&page=1&size=20
 ## 5. 受控参数（学习用途 · 受控样本）
 
 ```python
-MAX_PAGE = 1        # 「最近更新」最多扫描页数（每页 20 部）
+MAX_PAGE = 50       # 「最近更新」翻页安全阀（每页 20 部）；增量模式按窗口边界提前停
 VOL_TITLE = "连载"  # 只收连载卷全部话，跳过单行本卷
 ```
 

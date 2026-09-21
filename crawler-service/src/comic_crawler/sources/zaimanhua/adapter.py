@@ -46,7 +46,7 @@ API_CHAPTER = "/api/app/v1/comic/chapter/{cid}/{chid}"
 API_SEARCH = "/api/app/v1/search/index"  # 备用：关键词搜索（未用于默认列表）
 
 # 学习用途受控参数
-MAX_PAGE = 1            # "最近更新"最多扫描页数（每页 20 部）
+MAX_PAGE = 50           # "最近更新"翻页安全阀（每页 20 部）；增量模式按窗口边界提前停
 VOL_TITLE = "连载"      # 只收连载卷，跳过单行本卷（避免章节编号语义混杂）
 
 # 标准话数（整话），如 第128话 / 09章；浮点小节（第153.5话）由 chapter_order 兜底，
@@ -65,8 +65,8 @@ class ZaimanhuaAdapter(CrawlerAdapter):
     """在漫画 / 再漫画 H5（m.zaimanhua.com）适配器（学习用途 · 受控样本）。
 
     列表语义 = 首页「最近更新」标签（/app/v1/comic/update/list/0/{page}）。
-    返回按更新时间倒序的漫画列表，每页 20 部；受控参数 MAX_PAGE 限制单次
-    扫描页数，避免一次收录过多。
+    返回按更新时间倒序的漫画列表，每页 20 部；增量模式按时间窗口边界翻页
+    （防遗漏批量更新），MAX_PAGE 是翻页安全阀（仅全量/首采才会触达）。
     """
 
     source_name = "zaimanhua"
@@ -95,8 +95,12 @@ class ZaimanhuaAdapter(CrawlerAdapter):
         # 增量窗口：只保留源站更新时间 > since 的漫画（首次 since=None 全收）
         if since is not None:
             items = [it for it in items if it.source_updated_at is not None and it.source_updated_at > since]
-        # 最近更新接口无明确 has_next 标志；以本页是否已满 20 部（原始数据）判断是否还有下一页
+        # 最近更新接口无明确 has_next 标志：以本页是否已满 20 部（原始数据）判断是否还有下一页；
+        # 增量模式下若某页没有任何窗口内作品（items 空）说明已翻过 since 边界，停止翻页，
+        # 避免固定页数漏掉窗口内的大批量更新；无 since（全量/首采）翻到 MAX_PAGE 安全阀为止。
         has_next = len(list_data) >= 20 and page < MAX_PAGE
+        if since is not None and not items:
+            has_next = False
         return ComicListResult(items=items, page=page, has_next=has_next)
 
     # ------------------------------------------------------------------
