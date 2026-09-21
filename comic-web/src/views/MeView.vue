@@ -37,7 +37,9 @@ async function onRemove(comicId: number) {
 }
 
 function continueRead(h: HistoryEntry) {
-  router.push(`/reader/${h.comicId}/${h.chapterId}`)
+  // 在浏览器新标签页打开阅读器，书架保留在当前标签页（与详情页点章节的行为一致）
+  // 路由为 hash 模式，需拼上 `#/reader/:comicId/:chapterId`
+  window.open(`${location.origin}/#/reader/${h.comicId}/${h.chapterId}`, '_blank')
 }
 </script>
 

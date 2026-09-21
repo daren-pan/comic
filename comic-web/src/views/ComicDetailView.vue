@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getChapter, getChapters, getComic, isFavorite, toggleFavorite, upsertHistory } from '../api'
+import { getChapter, getChapters, getComic, getHistoryWithDetail, isFavorite, toggleFavorite, upsertHistory } from '../api'
 import { useUserStore } from '../stores/user'
-import type { Chapter, Comic } from '../types'
+import type { Chapter, Comic, HistoryEntry } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,6 +15,9 @@ const chapters = ref<Chapter[]>([])
 const fav = ref(false)
 const loading = ref(true)
 const favNotice = ref(false)
+// 「续读」：本书在「最近阅读」里的那条记录 —— 数据源与「我的书架 · 最近阅读」同一个接口；
+// null = 没读过 → 主按钮显示「▶ 开始阅读」
+const lastRead = ref<(HistoryEntry & { chapterTitle?: string }) | null>(null)
 
 const chapterCount = computed(() => chapters.value.length)
 
@@ -25,14 +28,17 @@ const sortedChapters = computed(() =>
 )
 
 onMounted(async () => {
-  const [c, chs, f] = await Promise.all([
+  const [c, chs, f, his] = await Promise.all([
     getComic(comicId),
     getChapters(comicId),
     isLoggedIn ? isFavorite(comicId) : Promise.resolve(false),
+    getHistoryWithDetail(),
   ])
   comic.value = c
   chapters.value = chs
   fav.value = f
+  // 同一部作品在历史里只会有一条（历史表按 (user_id, comic_id) 唯一）
+  lastRead.value = his.find((h) => h.comicId === comicId) ?? null
   loading.value = false
 })
 
@@ -50,11 +56,27 @@ function gotoLogin() {
   router.push({ path: '/login', query: { redirect: route.fullPath } })
 }
 
+/** 新标签页打开阅读器：详情页保留在当前标签页；路由为 hash 模式，须拼上 `#/reader/...` */
+function openReader(chapterId: number) {
+  window.open(`${location.origin}/#/reader/${comicId}/${chapterId}`, '_blank')
+}
+
 async function read(chapter: Chapter) {
   await upsertHistory({ comicId, chapterId: chapter.id, pageNo: 1 })
-  // 独立跳转到新页面：在浏览器新标签页打开阅读器，详情页保留在当前标签页
-  // 路由为 hash 模式，需拼上 `#/reader/:comicId/:chapterId`
-  window.open(`${location.origin}/#/reader/${comicId}/${chapter.id}`, '_blank')
+  openReader(chapter.id)
+}
+
+/**
+ * 主按钮：读过 → **续读**（新标签页打开上次那一话，与书架「续读」完全一致，
+ * 且**不重置进度** —— 只有点章节列表才会把进度写回第 1 页）；
+ * 没读过 → 「开始阅读」，打开最新章节。
+ */
+function onPrimaryRead() {
+  if (lastRead.value) {
+    openReader(lastRead.value.chapterId)
+    return
+  }
+  if (sortedChapters.value.length) void read(sortedChapters.value[0])
 }
 
 function fmtTime(iso: string): string {
@@ -80,7 +102,9 @@ function fmtTime(iso: string): string {
         <p class="hero-line">章节：{{ chapterCount }} 话 · 热度 {{ comic.heat.toLocaleString() }} · 更新 {{ fmtTime(comic.updatedAt) }}</p>
         <p class="hero-line sources">数据来源：<em>{{ comic.source }}</em></p>
         <div class="actions">
-          <button class="btn" @click="sortedChapters.length && read(sortedChapters[0])">▶ 开始阅读</button>
+          <button class="btn" @click="onPrimaryRead">
+            {{ lastRead ? `续读${lastRead.chapterTitle ?? ''}` : '▶ 开始阅读' }}
+          </button>
           <button class="btn ghost" :class="{ active: fav }" @click="onFav">
             {{ fav ? '★ 已收藏' : '☆ 收藏' }}
           </button>
