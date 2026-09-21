@@ -6,14 +6,16 @@
 |------------|----------------------------------|------------------------------|
 | 驱动       | 源站「最近更新」列表翻页          | 用户指定的作品                |
 | 覆盖范围   | 只能碰到榜单上的作品              | 榜单之外的老作品也能收        |
-| 章节       | 新作品只收最新 1 话               | **全量收目录**（目录很便宜）   |
-| 页清单     | 登记最新 1 话的页                 | **一页都不登记**              |
+| 章节       | **补齐库内缺失的全部章节**         | **补齐库内缺失的全部章节**     |
+| 页清单     | **一页都不登记**                  | **一页都不登记**              |
 | 正文图     | 不下载                            | **不下载**                    |
 
-导入只做三件事：写 `comic` 1 行、写 `chapter` 全量、把封面落盘 1 张
-（见 `images/transfer.ensure_cover_local`）。正文图既不登记也不下载 —— 用户
-真读某一话时才由 `images/transfer.fetch_page_bytes` 现场取回并顺手落盘
-（「边看边转」，用户不用等整话下载完）。
+两条路径**入库动作完全一致**（都走 `_upsert_detail`）：写 `comic` 1 行、
+补齐 `chapter`、把封面落盘 1 张（见 `images/transfer.ensure_cover_local`）。
+**页清单一律不登记、正文图一律不下载**（2026-09-21 决策）—— 首采若逐章请求
+页清单（258 话 = 258 次）既慢又易触发源站风控。用户真读某一话时才由
+`api-service/services/ondemand.ensure_chapter_pages` 现场登记页清单、
+`images/transfer.fetch_page_bytes` 现场取图并顺手落盘（「边看边转」）。
 
 源站请求共 **2 次**：① 详情（书目 + 全部章节）；② 探测一章确认**真的读得了**
 （详情接口的 `canRead` 不可靠，见 `_probe_readable`）。
@@ -174,14 +176,13 @@ def import_comic(
             total_seen=1,
         )
         # 返回库内这一行的 comic_id（判重只看本源，见 sync._upsert_detail）
+        # 只写漫画行 + 章节行：页清单一律不登记，等用户打开那一话时再生登记
         comic_id = _upsert_detail(
-            adapter,
             storage,
             detail,
             fp,
             stats,
             first_chapters=first_chapters,
-            register_pages=False,  # 只入目录；页清单等用户打开那一话时再生登记
         )
     except Exception as exc:
         # 失败日志必须写到「哪一部作品」：原来只有任务级那句「后台任务 import-9-… 失败」，

@@ -81,7 +81,7 @@
 - `since` 为 naive（本机时间）时经 `_utc` 归一为 aware UTC 再与卡片 ISO 时间比较（同 mangadex 的处理）
 
 ## 页面转存约定（懒转存）
-- **页面图一律懒转存**：调度器 `_upsert_detail` 入库只登记源站 URL（`cached_status=未转存`），图片字节**不主动下载**，由失效巡检 `lazy_transfer` 或用户阅读访问时按需转存（见 `image_service.lazy_transfer`）
+- **页面图一律懒转存**：调度器 `_upsert_detail` 入库**不产生 page 行**（2026-09-21 决策：采集/导入都只写 `comic` + `chapter`），用户打开某一话时 `ensure_chapter_pages` 才登记页清单（只记源站 URL、`cached_status=未转存`），图片字节**不主动下载**，由失效巡检 `lazy_transfer` 或用户阅读访问时按需转存（见 `image_service.lazy_transfer`）
 - 封面 `cover_url` **入库即落盘**（`ensure_cover_local` → `covers/{id}.jpg`），非懒转存（保证 API 有封面可显示）
 - Weeb Central 图床 URL 永久有效、无签名 → `_url_expired` 恒 `False`，懒转存直接按登记 URL 下载，**无需覆写 `fetch_source_page_urls`**（base 默认返回 None）
 
@@ -89,4 +89,4 @@
 | 常量 | 默认 | 说明 |
 |---|---|---|
 | `MAX_ITEMS` | 60 | 单次列表最多收录条数（首页最近更新区约 32 部，留余量）；**仅测试**可经 `cli run --source weebcentral --limit 1` 临时只抓 1 部 |
-| `MAX_CHAPTERS` | 2000 | 单部最多收录章节数（防极端长连载失控；新漫画首采由调度器 `FIRST_CHAPTERS=1` 再收紧为最新 1 话） |
+| `MAX_CHAPTERS` | 2000 | 单部最多收录章节数（防极端长连载失控；新漫画首采现收全章节目录，页面仍懒下载） |

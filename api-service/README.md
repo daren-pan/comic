@@ -66,7 +66,7 @@ api-service/
 | `GET /api/comics?category=&keyword=&sort=updated\|views&page=&page_size=` | 作品列表：分类/关键词/排序/分页（`sort=views` = 按热度倒序，**同分再按最近更新时间倒序**） | `GET /api/comics` |
 | `GET /api/comics/{id}` | 作品详情（**浏览次数 +1 落库**后返回，返回的 `heat` 含本次访问） | `GET /api/comics/{id}` |
 | `GET /api/comics/{id}/chapters` | 章节列表（orderNo 升序；**不含页数**，见 crawler-service README） | `GET /api/comics/{id}/chapters` |
-| `GET /api/chapters/{id}/pages` | 分页图片列表；**库内还没有页清单时现场登记一次**（按需导入的作品导入时不登记页，首次打开这一话才产生清单） | `GET /api/chapters/{id}/pages` |
+| `GET /api/chapters/{id}/pages` | 分页图片列表；**库内还没有页清单时现场登记一次**（采集 / 按需导入都只写 `comic`+`chapter`、不登记页清单，用户首次打开这一话才产生） | `GET /api/chapters/{id}/pages` |
 | `GET /api/covers/{id}` | 封面（真实文件优先，缺失生成 SVG） | 图片服务 |
 | `GET /api/images/{comic_id}/{chapter_id}/{page_no}` | 分页图**三级兜底**：本地图库命中 → **穿透源站取回这一张并顺手落盘**（下次走本地）→ 都失败才给 SVG 占位。所以「未转存」的图用户也能立刻看到，不用等整话下载 | 图片服务 |
 | `GET /api/sources/search?q=&source=&limit=` | **搜索源站**（只读、不写库），按源分组返回；命中项带 `inLibrary`/`comicId`，供前端显示「已收录，直接打开」或「导入并阅读」。单源失败静默跳过，5 分钟结果缓存 | 搜索页「其他来源」 |

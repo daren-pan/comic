@@ -20,7 +20,7 @@ from ..storage.base import Storage
 logger = logging.getLogger(__name__)
 
 MAX_PAGES_PER_SYNC = 50  # 单轮同步最多翻页数，防止失控
-FIRST_CHAPTERS = 1       # 新漫画首采：只入库连载卷最新 1 话（页面全部懒下载）；后续增量只补新章节
+FIRST_CHAPTERS = None    # 章节采样上限：None = 补齐库内缺失的全部章节（首采收全目录）；页面仍懒下载
 
 
 @dataclass(slots=True)
@@ -122,7 +122,7 @@ def _process_batch(
             # 章节增量的计数都在 `_upsert_detail` 里统一记账（避免两处各记一次）。
             # 生产环境可用 `latest_chapter_title` 快筛少打一次详情请求，演示以正确性优先。
             detail = adapter.fetch_comic_detail(brief)
-            _upsert_detail(adapter, storage, detail, fp, stats)
+            _upsert_detail(storage, detail, fp, stats)
         except Exception:
             stats.failed += 1
             logger.exception(
@@ -136,34 +136,32 @@ def _process_batch(
 
 
 def _upsert_detail(
-    adapter: CrawlerAdapter,
     storage: Storage,
     detail: "ComicDetail",
     fp: str,
     stats: SyncStats,
     first_chapters: int | None = FIRST_CHAPTERS,
-    register_pages: bool = True,
 ) -> int:
     """详情 + 章节 + 页面入库（采集收录、采集补章、按需导入共用）→ 返回 `comic_id`。
 
     章节采样策略（避免每轮对全卷逐章请求，解决"太慢"）：
-    - **按需导入**（`first_chapters=None`）：补齐库内**缺失的所有章节**（不只是比库内最大值
-      更新的那些）—— 库里可能只有采集时收的最新 1 话，而用户要的是完整目录；
-    - 新漫画（库内尚无该作品章节）：只入库连载卷最新 `first_chapters` 话（采集默认 1 话）；
-    - 已收录漫画（库内已有章节）：只入库 chapter_no 大于库内最大值的新章节，
-      其余已同步章节仅更新元数据、不重复抓分页。
+    - **`first_chapters=None`**（采集默认 / 按需导入）：补齐库内**缺失的所有章节** ——
+      新作品 = 全部章节；已有作品 = 所有 `chapter_no` 不在库内的章节（含中间空洞，
+      顺带自愈"早期只收了最新 1 话"的旧作品）；
+    - 已有章节且 `first_chapters` 有值：只入库 chapter_no 大于库内最大值的新章节，
+      其余已同步章节仅更新元数据、不重复抓分页；
+    - 库内无章节且 `first_chapters` 有值：只取最新 `first_chapters` 话。
 
     **跨源不合并**（用户 2026-09-16 决策）：判重只看 `(源, 源作品 ID)`，所以"别的源也收过同一部
     作品"**不会**阻止本次写入 —— 两个源各占一行、各记各自的章节进度（繁简/中日英译本的进度
     往往不同，合并会丢信息）。章节归属由 `comic.source` 推导，而一行只属于一个源，读图时
     用哪个适配器始终确定。
 
-    页面一律「懒下载」：入库只登记源站 URL（cached_status=未转存），图片字节不主动下载，
-    由失效巡检 lazy_transfer / 读某话时的穿透兜底按需转存（见 images/transfer.py）。
-
-    register_pages：是否登记各章节的页清单（默认 True = 采集用）。**按需导入传 False**
-    —— 连页清单都不登记，导入 100 话只需 1 次请求（而不是 100 次章节请求），
-    页清单等用户真正打开那一话时再生登记。
+    **页清单一律不在入库时登记**（2026-09-21 用户决策）：采集 / 按需导入都只写漫画行 + 章节行，
+    页清单与图片字节都留到用户**真正打开那一话**时才处理 —— 打开时由
+    `api-service/services/ondemand.ensure_chapter_pages` 现场登记页清单（只写源站 URL、
+    `cached_status=未转存`），随后读图由穿透兜底 `images/transfer.fetch_page_bytes` 按需转存。
+    这样避免首采整卷逐章请求源站（258 话 = 258 次），既慢又易触发源站风控。
     """
     comic_id, is_new = storage.upsert_comic(detail, fp)
     # 新增 / 更新的记账只在这里做一次（调用方不再各记一遍）
@@ -189,10 +187,10 @@ def _upsert_detail(
     existing_nos = {int(ch["chapter_no"]) for ch in storage.get_chapters(comic_id)}
     existing_max_no = max(existing_nos) if existing_nos else 0
     # detail.chapters 按源站返回（新 -> 旧）：
-    # - 按需导入（first_chapters=None）：**补齐库内缺的所有章节**——不只是比库内最大的
-    #   更新的那些。库里可能只有采集时收的最新 1 话，用户要的是完整目录；
-    # - 新漫画（库内无章节）：只取最新 first_chapters 话（采集默认 1 话）；
-    # - 老漫画（库内已有章节）：取所有 chapter_no 大于库内最大 chapter_no 的新章节（增量）。
+    # - first_chapters=None（采集默认 / 按需导入）：**补齐库内缺的所有章节**——不只是比库内
+    #   最大的更新的那些。库里可能只有早期收的最新 1 话，用户要的是完整目录；
+    # - 已有章节且 first_chapters 有值：取所有 chapter_no 大于库内最大 chapter_no 的新章节（增量）；
+    # - 库内无章节且 first_chapters 有值：只取最新 first_chapters 话。
     if first_chapters is None:
         sampled = [c for c in detail.chapters if c.chapter_no not in existing_nos]
     elif existing_nos:
@@ -205,22 +203,9 @@ def _upsert_detail(
     written = storage.upsert_chapters(comic_id, sampled)
     stats.new_chapters += sum(1 for _, is_new in written if is_new)
 
-    if register_pages:
-        # register_pages=False（按需导入）时只入目录：页清单留到用户真正打开那一话时再登记
-        # （见 api-service/services/ondemand.ensure_chapter_pages）——导入 100 话只需 1 次请求。
-        for chapter, (chapter_id, _) in zip(sampled, written):
-            try:
-                pages = adapter.fetch_chapter_pages(detail, chapter)
-                if pages:
-                    # 懒下载：只登记页面源站 URL（cached_status=未转存），图片字节不主动下载，
-                    # 由失效巡检 lazy_transfer / 读图时的穿透兜底按需转存
-                    # （见 images/transfer.fetch_page_bytes）。
-                    storage.upsert_pages(chapter_id, pages)
-            except Exception:
-                # 页面登记失败不阻塞整部漫画入库，仅记录并继续
-                stats.failed += 1
-                logger.warning("章节 %s(%s) 页面登记失败", chapter.title, chapter.source_chapter_id)
-
+    # 页清单**不在这里登记**（2026-09-21 用户决策）：只入漫画行 + 章节行。
+    # 页清单 + 图片字节都等用户打开那一话时才处理（ensure_chapter_pages → fetch_page_bytes），
+    # 避免首采整卷逐章请求源站（258 话 = 258 次），既慢又易触发源站风控。
     return comic_id
 
 

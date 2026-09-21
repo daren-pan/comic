@@ -66,8 +66,8 @@ def chapter_pages(chapter_id: int):
     ch = db.get_chapter(chapter_id)
     if not ch:
         raise HTTPException(status_code=404, detail="chapter not found")
-    # 按需导入的作品导入时刻意不登记页清单 → 首次打开这一话时现场补登一次
-    # （常规采集的作品已有清单，这里是零额外请求的快路径）
+    # 采集 / 按需导入都不登记页清单（2026-09-21 决策）→ 首次打开这一话时现场补登一次；
+    # 已登记过的话这里直接命中库内行，零额外请求。
     ensure_chapter_pages(chapter_id)
     rows = db.get_pages(chapter_id)
     return ok([to_page(r, ch["comic_id"], chapter_id) for r in rows])

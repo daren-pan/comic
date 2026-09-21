@@ -174,8 +174,10 @@ def _detail_stub(source: str, comic: dict):
 def ensure_chapter_pages(chapter_id: int) -> int:
     """打开某话时若库内还没有页清单，就现场登记一次，返回登记后的页数。
 
-    只有「按需导入」的作品会出现空清单（导入时刻意一页都不登记）；常规采集的作品
-    最新一话已登记，所以这里是零额外请求的快路径。
+    **采集 / 按需导入都不在入库时登记页清单**（2026-09-21 决策）→ 任何作品的某一话
+    **首次被打开**时都会走这里（多 1 次源站请求）；同一话之后再打开直接命中库内行，
+    零额外请求。登记只写页清单（源站 URL + `cached_status='未转存'`），**不下载字节** ——
+    字节由读图时的穿透 `images/transfer.fetch_page_bytes` 或管理台懒转存按需取回。
     """
     rows = db.get_pages(chapter_id)
     if rows:
