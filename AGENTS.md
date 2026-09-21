@@ -50,11 +50,9 @@ comic/
 - **前端**：`cd comic-web && npm run dev`（:5173，HMR；开发不 build，发布才 `npm run build` → `comic-web/dist`）。若本机 `npm` 起不来（如撞 WSL 黑名单），直接跑 `node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173`。
 - **停止**：TaskStop / Ctrl+C。禁用 `taskkill //IM python.exe`。
 - **改完代码自动重启前后端（2026-09-21 用户要求）**：AI 协作时**不必等用户提醒** —— 动过 `crawler-service` / `api-service` 就自动重启 uvicorn，动过 `comic-web` 就自动重启 Vite。停止**按 PID**（`Get-NetTCPConnection -LocalPort 8000,5173 -State Listen` 拿 PID；**后端是父子两个 python 进程，两个都要停**），**禁用 `taskkill //IM python.exe`**（机器上还跑着 MCP 服务进程，按镜像名批量杀会误伤）。
-- **自检（提交前必跑）**：`scripts/check.sh` 或 `check.bat` = crawler 单测 + api 分层守卫 + `tsc --noEmit`。
-- **crawler 单测**：`.venv/Scripts/python.exe -m unittest discover -s tests -v`（纯逻辑不连库）。
 
 ## 硬性约定
 - **架构单职责 / 分层**：新增接口进 `api-service/routers/*`、业务逻辑进 `services/`（勿让 `main.py` 重新变胖）；`crawler-service` 保持 L0/L1/L2（通用外层 → 契约 → 可扩展内层）。**新模块未归层会被分层守卫拦下**（`tests/test_layering.py`）。
 - **性能**：面向**大数据量**访问设计，增 / 删 / 查 / 改都要走最优路径 —— 禁止逐条访问（「先拿一批 id 再取对象」必须用一次性批量方法，如 `get_comic_tags_bulk` / `get_comics_by_ids`）、禁止代价随数据量线性增长的写法（N+1、无索引全表扫、每次调用新建连接）。改 SQL / 存储层时按此自查。
 - **提交信息**：一律 Conventional Commits —— `<type>(<scope>): <中文主题>`。type 取 `feat` / `fix` / `refactor` / `perf` / `docs` / `chore` / `test` / `ci`；scope 取模块名（`crawler` / `api` / `web` / `db` / `deploy` / `tools`），跨模块或不限模块时可省。正文只写 2~3 行「改了什么、为什么」，不罗列文件 / 函数 / 实测数字。示例：`feat(crawler): 新增拷贝漫画源，失败日志带上漫画名`。
-- **提交时机与粒度：原子拆分**（2026-09-18 明确，**反转** 09-12 的"一轮改动合成一次提交"）—— **不在一轮改动做完就提交**；先攒着，等**多个需求都完成后**再**按主题拆成多个原子提交**（一个提交只做一件事，能单独看懂、单独回退）。提交前仍要查：无意外删除、无硬编码密钥。
+- **提交时机与粒度：原子拆分** **不在一轮改动做完就提交**；先攒着，等**多个需求都完成后**再**按主题拆成多个原子提交**（一个提交只做一件事，能单独看懂、单独回退）。提交前仍要查：无意外删除、无硬编码密钥。
