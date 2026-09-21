@@ -47,8 +47,9 @@ comic/
 - **启动前**：确认 Docker Desktop 运行、`comic-mysql` Up（`docker ps`）—— 本地开发直连宿主 `127.0.0.1:3309`，连接参数由 `deploy/.env` 兜底提供，无需手工导出环境变量。
 - **后端**：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 >> ../logs/api.log 2>&1`
 - **⚠️ 改完 `crawler-service` 代码必须重启后端**：管理台「采集 / 转存 / 封面自愈」都在 **api 进程内**执行（`POST /api/admin/*` → 后台线程直接调 `comic_crawler`），进程不重启就一直跑**启动时加载的旧代码**。2026-09-20 踩过：api 进程 09-18 10:31 启动，而 `f207672`（封面地址改回原样）是当天 17:10 才提交 —— 采集落盘的地址仍是旧规则。**改完爬虫代码后，用管理台触发前先重启 uvicorn。**
-- **前端**：`cd comic-web && npm run dev`（:5173，HMR；开发不 build，发布才 `npm run build` → `comic-web/dist`）
+- **前端**：`cd comic-web && npm run dev`（:5173，HMR；开发不 build，发布才 `npm run build` → `comic-web/dist`）。若本机 `npm` 起不来（如撞 WSL 黑名单），直接跑 `node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173`。
 - **停止**：TaskStop / Ctrl+C。禁用 `taskkill //IM python.exe`。
+- **改完代码自动重启前后端（2026-09-21 用户要求）**：AI 协作时**不必等用户提醒** —— 动过 `crawler-service` / `api-service` 就自动重启 uvicorn，动过 `comic-web` 就自动重启 Vite。停止**按 PID**（`Get-NetTCPConnection -LocalPort 8000,5173 -State Listen` 拿 PID；**后端是父子两个 python 进程，两个都要停**），**禁用 `taskkill //IM python.exe`**（机器上还跑着 MCP 服务进程，按镜像名批量杀会误伤）。
 - **自检（提交前必跑）**：`scripts/check.sh` 或 `check.bat` = crawler 单测 + api 分层守卫 + `tsc --noEmit`。
 - **crawler 单测**：`.venv/Scripts/python.exe -m unittest discover -s tests -v`（纯逻辑不连库）。
 

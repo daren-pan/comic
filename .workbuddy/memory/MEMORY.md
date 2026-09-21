@@ -35,7 +35,7 @@ comic/
 - **图库 / 运行时数据**：唯一真源 `comic_crawler.paths.DATA_ROOT`（= `<服务根>/data`，默认 `crawler-service/data`），
   里面是 `data/image_store`（图库，引用只存相对 key）与 `data/source_state.json`（管理台源开关状态）。
   **容器把整个 `/data` bind 到同一个宿主目录**，所以本地直跑与 Docker 读写的是同一批文件（不会出现两份图库互相看不见）。
-- **按需导入 / 管理台**：逻辑集中 `api-service/services/ondemand.py`；管理台 `/api/admin/*`，前端 `/#/admin`。**角色三档**（未登录 401 / 权限不足 403，见 `docs/auth.md` §8）：`superadmin` 超管＝管理台+日志+**授权页**（**全库唯一**，库里没有任何特权用户时首个注册用户自动获得；转移用 `tools/add_user_role.py --superadmin <用户名>`）、`admin` 普通管理员＝管理台+日志但**进不了授权页**、`user` 默认无权限。两道门：管理台与日志 `require_admin`、授权页 `require_superadmin` —— 分开是硬要求，否则普通管理员能把超管降级。
+- **按需导入 / 管理台**：逻辑集中 `api-service/services/ondemand.py`；管理台 `/api/admin/*`，前端 `/#/admin`。**角色三档**（未登录 401 / 权限不足 403，见 `docs/auth.md` §8）：`superadmin` 超管＝管理台+日志+**授权页**（**全库唯一**，库里没有任何特权用户时首个注册用户自动获得；转移用 `tools/add_user_role.py --superadmin <用户名>`）、`admin` 普通管理员＝管理台+日志但**进不了授权页**、`user` 默认无权限。两道门：管理台与日志 `require_admin`、授权页 `require_superadmin` —— 分开是硬要求，否则普通管理员能把超管降级。**全库维护只有「触发巡检」一个入口**（`inspect_sync`：转存未转存页 + 全表校验恢复，随后 `heal_covers` 封面自愈）；独立的「触发转存」入口 **2026-09-21 已删**（它是巡检第 1 步 `lazy_transfer` 的子集）。⚠️ **定时巡检不含封面自愈**（避免每小时打源站），只有管理台手动触发才做。
 - **标签**：写入侧归一（`taxonomy.py` + `data/tag_synonyms.json`），查询侧零翻译。
 - **日志落库**：业务日志由挂在 root 的 `MySQLLogHandler`（`storage/mysql/log_handler.py`）批量写 `log_record`（队列 + 50 条/2s 刷）。**三路来源**：通用字段（level/logger/message）、任务字段（`logctx` 的 `task_id`/`task_type`，`services/tasks._runner` 用 `bind_task` 绑到本线程，**ContextVar 不跨线程**）、业务字段（`extra={"log_fields": {...}}` 拍平成 `event/source/comic_id/endpoint/reason/…`）。两道门槛：logger 前缀白名单 `LOG_SOURCES` + 级别 `INFO_LOGGERS`。⚠️ 所以封面日志是**「真下载」的流水，不是封面状态快照** —— 文件已在本地时 `ensure_cover_local` 静默返回，一条都不写。同理，采集 / 普通自愈都**跳过「文件已存在」的封面**（**错图也照样跳过**）—— 要修「文件在、但内容错」的封面，用管理台「**封面自愈 · 指定作品**」（填名称/ID、可多个；`POST /api/admin/heal-covers` 传 `keyword`）走 `force=True` **强制回源重下覆盖**（`heal_covers` / `ensure_cover_local` 均已支持 `force`，筛选走 `Storage.find_comics`）。- **判重**：只看 `(source, source_comic_id)`（同源幂等）。**跨源不合并**（用户 2026-09-16 决策）：同一部作品在别的源收过就是**另一行**，各记各自章节进度 —— 不同翻译版本（繁简/中日英）进度往往不同，合并会丢信息。`comic.fingerprint` 只写不判重（"可能重复"的观测标记）。一行=一个收录源，所以章节归属由 `comic.source` 推导始终确定（`chapter` 表无 source 列）。详见 `docs/architecture.md` §2.3。
 
@@ -43,9 +43,10 @@ comic/
 - **分工**：**本地开发 = 宿主直跑**（uvicorn + Vite，快、有热重载，见下）；**上线 = Docker Compose**（`deploy/`，见 `docs/deploy.md`）。
 - **启动前**：确认 Docker Desktop 运行、`comic-mysql` Up（`docker ps`）—— 本地开发直连宿主 `127.0.0.1:3309`，连接参数由 `deploy/.env` 兜底提供，无需手工导出环境变量。
 - **后端**：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 >> ../logs/api.log 2>&1`
-- **⚠️ 改完 `crawler-service` 代码必须重启后端**：管理台「采集 / 转存 / 封面自愈」都在 **api 进程内**执行（`POST /api/admin/*` → 后台线程直接调 `comic_crawler`），进程不重启就一直跑**启动时加载的旧代码**。2026-09-20 踩过：api 进程 09-18 10:31 启动，而 `f207672`（封面地址改回原样）是当天 17:10 才提交 —— 采集落盘的地址仍是旧规则。**改完爬虫代码后，用管理台触发前先重启 uvicorn。**
-- **前端**：`cd comic-web && npm run dev`（:5173，HMR；开发不 build，发布才 `npm run build` → `comic-web/dist`）
+- **⚠️ 改完 `crawler-service` 代码必须重启后端**：管理台「采集 / 巡检 / 封面自愈」都在 **api 进程内**执行（`POST /api/admin/*` → 后台线程直接调 `comic_crawler`），进程不重启就一直跑**启动时加载的旧代码**。2026-09-20 踩过：api 进程 09-18 10:31 启动，而 `f207672`（封面地址改回原样）是当天 17:10 才提交 —— 采集落盘的地址仍是旧规则。**改完爬虫代码后，用管理台触发前先重启 uvicorn。**
+- **前端**：`cd comic-web && npm run dev`（:5173，HMR；开发不 build，发布才 `npm run build` → `comic-web/dist`）。若本机 `npm` 起不来（如撞 WSL 黑名单），直接跑 `node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173`。
 - **停止**：TaskStop / Ctrl+C。禁用 `taskkill //IM python.exe`。
+- **改完代码自动重启前后端（2026-09-21 用户要求）**：AI 协作时**不必等用户提醒** —— 动过 `crawler-service` / `api-service` 就自动重启 uvicorn，动过 `comic-web` 就自动重启 Vite。停止**按 PID**（`Get-NetTCPConnection -LocalPort 8000,5173 -State Listen` 拿 PID；**后端是父子两个 python 进程，两个都要停**），**禁用 `taskkill //IM python.exe`**（机器上还跑着 MCP 服务进程，按镜像名批量杀会误伤）。
 - **自检（提交前必跑）**：`scripts/check.sh` 或 `check.bat` = crawler 单测 + api 分层守卫 + `tsc --noEmit`。
 - **crawler 单测**：`.venv/Scripts/python.exe -m unittest discover -s tests -v`（纯逻辑不连库）。
 
