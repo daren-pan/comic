@@ -23,7 +23,9 @@ const input = ref('')
 const comics = ref<Comic[]>([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = 12
+// 每页条数 = 桌面列数 × 行数（5 列 × 4 行）→ 每页都是整行，末行不留空格
+// （2026-09-21 用户要求；此前 12 条 ÷ 5 列除不尽，末行空 3 格）
+const pageSize = 20
 const loading = ref(false)
 
 // ---- 其他来源（源站搜索）：站内搜不到时去各源站找 ----
