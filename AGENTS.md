@@ -46,7 +46,7 @@ comic/
 - **分工**：**本地开发 = 宿主直跑**（uvicorn + Vite，快、有热重载，见下）；**上线 = Docker Compose**（`deploy/`，见 `docs/deploy.md`）。
 - **启动前**：确认 Docker Desktop 运行、`comic-mysql` Up（`docker ps`）—— 本地开发直连宿主 `127.0.0.1:3309`，连接参数由 `deploy/.env` 兜底提供，无需手工导出环境变量。
 - **后端**：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 >> ../logs/api.log 2>&1`
-- **⚠️ 改完 `crawler-service` 代码必须重启后端**：管理台「采集 / 转存 / 封面自愈」都在 **api 进程内**执行（`POST /api/admin/*` → 后台线程直接调 `comic_crawler`），进程不重启就一直跑**启动时加载的旧代码**。2026-09-20 踩过：api 进程 09-18 10:31 启动，而 `f207672`（封面地址改回原样）是当天 17:10 才提交 —— 采集落盘的地址仍是旧规则。**改完爬虫代码后，用管理台触发前先重启 uvicorn。**
+- **⚠️ 改完 `crawler-service` 代码必须重启后端**：管理台「采集 / 巡检 / 封面自愈」都在 **api 进程内**执行（`POST /api/admin/*` → 后台线程直接调 `comic_crawler`），进程不重启就一直跑**启动时加载的旧代码**。2026-09-20 踩过：api 进程 09-18 10:31 启动，而 `f207672`（封面地址改回原样）是当天 17:10 才提交 —— 采集落盘的地址仍是旧规则。**改完爬虫代码后，用管理台触发前先重启 uvicorn。**
 - **前端**：`cd comic-web && npm run dev`（:5173，HMR；开发不 build，发布才 `npm run build` → `comic-web/dist`）。若本机 `npm` 起不来（如撞 WSL 黑名单），直接跑 `node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173`。
 - **停止**：TaskStop / Ctrl+C。禁用 `taskkill //IM python.exe`。
 - **改完代码自动重启前后端（2026-09-21 用户要求）**：AI 协作时**不必等用户提醒** —— 动过 `crawler-service` / `api-service` 就自动重启 uvicorn，动过 `comic-web` 就自动重启 Vite。停止**按 PID**（`Get-NetTCPConnection -LocalPort 8000,5173 -State Listen` 拿 PID；**后端是父子两个 python 进程，两个都要停**），**禁用 `taskkill //IM python.exe`**（机器上还跑着 MCP 服务进程，按镜像名批量杀会误伤）。
@@ -56,6 +56,5 @@ comic/
 ## 硬性约定
 - **架构单职责 / 分层**：新增接口进 `api-service/routers/*`、业务逻辑进 `services/`（勿让 `main.py` 重新变胖）；`crawler-service` 保持 L0/L1/L2（通用外层 → 契约 → 可扩展内层）。**新模块未归层会被分层守卫拦下**（`tests/test_layering.py`）。
 - **性能**：面向**大数据量**访问设计，增 / 删 / 查 / 改都要走最优路径 —— 禁止逐条访问（「先拿一批 id 再取对象」必须用一次性批量方法，如 `get_comic_tags_bulk` / `get_comics_by_ids`）、禁止代价随数据量线性增长的写法（N+1、无索引全表扫、每次调用新建连接）。改 SQL / 存储层时按此自查。
-- **时间/时区**：库里所有时间列（`sync_time`、`addtime`、`log_record.created_at`…）存的是 **naive 本机时间**（写入侧 `_now()` / `datetime.fromtimestamp`）。所以**容器必须配 `TZ`**（compose 用 `COMIC_TZ`，默认 `Asia/Shanghai`，app/scheduler/mysql 共用）—— 不配就是 UTC，服务器上日志与 `sync_time` 会比北京时间早 8 小时（2026-09-18 踩过）。改 `.env` 的时区要 `up -d` 重建容器才生效。**日志查询页的时间列固定按北京时间出参**（`services/logs.to_beijing`）：容器配对了就是恒等变换，容器还是 UTC 就自动 +8 —— 页面不再依赖部署是否改对；但**筛选**时间窗仍按存储侧时区比较（根因在部署，不在这里补）。
 - **提交信息**：一律 Conventional Commits —— `<type>(<scope>): <中文主题>`。type 取 `feat` / `fix` / `refactor` / `perf` / `docs` / `chore` / `test` / `ci`；scope 取模块名（`crawler` / `api` / `web` / `db` / `deploy` / `tools`），跨模块或不限模块时可省。正文只写 2~3 行「改了什么、为什么」，不罗列文件 / 函数 / 实测数字。示例：`feat(crawler): 新增拷贝漫画源，失败日志带上漫画名`。
 - **提交时机与粒度：原子拆分**（2026-09-18 明确，**反转** 09-12 的"一轮改动合成一次提交"）—— **不在一轮改动做完就提交**；先攒着，等**多个需求都完成后**再**按主题拆成多个原子提交**（一个提交只做一件事，能单独看懂、单独回退）。提交前仍要查：无意外删除、无硬编码密钥。
