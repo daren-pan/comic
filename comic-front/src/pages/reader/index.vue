@@ -733,7 +733,9 @@ onBeforeUnmount(() => {
    配 aspectFit = 在这个框内等比缩放、不裁剪，视觉效果与原实现一致 */
 .horizontal-stage .page-img {
   display: block;
-  width: min(92vw, calc((100vh - 40px) * 0.705));
+  /* 满幅：手机竖屏下图片按**宽度**铺满，左右不留黑边（原 92vw 会各留 4vw ≈ 16px）。
+     桌面等「高度受限」的场景仍由 min() 第二项决定宽度，行为不变。 */
+  width: min(100vw, calc((100vh - 40px) * 0.705));
   height: calc(100vh - 40px);
   border-radius: 4px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.5);
@@ -766,6 +768,11 @@ onBeforeUnmount(() => {
 /* 竖排连播的滚动容器：absolute 铺满 stage（top:40px 与 .vertical-stage 的 padding-top 对齐，
    避开固定顶栏）。小程序里普通 view 不能滚，滚动必须交给 scroll-view。 */
 .pages-scroll { position: absolute; top: 40px; left: 0; right: 0; bottom: 0; }
+/* 隐掉滚动条：uni 的 scroll-view 内层在桌面 Chrome 下**会实占 8px 宽**，
+   于是竖排图片被挤到 382px、右边露出一条黑边（实测 offsetWidth - clientWidth = 8）。
+   阅读区是全幅暗色层，滚动条没有意义 —— 进度由底部进度条反映。 */
+.pages-scroll :deep(.uni-scroll-view) { scrollbar-width: none; }
+.pages-scroll :deep(.uni-scroll-view)::-webkit-scrollbar { width: 0; height: 0; display: none; }
 .pages-stream {
   display: flex;
   flex-direction: column;
@@ -777,7 +784,8 @@ onBeforeUnmount(() => {
    配 widthFix：uni 按「offsetWidth ÷ 原图宽高比」算出高度。 */
 .vertical-stage .page-img {
   display: block;
-  width: min(96vw, 720px);
+  /* 满幅：同横向模式，左右不留黑边（原 96vw 各留 2vw）。720px 上限对桌面生效。 */
+  width: min(100vw, 720px);
   height: auto;
   border-radius: 2px;
 }
