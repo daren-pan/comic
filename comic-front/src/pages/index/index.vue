@@ -4,14 +4,31 @@ import { getCategories, getComics } from '../../api'
 import type { CategoryCount, Comic } from '../../types'
 import ComicCard from '../../components/ComicCard.vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { setRoute } from '../../utils/router'
+import { setRoute, useRouter } from '../../utils/router'
 import Layout from '../../components/Layout.vue'
+
+const router = useRouter()
 
 const categories = ref<CategoryCount[]>([])
 const hotComics = ref<Comic[]>([])
 const latestComics = ref<Comic[]>([])
 const catComics = ref<Record<string, Comic[]>>({})
 const loaded = ref(false)
+
+// 首页每个区块只放「排名最前的三部」（热门榜单 / 最新更新 / 分类精选 一律如此）——
+// 其余走标题右侧的「全部 ›」：分类块跳分类页按 category 查（分类页本来就支持 ?category= 直达），
+// 热门 / 最新跳排行页、最近更新页。
+const TOP_N = 3
+
+// 点标题右侧「全部」：带上该分类跳分类页（分类页 applyQuery 会读 URL 里的 category）
+function goCategory(name: string) {
+  router.push({ path: '/search', query: { category: name } })
+}
+
+// 热门 / 最新的「全部 ›」：各自跳对应的整页列表
+function goAll(path: string) {
+  router.push(path)
+}
 
 function fmtTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
@@ -27,14 +44,14 @@ onMounted(async () => {
   const cats = categories.value.filter((c) => c.name !== '全部').map((c) => c.name)
 
   const [hot, latest] = await Promise.all([
-    getComics({ sort: 'views', pageSize: 8 }),
-    getComics({ sort: 'updated', pageSize: 8 }),
+    getComics({ sort: 'views', pageSize: TOP_N }),
+    getComics({ sort: 'updated', pageSize: TOP_N }),
   ])
   hotComics.value = hot.items
   latestComics.value = latest.items
 
   const picks = cats.slice(0, 4)
-  const res = await Promise.all(picks.map((c) => getComics({ category: c, pageSize: 5 })))
+  const res = await Promise.all(picks.map((c) => getComics({ category: c, pageSize: TOP_N })))
   picks.forEach((c, i) => (catComics.value[c] = res[i].items))
   loaded.value = true
 })
@@ -59,22 +76,32 @@ onLoad((options) => setRoute('/', options ?? {}))
         </view>
       </view>
 
-      <!-- 热门榜 -->
-      <view class="section-title">🔥 热门榜单</view>
+      <!-- 热门榜：只放前三，其余走「全部 ›」→ 排行页 -->
+      <view class="section-title">
+        <text class="st-label">🔥 热门榜单</text>
+        <view class="more u-a" @click="goAll('/rank')">全部 ›</view>
+      </view>
       <view class="grid">
         <ComicCard v-for="c in hotComics" :key="c.id" :comic="c" />
       </view>
 
-      <!-- 最新更新 -->
-      <view class="section-title">⚡ 最新更新 <text class="hint">（源站同步 · {{ fmtTime(latestComics[0]?.updatedAt ?? Date.now().toString()) }}内有更新）</text></view>
+      <!-- 最新更新：同样只放前三，「全部 ›」→ 最近更新页 -->
+      <view class="section-title">
+        <text class="st-label">⚡ 最新更新</text>
+        <text class="hint">（源站同步 · {{ fmtTime(latestComics[0]?.updatedAt ?? Date.now().toString()) }}内有更新）</text>
+        <view class="more u-a" @click="goAll('/latest')">全部 ›</view>
+      </view>
       <view class="grid">
         <ComicCard v-for="c in latestComics" :key="c.id" :comic="c" />
       </view>
 
-      <!-- 分类浏览 -->
+      <!-- 分类浏览：每块只放前 3 部，标题右侧「全部」跳分类页查该标签下的所有漫画 -->
       <template v-for="cat in categories.filter((x) => x.name !== '全部').slice(0, 4)" :key="cat.name">
-        <view class="section-title">{{ cat.name }} · 精选</view>
-        <view class="grid grid-5">
+        <view class="section-title">
+          <text class="st-label">{{ cat.name }} · 精选</text>
+          <view class="more u-a" @click="goCategory(cat.name)">全部 ›</view>
+        </view>
+        <view class="grid">
           <ComicCard v-for="c in catComics[cat.name]" :key="c.id" :comic="c" />
         </view>
       </template>
@@ -113,14 +140,41 @@ onLoad((options) => setRoute('/', options ?? {}))
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
 }
-.grid-5 { grid-template-columns: repeat(5, 1fr); }
-.hint { font-size: 12px; font-weight: 500; color: var(--text-2); margin-left: 4px; }
+.hint {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin-left: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 区块标题文字：flex 项默认可被压缩换行 —— 窄屏实测会把「⚡ 最新更新」挤成「最新更 / 新」两行，
+   这里锁死不折行；空间不够时让同行的 .hint 先让位（窄屏直接隐藏，见下方媒体查询）。 */
+.st-label { flex: 0 0 auto; white-space: nowrap; }
+
+/* 「全部 ›」：贴区块标题右侧（.section-title 本身是 flex，靠 margin-left:auto 顶到最右） */
+.more {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  white-space: nowrap;
+}
+.more:hover { color: var(--primary-dark); text-decoration: underline; }
 
 @media (max-width: 900px) {
-  .grid, .grid-5 { grid-template-columns: repeat(3, 1fr); }
+  .grid { grid-template-columns: repeat(3, 1fr); }
 }
+/* 手机（≤560px）**保持 3 列**（2026-09-22 用户要求「移动端每行三部、增加信息量」，
+   原先这里降到 2 列）；只收紧间距 —— 每列约 110px，间距从 16 收到 10 能让封面宽一点。
+   卡片自身的字号/内边距由 ComicCard.vue 里的同名断点负责。 */
 @media (max-width: 560px) {
-  .grid, .grid-5 { grid-template-columns: repeat(2, 1fr); }
+  .grid { gap: 10px; }
   .banner .u-h1 { font-size: 24px; }
+  /* 标题行容不下「最新更新」+ 长提示 + 「全部 ›」→ 提示让位，只留标题与链接（实测 390px 会换行） */
+  .section-title .hint { display: none; }
 }
 </style>
