@@ -221,12 +221,17 @@ def ensure_chapter_pages(chapter_id: int) -> int:
         return 0
 
 
-def fetch_page_online(chapter_id: int, page_no: int) -> bytes | None:
-    """本地没有这张图 → 穿透源站取回并顺手落盘；失败返回 None（调用方给占位图）。"""
+def fetch_page_online(chapter_id: int, page_no: int, row: dict | None = None) -> bytes | None:
+    """本地没有这张图 → 穿透源站取回并顺手落盘；失败返回 None（调用方给占位图）。
+
+    `row`：可选的 `get_page_context()` 结果。读图端点**已经**为"本地命中"查过一次上下文，
+    把它传进来即可省掉重复查询（见 `routers/public.py` 的三级兜底）；不传则在这里自查。
+    """
     from comic_crawler.images.transfer import fetch_page_bytes
     from comic_crawler.sources import create_adapter
 
-    row = db.get_page_context(chapter_id, page_no)
+    if row is None:
+        row = db.get_page_context(chapter_id, page_no)
     if not row:
         return None
     try:

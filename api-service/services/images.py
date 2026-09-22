@@ -58,8 +58,16 @@ def resolve_image_root() -> Path:
 IMAGE_ROOT = resolve_image_root()
 
 
-def read_image_file(candidate: str) -> tuple[bytes, str] | None:
-    """从本地路径、file:// URI 或图库内相对 key 读图片字节；仅接受真正的图片内容。"""
+def read_image_file(candidate: str) -> tuple[bytes, str, str] | None:
+    """从本地路径、file:// URI 或图库内相对 key 读图片字节；仅接受真正的图片内容。
+
+    返回 `(字节, MIME, ETag)`，读不到 / 不是图片时返回 `None`。
+
+    **ETag 由「文件 mtime + 大小」构成**（不哈希内容）：图库里的图按
+    `comic/chapter/page` 落盘后内容即固定，换内容必然改 mtime —— 用它做条件请求
+    （命中 `If-None-Match` 直接 304 空体）比每次重传整张图便宜得多，
+    也顺带让「管理台强制刷新封面」在浏览器侧最多存活一个 max-age 周期。
+    """
     if not candidate:
         return None
     p = candidate
@@ -75,7 +83,10 @@ def read_image_file(candidate: str) -> tuple[bytes, str] | None:
         return None
     data = path.read_bytes()
     mime = sniff_image(data)          # 与「穿透取图」共用同一套魔数判定
-    return (data, mime) if mime else None
+    if not mime:
+        return None
+    stat = path.stat()
+    return (data, mime, f'"{int(stat.st_mtime)}-{stat.st_size}"')
 
 
 def admin_image_store():
