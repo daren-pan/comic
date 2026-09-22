@@ -5,7 +5,7 @@
 #  步骤 1  生成各模块产物到 deploy/<模块>/dist/
 #             crawler-service/  --wheel-->  deploy/crawler/dist/comic_crawler-<版本>.whl
 #             api-service/      --wheel-->  deploy/api/dist/comic_api-<版本>.whl
-#             comic-web/dist/   --复制---->  deploy/web/dist/
+#             <前端产物目录>    --复制---->  deploy/web/dist/        （默认 comic-web/dist）
 #  步骤 2  按依赖顺序构建镜像
 #             mysql → web → crawler → api → nginx
 #
@@ -17,6 +17,11 @@
 #        —— 一般**不用单独跑它**：一键脚本 `deploy/up.sh` 已经把
 #           「前端 npm build → 本脚本 → compose up -d → 自检」串好了。
 #        单独构建后启动：docker compose -f deploy/docker-compose.yml up -d
+#
+#  前端来源：默认取 comic-web/dist；可用环境变量 **WEB_SRC=<目录>** 换成别的前端产物 ——
+#        `deploy/up-front.sh` 就是用它把 comic-front 的 H5 产物（dist/build/h5）喂进来的。
+#        注意本脚本的复制是「合并覆盖」语义（见下面的 copy_tree），换来源前应先把
+#        deploy/web/dist 清空，免得两个前端的 hash 产物混在一个目录里。
 #
 #  PyPI 源：镜像构建时装依赖走哪个源 —— 依次取 环境变量 PIP_INDEX → deploy/.env 的 PIP_INDEX
 #        → 默认 https://mirrors.aliyun.com/pypi/simple（国内直连 pypi.org 很慢；
@@ -30,6 +35,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY="$ROOT/deploy"
+
+# 前端产物来源（见文件头）：默认 comic-web/dist，可用 WEB_SRC 换成别的前端产物目录。
+WEB_SRC="${WEB_SRC:-$ROOT/comic-web/dist}"
+case "$WEB_SRC" in
+  /*) ;;                                      # POSIX 绝对路径
+  [A-Za-z]:*) ;;                              # Windows 盘符（C:/ 或 C:\）
+  *) WEB_SRC="$ROOT/$WEB_SRC" ;;              # 相对路径按仓库根解析
+esac
 
 # ---------- 选定 Python 解释器 ----------
 # 优先级：PYTHON -> PATH 里的 python3/python -> 项目自带的 crawler-service/.venv。
@@ -84,11 +97,12 @@ echo "   sql/mysql_schema.sql  --复制-->  deploy/mysql/sql/"
 mkdir -p "$DEPLOY/mysql/sql"
 cp "$ROOT/crawler-service/sql/mysql_schema.sql" "$DEPLOY/mysql/sql/mysql_schema.sql"
 
-echo "   comic-web/dist  --复制-->  deploy/web/dist/"
-if [ -d "$ROOT/comic-web/dist" ]; then
-  copy_tree "$ROOT/comic-web/dist" "$DEPLOY/web/dist" .
+echo "   $WEB_SRC  --复制-->  deploy/web/dist/"
+if [ -d "$WEB_SRC" ]; then
+  copy_tree "$WEB_SRC" "$DEPLOY/web/dist" .
 else
-  echo "   !! comic-web/dist 不存在 —— 先构建前端：cd comic-web && npm run build"
+  echo "   !! 前端产物目录不存在：$WEB_SRC"
+  echo "      先构建前端：cd comic-web && npm run build   或   cd comic-front && npm run build:h5"
   exit 1
 fi
 
@@ -112,7 +126,7 @@ echo "   deploy/web/dist/（$(find "$DEPLOY/web/dist" -type f | wc -l | tr -d ' 
 # 前端是文件复制，做一次遗留检查（只报告，不删除）
 leftovers="$(
   comm -13 \
-    <( cd "$ROOT/comic-web/dist" && find . -type f | sort ) \
+    <( cd "$WEB_SRC" && find . -type f | sort ) \
     <( cd "$DEPLOY/web/dist" && find . -type f | sort ) \
     | sed 's|^\./|        deploy/web/dist/|'
 )"

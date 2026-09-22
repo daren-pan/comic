@@ -10,7 +10,8 @@ deploy/
 ├── nginx/     Dockerfile + nginx.conf                → comic-nginx:1.0.0    反代（配置烘进镜像）
 ├── mysql/     Dockerfile + sql/（建库脚本产物）      → comic-mysql:1.0.0    本项目独占的库
 ├── build.sh / build.bat                              生成产物 + 按序构建这 5 个镜像
-├── up.sh                                              **一键**：前端 build + 上面这些 + up -d + 自检
+├── up.sh                                              **一键**：comic-web 前端 build + 上面这些 + up -d + 自检
+├── up-front.sh                                        **一键**：同上，但前端换成 comic-front（uni-app H5）
 ├── docker-compose.yml                                编排：comic-mysql + comic-app + comic-nginx
 └── .env.example                                      配置模板（`deploy/.env` 已 gitignore）
 ```
@@ -41,7 +42,7 @@ deploy/
 | 模块 | 产物 | 来源 |
 |---|---|---|
 | `crawler` / `api` | **wheel** | 各自的 `pyproject.toml`（= 那个模块的 pom.xml）经 `pip wheel` 构建 |
-| `web` | `dist/` 静态文件 | `cd comic-web && npm run build` 后复制进来 |
+| `web` | `dist/` 静态文件 | `cd comic-web && npm run build` 后复制进来；**来源可用 `WEB_SRC=<目录>` 换成别的前端产物** |
 | `mysql` | `sql/mysql_schema.sql` | 从 `crawler-service/sql/` 复制（烘进镜像，供首次初始化） |
 
 wheel 里只有包本身 + 依赖声明 —— 测试、文档、样例夹具（`guazi/fixtures/*.html` 等）**自动被排除**。
@@ -73,6 +74,29 @@ docker compose -f deploy/docker-compose.yml up -d
 数据目录可写 → 对外入口 HTTP 码）。**幂等**：重复跑就是更新代码 + 重新构建 + `up -d`，不会清数据。
 加了 `--migrate` 就在 4 与 5 之间多跑一步"已有库迁移"（`add_log_table` / `add_perf_indexes` /
 `drop_fingerprint_unique` / `add_user_role`，逐个挂 `../tools` 进容器执行，都是幂等的）。
+
+### 前端换成 comic-front（uni-app）—— `up-front.sh`
+
+`up.sh` 部署的前端是 **comic-web**（Vue3 Web SPA，已冻结、只作参考实现）；
+当前主用的前端是 **comic-front**（uni-app，H5 / 小程序 / App 一套代码）。要部署后者就用：
+
+```bash
+bash deploy/up-front.sh                # 与 up.sh 参数完全一致（--skip-web / --skip-pull / --collect / --migrate）
+```
+
+流程与 `up.sh` **逐字相同**，只把第 2 步的前端换成 `cd comic-front && npm run build:h5`
+（产物 `comic-front/dist/build/h5`），并用环境变量 `WEB_SRC` 把它交给 `build.sh`。
+
+- **前端是「替换」不是「并存」**：产物一样复制进 `deploy/web/dist/`，一样由 `comic-api` 镜像
+  烘进去、在 `/` 同源托管 —— 与 comic-web 用的是**同一个位置**。所以跑过 `up-front.sh` 后站点就是
+  comic-front，再跑 `up.sh` 会切回 comic-web。
+- H5 产物按相对路径引用资源（`manifest.json` 里 `h5.router.base = "./"`）、路由是 **hash 模式**，
+  放在站点根目录即可，不需要配 base 或 history 回退。
+- 脚本会先 `rm -rf deploy/web/dist` 再复制：`build.sh` 的复制是「合并覆盖」语义，
+  不清会把两个前端的 hash 产物混在一个目录里。
+- 自检里多打一行**前端身份**（uni 的 `index.html` 带 `<!--app-html-->` 占位注释，comic-web 的没有），
+  便于一眼确认这次烘进去的是哪个前端。
+- 管理台路由随之变成 `/#/pages/admin/index`（comic-web 是 `/#/admin`）。
 
 ## 几个不显然的点
 

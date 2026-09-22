@@ -26,6 +26,7 @@ deploy/
 ├── mysql/      Dockerfile + sql/（建库脚本产物）        → comic-mysql:1.0.0   本项目独占的库（FROM mysql:8.0）
 ├── build.sh / build.bat                                 生成产物 + 按序构建这 5 个镜像
 ├── up.sh                                                **一键**：前端 build + 上面这些 + up -d + 自检
+├── up-front.sh                                          同上，但前端换成 comic-front（uni-app H5）
 ├── docker-compose.yml                                   编排：comic-mysql + comic-app + comic-nginx
 └── .env.example                                         配置模板（`deploy/.env` 已 gitignore）
 ```
@@ -50,7 +51,7 @@ deploy/
 | 模块 | 产物 | 怎么来的 |
 |---|---|---|
 | `crawler` / `api` | **wheel**（`*.whl`） | 各自的 `pyproject.toml`（= 那个模块的 pom.xml）经 `pip wheel` 构建 |
-| `web` | `dist/` 静态文件 | `cd comic-web && npm run build` 后复制进来（前端不是 Python 包） |
+| `web` | `dist/` 静态文件 | `cd comic-web && npm run build` 后复制进来（前端不是 Python 包）；来源可用 `WEB_SRC=<目录>` 覆盖 |
 
 wheel 里只有包本身与依赖声明：**测试、文档、样例夹具自动被排除**（例如 crawler 的
 `sources/*/README.md`、`guazi/fixtures/*.html` 都不在包里），依赖清单也只写一份（`pyproject.toml`）。
@@ -68,6 +69,13 @@ cd comic-web && npm run build           # 前端产物（build.sh 会把它复�
 ./deploy/build.sh                       # 构建 wheel/dists + 按序构建 5 个镜像（Windows: deploy\build.bat）
 docker compose -f deploy/docker-compose.yml up -d
 ```
+
+> **前端要部署 comic-front（uni-app）而不是 comic-web 时**，把上面所有 `up.sh` 换成
+> **`up-front.sh`**（参数完全一致）：流程逐字相同，只把前端构建换成
+> `cd comic-front && npm run build:h5`（产物 `comic-front/dist/build/h5`），并用 `WEB_SRC` 交给 `build.sh`。
+> 两者**共用同一个站点位置**（`deploy/web/dist/` → 烘进 comic-api → 在 `/` 同源托管），
+> 所以是「替换」不是「并存」：跑过 `up-front.sh` 后站点就是 comic-front，再跑 `up.sh` 会切回 comic-web。
+> 管理台路由也随之从 `/#/admin` 变成 `/#/pages/admin/index`。
 
 > `up.sh` 就是把这几步串起来的**幂等**一键脚本：**`git pull` 更新代码** → 前置检查 → 前端 build →
 > `build.sh` → `up -d` → 自检（mysql healthy → 容器内 `/api/health` → 数据目录可写 →
