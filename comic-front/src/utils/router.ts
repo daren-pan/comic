@@ -12,7 +12,9 @@
 
 import { reactive } from 'vue'
 
-export type NavTarget = string | { path: string; query?: Record<string, unknown> }
+// 同 vue-router：`path` 可省略 —— `{ query }` 表示「在**当前路径**上改查询」（分类页的
+// 筛选 / 搜索就是这么调的）；`{ path, query }` 才是跳别的页。别把它写成必填。
+export type NavTarget = string | { path?: string; query?: Record<string, unknown> }
 
 export interface RouteState {
   path: string
@@ -63,7 +65,11 @@ function withQuery(page: string, query: Record<string, unknown>): string {
 
 /** 把 web 路由（`/comic/3`、`{path:'/search',query:{keyword:'x'}}`）解析为 uni 页面地址 */
 export function toUniUrl(to: NavTarget): string {
-  let path = typeof to === 'string' ? to : to.path
+  // ⚠️ `{ query }`（**只给 query、不给 path**）是 vue-router 的写法，语义是「在**当前路径**上改查询」——
+  // 分类页的筛选/搜索就是这么调的（`router.replace({ query: {...} })`）。缺省 path 即取当前路由的
+  // path；少了这个兜底，path 是 undefined，下面 `path.indexOf('?')` 直接抛 TypeError，
+  // 调用方那句 `load()` 再也执行不到 → 点标签只动高亮、不查数据（2026-09-22 修）。
+  let path = typeof to === 'string' ? to : (to.path || route.path)
   const query: Record<string, unknown> = typeof to === 'string' ? {} : { ...(to.query ?? {}) }
 
   const qi = path.indexOf('?')
