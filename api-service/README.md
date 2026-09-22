@@ -1,161 +1,100 @@
-# api-service HTTP API 服务（FastAPI）
+# api-service（FastAPI）
 
-漫画聚合平台的**业务服务层**（架构方案 §4「网关 + 微服务」的落地示例）：
-读取采集服务（crawler-service）落库的数据（唯一存储：MySQL），对外暴露 RESTful 接口，并**同源托管前端构建产物**。
+对外 REST API + **同源托管前端构建产物**；读取 crawler-service 落库的数据（唯一存储：MySQL）。
+装配入口 `main.py` **只做三件事**：建 app → `include_router` → 挂载前端 dist。
 
-## 运行
-
-```bash
-# 依赖（复用 crawler-service 的 Python venv）
-python -m pip install -r requirements.txt
-
-# 前置：先构建前端（仓库不带 dist，clone 后请先 cd comic-web && npm install && npm run build）
-#       数据库容器需在跑（docker compose -f deploy/docker-compose.yml up -d comic-mysql；
-#       本项目独占实例，连接参数自动读 deploy/.env —— 见 crawler-service/README.md「存储」），
-#       仓库不带数据文件，请先在 crawler-service 目录执行 cli run 采集入库
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
-```
-
-启动后：
-- **API 文档**：http://127.0.0.1:8000/docs （FastAPI 自动生成 Swagger）
-- **站点**：http://127.0.0.1:8000/ （前端 dist，底部标注"已连接采集服务"）
-
-## 代码结构（分层，2026-09-11 拆分）
-
-`main.py` 只做**应用装配**（建 app → 挂路由 → 托管静态产物），其余按层归位：
+## 模块架构
 
 ```
 api-service/
-├── main.py             # 装配入口：FastAPI 实例 + CORS + include_router + 静态托管
-├── core/               # 基础设施层（无业务逻辑）
-│   ├── config.py       #   路径常量 + sys.path 引导（必须最先导入）
-│   ├── db.py           #   存储句柄单例：db（漫画侧）/ users（用户中心）
-│   ├── security.py     #   认证：bcrypt + JWT + get_current_user 依赖
-│   ├── logging_setup.py #   日志初始化：自家日志加时间戳 + 轮询/探活接口不进访问日志
-│   └── responses.py    #   统一响应 ok() = {code, message, data}
-├── schemas.py          # 请求体模型（Pydantic）
-├── serializers.py      # 领域对象 → 前端驼峰契约（to_comic/to_chapter/to_page/user_out）
-├── services/           # 业务动作层（不绑定路由，可被 router / 任务复用）
-│   ├── images.py       #   图片读取（魔数判型）+ SVG 占位图 + admin_image_store()
-│   ├── tasks.py        #   后台任务注册表（采集/转存走线程 + 轮询）
-│   └── sources.py      #   数据源开关状态（source_state.json）与元信息
-└── routers/            # HTTP 接口层（只做 入参解析 → 调用 → 包封响应）
-    ├── public.py       #   健康/分类/作品/章节/封面/正文图（免登录）
-    ├── auth.py         #   注册/登录/当前用户
-    ├── users.py        #   收藏（需登录）/ 阅读历史（匿名 userId）
-    ├── admin.py        #   采集管理台（需管理员：超管或普通管理员）
-    └── admin_users.py  #   授权页：用户列表 + 授权/取消授权（**仅超级管理员**）
+├── main.py            # 仅装配：建 app → include_router → 托管 dist（挂载必须在最后，避免 "/" 抢走 API 路由）
+├── core/              # 基础设施（无业务）
+│   ├── config.py      #   路径引导（把 crawler-service/src 加入 sys.path）+ DIST_DIR / STATE_FILE
+│   ├── db.py          #   两个进程级单例：db（MySQLStorage）· users（MySQLUserStore）
+│   ├── security.py    #   bcrypt · JWT · get_current_user / get_optional_user · 两道门
+│   └── responses.py   #   统一响应信封
+├── schemas.py         # 请求体模型（入参**形状**边界）
+├── serializers.py     # 领域对象 → 前端驼峰契约
+├── services/          # 业务动作（不绑定路由，可被 router / 后台任务复用）
+│   ├── images.py      #   图片读取（魔数判型）+ SVG 占位图 + admin_image_store()
+│   ├── tasks.py       #   后台任务注册表（内存 + threading + 前端轮询）
+│   ├── sources.py     #   数据源开关状态（source_state.json）与元信息
+│   ├── ondemand.py    #   源站搜索 / 按需导入 / 读时登记页清单 / 穿透取图
+│   ├── logs.py        #   运行日志查询（log_record）
+│   └── accounts.py    #   授权页：用户列表 + 设置角色
+└── routers/           # HTTP 入口（只做 入参解析 → 调用 → 包封响应）
+    ├── public.py      #   健康 / 分类 / 作品 / 章节 / 封面 / 正文图（免登录）
+    ├── auth.py        #   注册 / 登录 / 当前用户
+    ├── users.py       #   收藏（需登录）/ 阅读历史（登录→账号、游客→匿名）
+    ├── admin.py       #   采集管理台 + 日志查询（`require_admin`）
+    └── admin_users.py #   授权页（`require_superadmin`，仅超管）
 ```
 
-> 新增接口：写进对应域的 `routers/*.py`；逻辑放 `services/`；入参模型放 `schemas.py`；
-> 跨层工具放 `core/`。**不要让 `main.py` 重新变胖。**
+**响应格式**：成功统一 `{ code, message, data }`（`code: 0`）；失败走 `HTTPException` → `{"detail": "..."}`
+（Pydantic 校验失败是 `{"detail": [{loc, msg}]}`，故**带中文提示的策略校验写在 router**）。
+**入参边界**：`max_length` / `ge` / `Literal` 这类形状约束放 `schemas.py`（越界 → **422**）。
 
-## 接口一览（统一响应格式 `{ code, message, data }`）
+## 接口一览
 
-> **成功**统一 `{ code, message, data }`（`code: 0`）；**失败**走 FastAPI 的 `HTTPException` →
-> `{"detail": "..."}`（Pydantic 校验失败则是 `{"detail": [{"loc": …, "msg": …}]}`）。
-> 前端 `comic-web/src/api/request.ts` 的 `errorMessage()` 优先取 `detail` 再取 `message` ——
-> 所以后端的中文提示能原样显示给用户。
-> ⚠️ 曾经只读 `message`：读不到就退化成 axios 的 `Request failed with status code 401`，
-> 用户只看到一句没信息量的状态码（2026-09-18 因此被误判成"注册失败"）。
+| 端点 | 作用 |
+|---|---|
+| `GET /api/health` | 服务状态 + 库内统计（comics/chapters/pages/views） |
+| `GET /api/categories` | 分类与作品数（含「全部」） |
+| `GET /api/comics?category=&keyword=&sort=updated\|views&page=&page_size=` | 作品列表：分类 / 关键词 / 排序 / 分页（`sort=views` = 按热度倒序，同分再按最近更新倒序） |
+| `GET /api/comics/{id}` | 作品详情（**浏览次数 +1 落库**后返回，`heat` 含本次访问） |
+| `GET /api/comics/{id}/chapters` | 章节列表（`chapter_no` 升序；**不含页数**，原因见 crawler-service README） |
+| `GET /api/chapters/{id}/pages` | 分页图片列表；库内还没有页清单时**现场登记一次**（首次打开这一话才产生） |
+| `GET /api/covers/{id}` | 封面（真实文件优先，缺失生成 SVG）；`Cache-Control: max-age=3600` + `ETag`，占位图 `no-store` |
+| `GET /api/images/{comic_id}/{chapter_id}/{page_no}` | 分页图**三级兜底**：本地图库 → **穿透源站取这一张并顺手落盘** → SVG 占位。命中图库时 7 天长缓存 |
+| `GET /api/sources/search?q=&source=&limit=` | 搜索**源站**（只读不写库），按源分组；带 `inLibrary`/`comicId`，供前端显示「已收录」或「导入并阅读」。单源失败静默跳过 |
+| `GET/PUT/DELETE /api/users/{user_id}/favorites[/{comic_id}]` | 收藏查询 / 添加 / 取消（`PUT` 幂等）；**需登录**，归属以 token 为准 |
+| `GET/PUT /api/users/{user_id}/history` · `DELETE .../history/{comic_id}` | 阅读历史：查询 / 写进度 / 删除。归属：带 token → 账号 id，否则匿名 id；写入先校验章节属于该作品（不匹配 404） |
+| `GET /api/admin/sources` · `POST /api/admin/sources/{name}/toggle` | 数据源列表（启用态 / 库内数 / 上次同步）/ 切换采集开关（持久化，重启不丢） |
+| `POST /api/admin/sync` | 触发采集，body `{source, mode, since?, limit?}`（`since` **优先于同步水位**），返回 `taskId` |
+| `POST /api/admin/inspect` | 触发**全库**失效巡检（全库维护的唯一入口），body `{source?, since?, until?}`。三步：转存未转存页 + **全表**校验已转存对象（缺失恢复）+ 全库封面自愈 |
+| `POST /api/admin/import` | **按需导入单部作品**，body `{source, keyword?\|ref?\|source_comic_id?}`（三选一定位）。收录榜单之外的作品、全量收目录、**不下载正文图** |
+| `POST /api/admin/heal-covers` | **按作品强制封面自愈**，body `{keyword, source?}`（`keyword` 必填 = 名称或 ID，可多个）。跳过「文件在即健康」判断，专治**「封面文件在但内容是错的」** |
+| `GET /api/admin/tasks[/{task_id}]` | 后台任务状态轮询（running / done / failed + 结果统计） |
+| `GET /api/admin/logs` | 运行日志查询（`log_record`）：级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / 时间窗 + 分页 |
+| `GET /api/admin/logs/{id}` · `/options` · `POST /logs/purge?days=` | 单条日志（含堆栈全文）· 筛选候选值 · 删除 N 天前的日志 |
+| `GET /api/admin/users` · `POST /api/admin/users/{id}/role` | 授权页：用户列表（关键字 + 分页）· 设置角色（`admin` / `user`；**改自己会被拒**） |
 
-| 端点 | 说明 | 对应架构方案 |
-|---|---|---|
-| `GET /api/health` | 服务状态 + 库内统计（comics/chapters/pages/views） | 网关健康检查 |
-| `GET /api/categories` | 分类与作品数（含"全部"） | 浏览服务 |
-| `GET /api/comics?category=&keyword=&sort=updated\|views&page=&page_size=` | 作品列表：分类/关键词/排序/分页（`sort=views` = 按热度倒序，**同分再按最近更新时间倒序**） | `GET /api/comics` |
-| `GET /api/comics/{id}` | 作品详情（**浏览次数 +1 落库**后返回，返回的 `heat` 含本次访问） | `GET /api/comics/{id}` |
-| `GET /api/comics/{id}/chapters` | 章节列表（orderNo 升序；**不含页数**，见 crawler-service README） | `GET /api/comics/{id}/chapters` |
-| `GET /api/chapters/{id}/pages` | 分页图片列表；**库内还没有页清单时现场登记一次**（采集 / 按需导入都只写 `comic`+`chapter`、不登记页清单，用户首次打开这一话才产生） | `GET /api/chapters/{id}/pages` |
-| `GET /api/covers/{id}` | 封面（真实文件优先，缺失生成 SVG） | 图片服务 |
-| `GET /api/images/{comic_id}/{chapter_id}/{page_no}` | 分页图**三级兜底**：本地图库命中 → **穿透源站取回这一张并顺手落盘**（下次走本地）→ 都失败才给 SVG 占位。所以「未转存」的图用户也能立刻看到，不用等整话下载 | 图片服务 |
-| `GET /api/sources/search?q=&source=&limit=` | **搜索源站**（只读、不写库），按源分组返回；命中项带 `inLibrary`/`comicId`，供前端显示「已收录，直接打开」或「导入并阅读」。单源失败静默跳过，5 分钟结果缓存 | 搜索页「其他来源」 |
-| `GET/PUT/DELETE /api/users/{user_id}/favorites[/{comic_id}]` | 收藏查询/添加/取消（`PUT` 幂等） | 用户中心 |
-| `GET/PUT /api/users/{user_id}/history` · `DELETE /api/users/{user_id}/history/{comic_id}` | 阅读历史：查询（含作品+章节信息）/写入进度/删除 | 用户中心 |
-| `GET /api/admin/sources` · `POST /api/admin/sources/{name}/toggle` | 数据源列表（enabled/库内数/上次同步）/ 开关采集（持久化 `source_state.json`） | 采集管理控制台 |
-| `POST /api/admin/sync` | 手动触发采集，body `{source, mode, since, limit}`，返回 `taskId`（后台线程执行） | 采集管理控制台 |
-| `POST /api/admin/inspect` | 手动触发**全库**失效巡检（**全库维护的唯一入口**），body `{source?, since, until}`（`source` 可选，管理台不传 = 全库），返回 `taskId`。三步：转存未转存页 + 全表校验已转存对象（缺失恢复）+ 全库封面自愈 | 采集管理控制台 |
-| `POST /api/admin/import` | **按需导入单部作品**，body `{source, keyword?\|ref?\|source_comic_id?}`（三选一定位），返回 `taskId`。与采集相反：收录**榜单之外**的作品、**全量收目录**、**不下载正文图**。失败原因（站内搜不到 / 源站取不到图）写在任务 `message` 里 | 搜索页 / 管理台 |
-| `GET /api/admin/tasks[/{task_id}]` | 后台任务状态轮询（running/done/failed + 结果统计） | 采集管理控制台 |
-| `GET /api/admin/logs` | **运行日志查询**（`log_record` 表）：级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / `since`·`until`（含当天）+ 分页 | 管理台「日志查询」页 |
-| `GET /api/admin/logs/{id}` | 单条日志（含异常堆栈全文；列表接口不带） | 同上（点开某行） |
-| `GET /api/admin/logs/options` | 筛选候选值（级别 / 事件类型） | 同上 |
-| `POST /api/admin/logs/purge?days=` | 删除 N 天前的日志（保留策略的手动入口） | 同上（「清理 30 天前」） |
-| `GET /api/admin/users` | **授权页**用户列表（关键字匹配用户名 / 昵称 + 分页） | 管理台「授权」页 |
-| `POST /api/admin/users/{id}/role` | 设置角色（`admin` / `user`）→ 授权 / 取消授权；**改自己会被拒**（400，防自锁） | 同上 |
+## 基础命令
 
-> 匿名用户模型：前端首次访问生成 `userId`（localStorage 持久化），收藏与历史按用户隔离；
-> 服务端历史支持**跨浏览器续读**（换设备/浏览器登录同一 userId 即可继续上次阅读）。
+```bash
+# 起服务（本文件自动把 crawler-service/src 加入 sys.path，无需设 PYTHONPATH）
+cd api-service
+../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 
-## 关键设计
-
-- **热度（`heat`）为实时计算，不落库**：公式 `1000（起底） + 浏览次数×1 + 收藏数×2`，
-  权重唯一定义在 `comic_crawler.storage.mysql`（`_util.py`）（`HEAT_BASE` / `HEAT_PER_VIEW` /
-  `HEAT_PER_FAVORITE` + `heat_sql()`）。库里只存真实计数 `comic.views` 与 `favorite` 关系，
-  因此**调整权重无需回填历史数据**，收藏/取消也天然即时反映。详情端点每次访问
-  `UPDATE comic SET views = views + 1`（落库，进程重启不丢）。⚠️ 统计收藏数用
-  `COUNT(DISTINCT f.user_id)`（`favorite` 一行 = 一对用户/漫画；`f.id` 是自增代理主键，
-  按它计数会把同一部漫画的多条收藏算成多个）。
-- **复用 Storage 抽象**：`main.py` 自动把 `crawler-service/src` 加入 `sys.path`，
-  使用 `MySQLStorage` 的只读查询（`list_comics/get_comic/get_chapters/get_pages`），
-  与采集服务共用一套存储接口（`Storage` 抽象作为契约）；
-- **同源部署**：`app.mount("/", StaticFiles(comic-web/dist))`，前端与 API 同一端口，
-  无 CORS / 代理问题；开发模式前端走 Vite proxy（见 comic-web/vite.config.ts）。
-  注意：`comic-web/dist` **不随仓库分发**，clone 后需先构建前端，否则 `/` 无内容；
-- **图片回退链**：已转存 OSS 文件（真实图片字节）→ 本地生成 SVG 占位图。
-  接真实源站后转存文件即为真实漫画图，占位逻辑自动失效；
-- **视图计数**：内存计数器（演示版），生产换 Redis 计数器。
-
-## 采集管理控制台（`/api/admin/*`）
-
-面向本机运维的采集控制台（前端 `/#/admin`，**需管理员角色**：超管或普通管理员；未登录 401 / 权限不足 403，见 `docs/auth.md` §8）。采集/巡检耗时，故用**后台线程执行 + 前端轮询**（`_run_admin_task`），触发后立即返回 `taskId`，再轮询 `GET /api/admin/tasks/{id}` 取结果。
-
-- **按源开关**：`POST /api/admin/sources/{name}/toggle` 切换某源采集启用状态，持久化到 `paths.SOURCE_STATE_FILE`（= `crawler-service/data/source_state.json`，与图库同一个运行时数据目录；容器内是 bind 过来的 `/data/source_state.json`），重启不丢（默认读 `config.SOURCES.enabled`）；关闭的源拒绝触发采集（400）。
-- **触发采集**：`POST /api/admin/sync`，`since`（ISO，起始日期）**优先于上次同步水位**——留空按水位、填了按填的日期回补/前移；`limit` 限制本次收录数量（受控样本）。
-- **触发失效巡检（全库维护的唯一入口）**：`POST /api/admin/inspect`，body `{source, since, until}`，三步：
-  1. **转存未转存页**（`inspect_sync` 内部即 `lazy_transfer`）：`since/until` 按章节 `sync_time`（DATETIME）窗口过滤，**语义是把窗口内所有未转存页全部转存**；边界**双端含**（`until` 只给日期时**含当天全天**）；
-  2. **全表校验已转存对象 + 丢失恢复**：按 `id` **键集分页遍历全表**（每次 1000 条 + 游标推进，**不会被固定条数截断**），能发现图库文件被误删/写错目录；
-  3. **全库封面自愈**（`heal_covers`，透传 `source`）—— 原挂在已删除的「触发转存」上，2026-09-21 并入巡检。
-
-  结果摘要为 `校验 N | 转存 N | 恢复 N | 失效 N`。**管理台只提供「全库」一个入口**（页面顶部一块面板，不随源卡片复制）；`source` 是可选参数，供 CLI / 脚本做单源巡检。
-  - ⚠️ **独立的「触发转存」接口已删除**（`POST /api/admin/transfer`，2026-09-21）：巡检第 1 步本就是 `lazy_transfer`，单独按钮是它的子集、无独立价值；原挂在转存上的「全库封面自愈」已并入巡检。CLI 的 `transfer-images` 与 `lazy_transfer` 函数保留。
-  - ⚠️ **定时巡检（`scheduler` 里的 `inspect_sync`）不含第 3 步**（封面自愈是本接口在 job 里额外调的），避免每小时多打源站请求。
-- **触发按作品封面自愈**：`POST /api/admin/heal-covers`，body `{keyword, source?}`。`keyword` **必填、不允许留空** —— 漫画**名称或 ID**，可一次填多部（逗号 / 空格 / 换行分隔，混填即可）；后端拆成 id（纯数字）与名称子串两组，**OR 命中**（`Storage.find_comics`），再 `force=True` 调 `heal_covers` **强制回源重抓封面并覆盖**。只修封面、**不转存正文页**（管理台页面顶部「封面自愈 · 指定作品」面板）；后台任务类型 `heal`，结果 `{checked, healed, failed, skipped}`。
-  - 与巡检里那次封面自愈的区别：巡检自愈只看「文件在不在」（错图会被当健康跳过）；本入口 `force=True` **跳过该判断**，专治**「封面文件在、但内容是错的」**。留空 `keyword` → `400`。
-- 数据层支撑（crawler-service）：`incremental_sync/full_sync` 增加 `since` 参数；`lazy_transfer`/`list_uncached_pages` 增加 `source` 按源过滤；`list_comics` 增加 `source` 过滤；新增 `find_comics`（按 id 集合 / 标题子串取行，供按作品自愈筛选）；`heal_covers` 增加 `force` / `comic_ids` / `title_like`。
-
-> 采集任务结果以 `{stats, summary, db}` 存入 `result`；巡检任务为 `{checked, transferred, verified, recovered, invalid, coverHeal, pagesByStatus}`（`coverHeal` = `{checked, healed, failed, skipped}`）；封面自愈任务（`heal`）为 `{checked, healed, failed, skipped}`。
-
-## 测试（`tests/`）
-
-跑全部：仓库根 `./scripts/check.sh`（= crawler 单测 + api 分层守卫 + `tsc --noEmit`），
-或只跑这一层：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m unittest discover -s tests`。
-单跑某个文件：`-m unittest tests.test_admin_authz`（或直接 `python tests/test_admin_authz.py`）。
-
-约定：**单测纯逻辑、不连库、不起 HTTP** —— 需要存储时把 `core.db` 换成假存储。
-⚠️ **假存储只有一份**：`tests/_stub_db.py`，用它的测试文件在**导入应用模块之前**调 `install_stub()`。
-
-> 为什么必须共用：`unittest discover` 把所有测试文件跑在**同一个进程**里，而
-> `sys.modules['core.db']` 是进程级全局；应用模块写的是 `from core.db import db`
-> （**导入时绑定值**），所以先触发 `serializers` / `routers.*` 导入的那份桩会"锁死"后面的绑定 ——
-> 两个文件各造一份桩必然互相污染（表现为另一个文件断言"一次批量查询都没有"的假失败）。
-> 详见 `tests/_stub_db.py` 文件头。
-
-## 数据流闭环
-
-```
-crawler-service（采集/去重/入库）→ MySQL → api-service（RESTful API）
-                                                     ↓ 同源
-                                    comic-web（前端 dist，读 /api 真实数据；dist 不随仓库分发）
+# 单测（纯逻辑：不连库、不起 HTTP）
+../crawler-service/.venv/Scripts/python.exe -m unittest discover -s tests -t tests
 ```
 
-在 `crawler-service` 目录执行 `cli run` 后，刷新前端即可看到新入库内容 ——
-这就是架构方案「源站一更新，本站几分钟内可见」的最小闭环。
+- 站点 http://127.0.0.1:8000/ ；接口文档 http://127.0.0.1:8000/docs
+- 上线用 Docker Compose（见 `../docs/deploy.md`）；**必须单进程**，原因见 `docs/deploy.md` §8。
 
-已接入真实源站（需联网采集，见 crawler-service/README.md）：**再漫画 zaimanhua（主源，H5 通道，
-学习用受控样本）**、**MangaDex（v5 API，学习用受控样本，config 中 `enabled=False`，
-仅手动 `run --source mangadex`）**、**WeebCentral（学习用受控样本）**。图片有**两条**取回路径：① 管理台「触发巡检」批量预转（`/api/admin/inspect`）；
-② **读时穿透** —— `/api/images/...` 本地没有就现场从源站取回这一张并落盘（签名过期会自动重签），
-所以「未转存」的图在用户点开时也能立刻显示，不需要先等一整话下载完。
-自 2026-09-12 起 `/api/covers/{id}`、`/api/images/{cid}/{chid}/{pno}` 返回的都是**真实图片字节**（非 SVG 占位），
-只有在源站也取不到时才回退占位图。
+## 约定
+
+- **分层**：新增接口进 `routers/*`、业务逻辑进 `services/`、入参模型进 `schemas.py`、跨层工具进 `core/`。
+  **不要让 `main.py` 重新变胖**；新模块未归层会被 `tests/test_layering.py` 拦下。
+- **存储复用 crawler 的契约**：只用 `Storage` / `UserStore` 抽象（当前实现 `MySQLStorage`），取连接走
+  **共享连接池**（crawler-service 的 `storage/mysql/_pool.py`，每进程一份、上限 20）。
+  改 SQL 时按「面向大数据量」自查：批量取对象用 `get_comics_by_ids` / `get_comic_tags_bulk`，禁止 N+1。
+- **鉴权两道门**：管理台与日志挂 `require_admin`（超管 + 普通管理员），授权页挂 `require_superadmin`（**仅超管**）
+  —— 未登录 401 / 权限不足 403；**角色不写进 token**（每请求查库，改完立刻生效）。详见 `docs/auth.md` §8。
+- **收藏 vs 历史两套身份口径**：收藏必须登录、一律以 token 的 `user.id` 为准；历史对游客开放（带 token 时归属账号）。
+  详见 `docs/auth.md` §9。
+- **热度不落库**：公式 `1000 + 浏览×1 + 收藏×2`，权重唯一定义在 `comic_crawler.storage.mysql._util`（`HEAT_*` + `heat_sql()`）；
+  库里只存真实计数。⚠️ 统计收藏数用 `COUNT(DISTINCT f.user_id)`，**不能用 `f.id`**。
+- **图片**：DB 只存图库内相对 key；响应带缓存头（封面 1 小时 + `ETag`、正文页 7 天、**占位图 `no-store`**）；
+  穿透取图的三道约束（并发 / 去重 / 负缓存）见 `crawler-service/README.md`。
+- **管理台后台任务**：采集 / 巡检 / 导入都是**长任务**，用 `services/tasks.py` 的 `threading.Thread` + 内存任务表执行，
+  触发后立即返回 `taskId`，前端轮询取结果。⚠️ **任务表在内存里 → 不能多进程**（见 `docs/deploy.md` §8）；
+  ⚠️ 这些任务在 **api 进程内**直接调 `comic_crawler`，**改完 crawler-service 必须重启后端**。
+- **测试纯逻辑**：不连库、不起 HTTP；需要存储时把 `core.db` 换成假存储。
+  ⚠️ **假存储只有一份**（`tests/_stub_db.py`），用它的测试文件必须在**导入应用模块之前**调 `install_stub()`
+  —— 所有测试跑在同一进程里，两份桩会互相污染。
+
+---
+
+> 修复过程与验证记录写在 `.workbuddy/memory/YYYY-MM-DD.md`，不进本文件。

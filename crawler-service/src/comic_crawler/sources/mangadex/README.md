@@ -18,47 +18,50 @@
 | 章节图分发 | `GET /at-home/server/{chapter_id}` → 顶层 `{baseUrl, chapter:{hash,data[]}}`（**无外层 `data`**，见下 §⚠️） |
 | 封面 | `https://uploads.mangadex.org/covers/{manga_id}/{fileName}`（顺带 cover_art 关系给出） |
 
-## 各 API 参数说明
+### 各接口关键参数
 
-### ① GET /manga —— 漫画级列表
+**① GET /manga —— 漫画级列表**
+
 | 参数 | 本实现取值 | 可选值 / 说明 |
 |---|---|---|
 | `order[latestUploadedChapter]` | `desc` | 按最新上传章节倒序（「最近更新」语义）；也可 `order[followedCount]/rating/year/createdAt` 换排序 |
 | `hasAvailableChapters` | `true` | 只留有可读章节的漫画 |
 | `availableTranslatedLanguage[]` | `zh` | 译本语言过滤（多值：zh/en/ja…）；feed 层另按 `availableTranslatedLanguages` 做三级兜底（见「语言策略」） |
-| `originalLanguage[]` | — | 原作语言过滤（未用） |
 | `includes[]` | `cover_art` | 顺带返回的关系（cover_art/author/artist/tag） |
-| `contentRating[]` | **已去掉** | safe/suggestive/erotica/pornographic 分级过滤（2026-09-08 移除） |
-| `status` / `year` / `title` | — | 连载状态 / 年份 / 标题模糊搜索（未用） |
-| `includedTags[]`/`excludedTags[]` | — | 按 tag UUID 过滤（未用） |
-| `publicationDemographic[]` | — | shounen/shoujo/seinen/josei 读者群（未用） |
 | `limit` / `offset` | 25 / 翻页 | limit ≤100；本实现增量翻至窗口边界停、全量翻到 10 页安全阀 |
 | ⚠️ 不存在 | — | **无 `latestUploadedChapterSince` 这类时间过滤** → 窗口必须靠逐部查最新章时间实现 |
 
-### ② GET /chapter —— 章节级查询（本实现：查最新章时间）
+其它可用但未用：`originalLanguage[]`（原作语言）、`status`/`year`/`title`、`includedTags[]`/`excludedTags[]`、
+`publicationDemographic[]`；`contentRating[]`（safe/suggestive/erotica/pornographic 分级过滤）**已去掉**。
+
+**② GET /chapter —— 章节级查询（本实现：查最新章时间）**
+
 | 参数 | 本实现取值 | 可选值 / 说明 |
 |---|---|---|
 | `manga` | {uuid} | 按漫画 UUID 过滤章节 |
 | `order[publishAt]` | `desc` | 按公开时间倒序取最新 1 条 |
 | `limit` | 1 | 只取最新一章 |
 | `translatedLanguage[]` / `contentRating[]` | — | 可选过滤（不带 = 全语言/全分级） |
-| ⚠️ 不支持 | — | `includeFuturePublishAt`、`includeExternalUrl` 在该端点会 **400**（曾踩坑） |
+| ⚠️ 不支持 | — | `includeFuturePublishAt`、`includeExternalUrl` 在该端点会 **400** |
 
-### ③ GET /manga/{id} —— 单部详情
+**③ GET /manga/{id} —— 单部详情**
+
 | 参数 | 说明 |
 |---|---|
 | `includes[]` | cover_art/author/artist（本实现用）——注意 **tag 不在此**（在 `attributes.tags`，`includes[]=tag` 无效） |
 
-### ④ GET /manga/{id}/feed —— 章节 feed
+**④ GET /manga/{id}/feed —— 章节 feed**
+
 | 参数 | 本实现取值 | 说明 |
 |---|---|---|
 | `translatedLanguage[]` | 依次 zh → en → 其它可用语言 | 译本语言；**命中即停**（逐语言请求，见「语言策略」） |
-| `contentRating[]` | 全部 4 值 | ⚠️ **必填**，缺省 400。取值：`safe`/`suggestive`/`erotica`/`pornographic`（**返回范围 = 声明范围**）；改分级只改代码常量 `CONTENT_RATINGS` 即可 |
+| `contentRating[]` | 全部 4 值 | ⚠️ **必填**，缺省 400。取值：`safe`/`suggestive`/`erotica`/`pornographic`（**返回范围 = 声明范围**）；改分级只改代码常量 `CONTENT_RATINGS` |
 | `order[volume]` / `order[chapter]` | `asc` | 按卷/话升序取全表，解析后反转成「最新在前」 |
 | `includeExternalUrl` / `includeFuturePublishAt` | `0` | 布尔须用 `0/1`（`false` 400） |
 | `limit` | 500 | 单次最多返回条数 |
 
-### ⑤ GET /at-home/server/{chapter_id} —— 章节图分发
+**⑤ GET /at-home/server/{chapter_id} —— 章节图分发**
+
 | 项 | 说明 |
 |---|---|
 | 路径参数 | chapter UUID（必填） |
@@ -66,8 +69,9 @@
 | 返回 | 顶层 `{result, baseUrl, chapter:{hash, data[], dataSaver[]}}`（**无外层 data**）；原图取 `data`，缩略图在 `dataSaver` |
 | 图片 URL | `{baseUrl}/data/{hash}/{file}`（短时效 → 过期重拉本端点换新） |
 
-### 封面静态域（非 API）
+## 封面静态域（非 API）
 `https://uploads.mangadex.org/covers/{manga_id}/{fileName}` —— 无请求参数，cover_art 关系的 `fileName` 直接拼。
+列表项顺带从 cover_art 关系解析封面（免详情页二次请求）。
 
 ## 模型映射
 - 1 部漫画 = manga 记录 → comic 表（`source_comic_id` = manga UUID）
@@ -77,24 +81,23 @@
 
 ## 关键机制
 - **时间窗口（方案 B，精确到章）**：列表按 `latestUploadedChapter` 倒序返回，但该字段是
-  chapter **UUID 而非时间**（`updatedAt` 是元数据修改时间、不可作窗口基准，曾误用显示
-  出 2025-11 旧日期假象）——故列表对每部漫画**逐部查 `/chapter?order[publishAt]=desc&limit=1`
+  chapter **UUID 而非时间**（`updatedAt` 是元数据修改时间、不可作窗口基准，会显示出
+  旧日期假象）——故列表对每部漫画**逐部查 `/chapter?order[publishAt]=desc&limit=1`
   取最新章真实 `publishAt`** 作 `source_updated_at` 供 since 过滤（受控低频，25 部约 2-3 分钟）。
-- **翻页至窗口边界（2026-09-08）**：增量模式不固定页数——列表按最新章时间倒序，调度器
-  持续翻页；当某一页**没有任何窗口内作品**（`items` 空，即全部最新章早于 since）即视为已
-  越过边界，`has_next=False` 停止（避免当天更新 >1 页时漏采）。无 since（full/首采）翻到
-  `MAX_LIST_PAGES=10` 安全阀为止。
+- **翻页至窗口边界**：增量模式不固定页数——列表按最新章时间倒序，调度器持续翻页；当某一页
+  **没有任何窗口内作品**（`items` 空，即全部最新章早于 since）即视为已越过边界，`has_next=False`
+  停止（避免当天更新 >1 页时漏采）。无 since（full/首采）翻到 `MAX_LIST_PAGES=10` 安全阀为止。
 - **图床时效**：at-home 分发的 URL 短期有效，与 zaimanhua 图床同构 ——
   懒转存过期时经 `fetch_source_page_urls` 重新分发兜底。
 - **语言**：**优先中文 · 英文兜底**（详见下「语言策略」小节）——分两层口径：
   列表层只收中文译本；同一部漫画内的章节/标题/描述走 `zh → en` 降级。
 - **受控参数**：`LIST_LIMIT=25`、`MAX_LIST_PAGES=10`（安全阀）、`FEED_LIMIT=500`、`MIN_DELAY=0.6s`；
-  列表不带分级；feed 端点带 `contentRating[]` 全部 4 值（`CONTENT_RATINGS` 常量，**必填否则 400**）；排除 externalUrl 外链章节。
-- 列表项顺带从 cover_art 关系解析封面（免详情页二次请求）。
+  列表不带分级；feed 端点带 `contentRating[]` 全部 4 值（`CONTENT_RATINGS` 常量，**必填否则 400**）；
+  排除 externalUrl 外链章节。
 - **可读性探测（`_readable_head`）**：detail 时向前探测若干章 at-home 图数，把「真正有图
   可读」的最新章放到 chapters 首位——规避个别无图/站外托管章被当成最新话导致首采 0 页。
 
-## 语言策略（中文优先 · 英文兜底 · 其它语言再兜底，2026-09-12 修订）
+## 语言策略（中文优先 · 英文兜底 · 其它语言再兜底）
 
 MangaDex 里「同一话中英双语」与「多语言字段」是两层概念，处理方式不同，因此分为
 **列表层**与**字段层**两个口径：
@@ -124,22 +127,13 @@ for lang in self._pick_langs(attrs.get("availableTranslatedLanguages")):
 重复入库，`_chapter_key` 卷×1000+话×10 保持唯一）；无中文退英文；**zh/en 都取不到时
 再退该作品的其它语言**。列表层同理用 `availableTranslatedLanguage[]=["zh"]`，只列有中译本的漫画。
 
-### ⚠️ 为什么章节 feed 不能只看 zh/en（2026-09-12 实测踩坑）
-
+### ⚠️ 为什么章节 feed 不能只看 zh/en
 **官方授权作品**（如「杜鹃的婚约」`4e7a4a0f-8391-4069-839b-de2352297dab`）的
 zh/en 章节往往是 **external 外链**（指向 `kmanga.kodansha.com` 等官方阅读站，
-**MD 不托管图片**），被 `includeExternalUrl=0` 正确排除后：
-
-| 查询 | 条数 |
-|---|---|
-| `translatedLanguage[]=zh` | **0** |
-| `translatedLanguage[]=en` | **0**（该作品 8 条 en 章节全是外链） |
-| `includeExternalUrl=1`（不过滤） | 8 条，**全是 external**（无图可读） |
-| 该作品实际可读 | **pt-br 77 条 + es 66 条**（扫描组译本，MD 托管有图） |
-
-若只试 zh/en，`fetch_comic_detail` 会返回 **0 章节** → 按需导入的
-`_probe_readable` 探测失败 → 判为「源站取不到图」而拒绝导入；
-但用户登 MD 站点**确实能看到章节列表**（看到的是那些外链章节）——
+**MD 不托管图片**），被 `includeExternalUrl=0` 正确排除后 zh 与 en 均返回 0 条，
+而该作品实际可读的是 pt-br / es 等扫描组译本。若只试 zh/en，`fetch_comic_detail`
+会返回 **0 章节** → 按需导入的 `_probe_readable` 探测失败 → 判为「源站取不到图」而
+拒绝导入；但用户登 MD 站点**确实能看到章节列表**（看到的是那些外链章节）——
 **症状（有数据却读不了）与根因（可读版本在别的语言）方向相反，极易误判为「MD 有问题」**。
 
 故 `_pick_langs()` 在 zh/en 之后补上 `availableTranslatedLanguages` 中的其它语言：
@@ -174,34 +168,13 @@ def _description(d):
 | 标签 | `attributes.tags[].attributes.name`（`_title` 取 zh→en→任意） | 是（zh 优先） |
 | 状态 | `status` 枚举映射：ongoing→连载 等 | 否 |
 
-## 合规红线
-- 本 demo 允许的"站点学习"仅指本地技术演示的受控样本；公开发布需另行授权与合规评估。
-
-## 实测验证记录（2026-09-08 端到端跑通）
-
-在受控样本范围内完成了一次完整的今日增量采集 + 懒转存闭环（种子水位播种到
-昨日 23:59:59，只收"今天更新"的漫画）：
-
-- **增量采集**：`cli run --source mangadex`（读 sync_log 水位）→ **7 部今日漫画**，
-  登记章节页 URL（含 at-home 分发地址）共 **196 页**，封面经 `ensure_cover_local`
-  幂等落盘；
-- **懒转存（2 路并发）**：`cli transfer-images` → `checked:179, transferred:179, failed:0`
-  （179 为本次未转存页数，其余此前已转存），页面状态分布 `已转存:277`（含
-  zaimanhua/mangadex 等当时的各源全部页；demo_source 已于 2026-09-11 移除，此处为当时的记录）；
-- **性能**：2 路并发下 MangaDex 单张 3~5s，179 页全程 **5 分 32 秒** 跑完；
-  串行基线约 45 分钟（瓶颈为境外图床带宽，见 crawler-service/README.md「并发转存」）；
-- **API 真图验证**：`GET /api/images/{mangadex_comic_id}/{chapter_id}/{page_no}` →
-  HTTP 200、`Content-Type: image/jpeg`、`Content-Length: 2,316,275`，文件头
-  `\xff\xd8\xff\xe1`（JPEG SOI），确认非 SVG 占位 —— 前端 5173 可正常展示 MangaDex 真图。
-- 库内总量（当日）：`comic=16, chapter=18, page=277`。
-
-> 验证用的漫画样本《独狼女孩的单相思》(comic=10, chapter=12) 分页图
-> `/api/images/10/12/{1,5,12}` 均已返回 2.08~2.32MB 真实 JPEG。
-
-## ⚠️ at-home 响应结构（2026-09-08 实测修正）
+## ⚠️ at-home 响应结构
 - MD 的 at-home 响应**没有外层 `data`**：顶层直接是 `{result, baseUrl, chapter:{hash, data[]}}`。
-  曾误按 `data.chapter` 解析导致图片恒为空、误判"MD 无图"（实际图完全可下载，见下）。
+  曾误按 `data.chapter` 解析导致图片恒为空、误判"MD 无图"（实际图完全可下载）。
 - 图片 URL = `{baseUrl}/data/{hash}/{文件名}`（dataSaver 缩略图在 `dataSaver` 数组）。
-- 下载无需 Referer（带 Referer: mangadex.org 更稳）；单章实测 27 张、第 1 张 1.09MB PNG 200 OK。
+- 下载无需 Referer（带 `Referer: mangadex.org` 更稳）。
 - 少数官方/授权章的 `data` 确实为空（图在站外官方源），`_readable_head` 会探测可读性把
   有图章提前——但 MD 站内图整体可用，非生态性缺失。
+
+## 合规红线
+- 本 demo 允许的"站点学习"仅指本地技术演示的受控样本；公开发布需另行授权与合规评估。

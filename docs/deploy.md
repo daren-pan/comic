@@ -249,6 +249,17 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000
 
 > 顺带一提：本地开发时后台起的进程会在会话结束时被回收，服务化之后就稳定了。
 
+### 停进程（按 PID，别按镜像名批量杀）
+
+```powershell
+Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object -ExpandProperty OwningProcess
+Stop-Process -Id <pid> -Force
+```
+
+- **后端是父子两个 python 进程，两个都要停** —— 只停父进程会留下子进程继续占着 8000。
+- ⚠️ **禁用 `taskkill /IM python.exe`**：本机还跑着其它 Python 服务（如 MCP 进程），
+  按镜像名批量杀会误伤。
+
 ## 7. 上线前必做（按风险排序）
 
 | # | 事项 | 现状 | 要做什么 |
@@ -271,6 +282,10 @@ API 进程里有两处**进程内状态**，多 worker 会直接出错：
 | `services/sources.py` | `_state` 是内存缓存（落盘文件 `source_state.json`） | **开关不同步**：在 A 关闭的源，B 仍按旧状态执行 |
 
 `tasks.py` 的 docstring 自己也写着"任务表存在内存里（进程重启即清空），对演示用途足够；生产可换 Redis/DB"。
+
+> 附带一条：**连接池也是每进程一份**（crawler-service 的 `storage/mysql/_pool.py`，上限 20）——
+> 多 worker 会把 MySQL 连接数成倍放大，而 `my.cnf` 的 `max_connections = 200` 是硬顶。
+> 这也是暂不扩 worker 的一个附带理由（不是主因，主因是上表那两处进程内状态）。
 
 **要扩到多进程，先做这两件事**：任务表落库（新表或 Redis）、数据源开关每次读文件/库（或加缓存失效）。
 

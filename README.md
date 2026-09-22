@@ -22,6 +22,9 @@ comic/
 │   ├── routers/              #   HTTP 接口分层：public / auth / users / admin
 │   └── schemas.py serializers.py  # 请求体模型 / 领域对象序列化
 ├── comic-web/                # 前端（Vite + Vue3，dist 不随仓库分发，clone 后需先 npm run build）
+├── comic-front/              # 前端 · uni-app 版（Vue3 + Vite + TS；H5 双端优先，小程序/App 预留）
+│                             #   comic-web 的忠实移植：pages.json 路由 + uni.request + 兼容层（utils/），
+│                             #   与 comic-web 相互独立，H5 构建产物 comic-front/dist/build/h5
 ├── tools/                    # 一次性运维脚本（标签回填/规范化等，见 tools/README.md）
 ├── scripts/                  # 一键脚本：初始化/启动/自检/打包（.bat + .sh 双份，见 scripts/README.md）
 ├── deploy/                   # 生产部署（Linux/Docker）：每模块一个文件夹（web/crawler/api/nginx）
@@ -93,6 +96,24 @@ cd comic-web && npm run dev   # Vite dev server（5173），/api 由 Vite 代理
 ```
 > 上线时前端产物会被 `deploy/build.sh` 复制进 `deploy/web/dist`，再 `COPY --from=comic-web` 烘进 API 镜像。
 
+### 前端 · uni-app 版（comic-front，可选）
+
+`comic-front/` 是 `comic-web` 的 **uni-app 移植版**（Vue3 + Vite + TS）—— **与 comic-web 相互独立**，原项目约定与逻辑一律不改。
+它把 `vue-router` → `pages.json` 路由、`axios` → `uni.request`、`localStorage` → `uni.getStorageSync`、
+`window` 自定义事件 → `uni.$emit`，业务逻辑（页面 / 文案 / 接口调用）**忠实照搬**，靠 `src/utils/{router,storage,event}.ts` 兼容层兜住差异。
+
+```bash
+cd comic-front && npm install
+npm run dev:h5        # H5 开发（:5174，/api 代理到 8000；与 comic-web 的 5173 错开，可同时运行）
+npm run build:h5      # H5 构建 → comic-front/dist/build/h5
+npm run dev:mp-weixin # 小程序（产物 comic-front/dist/dev/mp-weixin，用微信开发者工具打开）
+```
+
+> **H5 与小程序（mp-weixin）均已构建通过**；多端适配的做法、约定红线与已知残留风险见
+> [`comic-front/README.md`](comic-front/README.md)（⚠️ 小程序端尚未在真机 / 微信开发者工具里实测）。
+> ⚠️ 依赖须锁 **vue3 线**（`@dcloudio/*` = `3.0.0-5020620260917001`、`vite` 5.2.8、`@dcloudio/types` 3.4.31），
+> 用 `@latest` 会拉到 Vue2 线并报 `@vue/composition-api` 的 ERESOLVE。
+
 ## 数据更新与图片转存
 
 ```bash
@@ -113,6 +134,7 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 - 图库根**唯一真源** `images.store.default_store_root()`：`COMIC_IMAGE_ROOT` → `crawler-service/data/image_store`；**读写两端共用同一函数，不随进程 cwd 漂移**（曾因两端各自解析、优先级相反，导致 DB 有 `oss_url`、文件也落了盘，接口却读不到而全站返回占位图）；
 - **本地直跑与容器共用同一份数据**：容器把 `/data` bind 到同一个宿主目录（`crawler-service/data`，可用 `COMIC_DATA_HOST` 改），所以图库与源开关状态**只有一份** —— 本地转存的图容器立刻能读，反之亦然；服务器上把 `COMIC_DATA_HOST` 指到仓库外的独立盘；
 - 封面落盘由调度同步自动执行（`ensure_cover_local` 幂等自愈），新增适配器无需自行处理封面外链。
+- **响应缓存**：封面 `Cache-Control: max-age=3600` + `ETag`（条件请求换 304）、正文页 **7 天**、占位图 `no-store`。⚠️ 所以**强制自愈换过封面后，浏览器最多还会拿旧图 1 小时** —— 要让某人立刻看到，让他强刷（Ctrl+F5）。
 
 ## 环境变量
 
@@ -138,7 +160,7 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 | `GET /api/sources/search?q=` | 搜索各源站（只读）：搜索页「其他来源」用它找站内没有的漫画 |
 | `GET /api/chapters/{id}/pages` | 分页图 |
 | `GET /api/covers/{id}` · `/api/images/{cid}/{chid}/{pno}` | 封面 / 分页图（真实文件优先，缺失 SVG 占位） |
-| `GET/PUT/DELETE /api/users/{uid}/favorites[/{cid}]` · `history` | 收藏 / 历史（匿名 userId，跨浏览器续读） |
+| `GET/PUT/DELETE /api/users/{uid}/favorites[/{cid}]` · `history` | 收藏 / 历史。**收藏需登录**（归属以 token 为准）；**历史登录后归属账号 id、未登录才用匿名 uuid**（登录后才真正"跨浏览器续读"） |
 
 ## 合规说明
 

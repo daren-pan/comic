@@ -1,305 +1,146 @@
-# comic-crawler 采集服务（骨架实现）
+# comic-crawler 采集服务
 
-漫画聚合平台（架构方案见 `../docs/architecture.md`）的采集层落地代码。
-演示完整链路：**调度 → 抓取 → 解析 → 判重入库（同源精确）→ 图片懒转存 → 失效巡检 → 同步日志**。
+漫画聚合平台的采集层：**调度 → 抓取 → 解析 → 判重入库（同源精确）→ 图片懒转存 → 失效巡检 → 同步日志**。
+只依赖 `CrawlerAdapter` / `Storage` 两套契约；api-service 会在**进程内**直接调用本包（改完本包必须重启后端）。
 
-## 目录结构
+## 模块架构
 
-分层约定：**通用在外、扩展在里；依赖只能由内向外**（`scheduling` → `sources`/`storage`/`images` → 契约 → 通用件），由 `tests/test_layering.py` 断言守卫。
+分层约定：**通用在外、扩展在里；依赖只能由内向外**，由 `tests/test_layering.py` 断言守卫。
 
 ```
 crawler-service/
 ├── src/comic_crawler/
-│   ├── models.py              # L0 通用内核 · 领域模型 Comic/Chapter/Page/ListResult/SyncStats
-│   ├── config.py              # L0 通用内核 · 源站配置数据结构 SourceConfig，不含各源清单
-│   ├── http.py                # L0 通用内核 · 抓取客户端：UA 池 / 随机延迟 / 指数退避 / 代理池预留
-│   ├── fingerprint.py         # L0 通用内核 · 标题归一化 + 指纹（"可能重复"的观测标记，不判重）
-│   ├── paths.py               # L0 通用内核 · 路径常量（服务根 / 图库根唯一真源）
-│   ├── taxonomy.py            # L0 通用内核 · 标签归一化（各源写法 -> 统一中文规范名）
-│   ├── data/tag_synonyms.json #   词表数据：规范名 -> 同义词（跨源跨语言）
-│   ├── cli.py                 # 命令行入口（run / transfer-images / inspect / list / show / serve）
-│   ├── sources/               # 源站层：契约在外，各源在里
-│   │   ├── base.py            #    L1 契约 · CrawlerAdapter 抽象接口（新增源站的唯一接入点）
-│   │   ├── registry.py        #    L1 契约 · 适配器注册表（@register 装饰器）
-│   │   ├── __init__.py        #    聚合各源子包 → SOURCES（管理台展示顺序）
-│   │   └── <源名>/            #    L2 实现 · 每个源一个自包含子包
-│   │       ├── __init__.py    #      导出适配器类 + 该源 SOURCES 配置（频率/启停就近维护）
-│   │       ├── adapter.py     #      CrawlerAdapter 实现（列表 / 详情 / 章节图解析）
-│   │       ├── README.md      #      接口路径 · 请求头 · 分页 · 限流 · 已知坑
-│   │       └── fixtures/      #      该源样例 HTML（离线测试）
-│   ├── storage/               # 存储层：契约在外，实现在里
-│   │   ├── base.py            #    L1 契约 · Storage + UserStore 抽象（上层只认它）
-│   │   └── mysql/             #    L2 实现 · MySQL（本项目唯一后端）
-│   │       ├── _util.py       #      连接 / 热度算法 HEAT_* / 时间归一
-│   │       ├── comic_store.py #      MySQLStorage：漫画/章节/页/同步日志 + 只读查询
-│   │       └── user_store.py  #      MySQLUserStore：用户/收藏/阅读历史
-│   ├── images/                # 图片层：契约 + 本地实现 + 懒转存
-│   │   ├── store.py           #    ImageStore 抽象 + 本地模拟 OSS + default_store_root() 图库根
-│   │   └── transfer.py        #    懒转存 + 读时穿透取图（本地没有就现场取回并顺手落盘）+ 封面落盘
-│   └── scheduling/            # 编排层：何时跑 / 跑一次做什么
-│       ├── sync.py            #    采集主流程：增量轮询 / 全量扫描
-│       ├── ondemand.py        #    按需导入：收录用户指定的单部作品（搜索 / 链接 / ID）
-│       ├── heal.py            #    失效巡检 + 封面自愈
-│       └── scheduler.py       #    轮询式定时调度（增量 / 每日全量 / 每小时巡检）
-├── tests/                     # 单元测试（含 test_layering.py 分层守卫）
-└── requirements.txt
+│   ├── models · config · http · fingerprint · paths · taxonomy · logctx   # L0 通用内核
+│   ├── cli.py                          # 命令行入口（run / transfer-images / inspect / serve / list / show）
+│   ├── sources/                        # 源站层：契约在外，各源在里
+│   │   ├── base.py · registry.py       #   L1 契约：CrawlerAdapter 抽象 + @register 注册表
+│   │   └── <源名>/                     #   L2 实现：每源一个自包含子包（4 件套）
+│   ├── storage/                        # 存储层：契约在外，实现在里
+│   │   ├── base.py                     #   L1 契约：Storage + UserStore 抽象
+│   │   └── mysql/                      #   L2 实现（本项目唯一后端）
+│   │       ├── _util.py · _pool.py     #     连接参数与热度算法 · 共享连接池
+│   │       ├── comic_store.py          #     漫画 / 章节 / 页 / 同步日志 + 只读查询
+│   │       ├── user_store.py           #     用户 / 收藏 / 阅读历史
+│   │       └── log_store.py · log_handler.py   # log_record 的读写 · logging Handler
+│   ├── images/                         # 图片层
+│   │   ├── store.py                    #   L1 契约：ImageStore 抽象 + 本地实现 + default_store_root()
+│   │   └── transfer.py                 #   懒转存 · 读时穿透取图 · 封面落盘
+│   └── scheduling/                     # 编排层：何时跑 / 跑一次做什么
+│       ├── sync.py · ondemand.py · heal.py · scheduler.py
+├── sql/mysql_schema.sql                # 表结构（纯 DDL，不含 CREATE DATABASE）
+├── data/                               # 运行时数据（gitignore）：image_store/ 图库 + source_state.json 源开关
+└── tests/                              # 单元测试（含分层守卫）
 ```
 
-> 样例 HTML 已**就近**放进各源子包的 `fixtures/`（跟着源走），不再集中在一个顶层目录。
+### 源站接入契约（`sources/base.py`）
 
-## 快速开始
+**`CrawlerAdapter` 是新增源站的唯一接入点** —— 业务 / 存储 / 调度层均不感知具体源。
 
-```bash
-# 1. 创建虚拟环境并安装依赖
-python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt     # Windows
-# .venv/bin/pip install -r requirements.txt       # macOS/Linux
-# （含 zhconv：**标签归一**的繁转简，纯 Python 无需编译。作品判重刻意不做繁简折叠）
-
-# 2. 增量同步（**主源**：再漫画 zaimanhua —— 会联网；受控样本请加 --limit）
-PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --limit 3
-
-# 3. 备源（各自独立采集；跨源不合并 —— 同名作品各占一行，各记各自章节进度）
-PYTHONPATH=src python -m comic_crawler.cli run --source mangadex
-PYTHONPATH=src python -m comic_crawler.cli run --source weebcentral
-
-# 4. 图片懒转存（模拟用户阅读触发的按需转存）
-PYTHONPATH=src python -m comic_crawler.cli transfer-images
-
-# 5. 失效巡检（转存未转存页 + 全表校验已转存对象 + 恢复丢失）
-PYTHONPATH=src python -m comic_crawler.cli inspect
-
-# 6. 查看库内数据 / 列出已注册适配器
-PYTHONPATH=src python -m comic_crawler.cli show
-PYTHONPATH=src python -m comic_crawler.cli list
-
-# 7. 跑单元测试（54 个用例，纯逻辑：不连数据库、不写临时文件）
-PYTHONPATH=src python -m unittest discover -s tests -v
-
-# 8. 定时调度守护（增量轮询 / 每日全量 / 失效巡检，Ctrl+C 退出）
-#    - 增量间隔取各源 `sources/<源名>/__init__.py` 里的 crawl_interval_seconds
-#    - 每日凌晨 3 点后每源跑一次全量；失效巡检每小时一次（全表键集分页校验）
-#    - --source 可只调度指定源；--interval 调整轮询检查粒度（默认 30s）
-PYTHONPATH=src python -m comic_crawler.cli serve
-```
-
-## 存储：MySQL（项目唯一方案）
-
-采集服务与 API 服务统一使用 MySQL 作为唯一存储实现（`MySQLStorage`），
-`Storage` 抽象作为类型契约保留（架构方案 §3.1「抽象可替换」的落地）。
-
-```bash
-# 0. 前置：数据库容器在跑（本项目**独占**实例，MySQL 8.0，宿主 127.0.0.1:3309）
-docker compose -f ../deploy/docker-compose.yml up -d comic-mysql
-#    连接参数取值顺序：环境变量 → 仓库根 deploy/.env → 默认值
-#    本地开发**无需手工导出**，直接读 deploy/.env 里的 MYSQL_ROOT_PASSWORD / MYSQL_HOST_PORT
-#    （要覆盖：COMIC_MYSQL_HOST / COMIC_MYSQL_PORT / COMIC_MYSQL_USER / COMIC_MYSQL_PASSWORD / COMIC_MYSQL_DB）
-
-# 1. 建库建表：**用容器时不需要** —— 数据卷首次初始化会自动执行建库脚本，10 张表直接建好。
-#    只有「连外部 MySQL」才手工建；注意 schema 是纯 DDL、里面**没有 CREATE DATABASE**：
-#      mysql -h<host> -P<port> -uroot -p -e "CREATE DATABASE comic DEFAULT CHARACTER SET utf8mb4;"
-#      mysql -h<host> -P<port> -uroot -p comic < sql/mysql_schema.sql
-
-# 2. 采集链路直接写 MySQL（无需迁移）
-PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --limit 3
-PYTHONPATH=src python -m comic_crawler.cli transfer-images
-PYTHONPATH=src python -m comic_crawler.cli inspect
-
-# 3. API 服务同库（前端零改动）
-uvicorn main:app --port 8000   # 在 api-service 目录
-```
-
-**表结构约定**（DDL 见 `sql/mysql_schema.sql`）：
-
-- **运行日志**（`log_record`）：逐条落库，由 `storage/mysql/log_handler.py`（logging Handler，后台线程 + 批量 `executemany`）写入，供 api-service 的「日志查询」页筛；与 `sync_log`（任务级统计）分工不同，后者保留。
-
-- **时间列一律用 `DATETIME`**：`chapter/comic.sync_time`、`comic.addtime`、`sync_log.started_at`/`finished_at`、`favorite.created_at`、`history.read_at`、`user.created_at`。**不要用 `VARCHAR` 存 ISO 串**——字符串比较/排序/时区语义都是坑（2026-09-10 已由 `varchar(32)` 统一迁移为 `DATETIME`，写入侧 `_now()` 直接给 `datetime`）。
-  ⚠️ 列里存的是 **naive 的本机时间**（`_now()` / `log_handler` 的 `datetime.fromtimestamp` 都取进程本地时区）：
-  容器**必须**配时区（compose 的 `COMIC_TZ`，默认 `Asia/Shanghai`），否则镜像默认 UTC ——
-  服务器上存进去的会比北京时间早 8 小时（2026-09-18 排查「管理台日志时间对不上」的结论）；
-- 标签走 `tag` + `comic_tag` 关联表（`comic.category` 保留源站原始串）；
-- 封面 / 分页图只存**图库内相对 key**（`covers/26.jpg`、`comic/26/34/001.jpg`）；
-- **热度不落库**：只存真实计数 `comic.views`（浏览次数），热度由 `heat_sql()` 实时算
-  （`1000 + 浏览×1 + 收藏×2`），同分再按 `sync_time` 倒序。权重是 `HEAT_BASE` /
-  `HEAT_PER_VIEW` / `HEAT_PER_FAVORITE` 三个常量 —— 改算法只改这里，无需回填。⚠️ 统计收藏数用
-  `COUNT(DISTINCT f.user_id)`（`favorite` 一行 = 一对用户/漫画，**不能用 `f.id`**——那会让多行变一行）。
-- **每张表都有自增代理主键 `id`**（含关联表 `comic_tag`/`favorite`/`history`）：`id` 是与业务无关的
-  稳定行标识，为后续扩展留余地（引用单行、加字段、做流水/审计、分库分表）。**业务唯一性用
-  `UNIQUE KEY` 单独表达** —— `comic_tag` 有 `uk_comic_tag(comic_id, tag_id)`、`favorite`/`history`
-  有 `uk_user_comic(user_id, comic_id)`。幂等写入依赖的就是这些唯一键（`INSERT IGNORE` / `ON DUPLICATE
-  KEY UPDATE`），**不是主键**，所以主键换成 `id` 不影响原有语义。⚠️ `favorite` 无 `comic_id` 单列索引时
-  由 FK 自动补（`fk_fav_comic`）；统计收藏数用 `COUNT(DISTINCT f.user_id)`。
-
-## 接入一个新源站
-
-全程**只动 `sources/` 一个子包**，业务/存储/调度层零改动：
-
-1. **复制模板**：`cp -r sources/zaimanhua sources/<新源名>`（zaimanhua 是结构最完整的真实源）；
-2. **写适配器**：改 `adapter.py` —— `source_name`、`@register(...)`、`base_url`，
-   再按目标站真实 DOM 改写三个方法；四个文件各司其职：
-
-   - `fetch_comic_list(page, since)` —— 列表页 → 漫画摘要 + `has_next`；
-   - `fetch_comic_detail(comic)` —— 详情页 → 简介 + 章节列表；
-   - `fetch_chapter_pages(detail, chapter)` —— 章节页 → 分页图片。
-
-3. **声明配置**：改该子包 `__init__.py` 的 `SOURCES = [SourceConfig(name="<新源名>", ...)]`
-   （频率/启停**就近维护在这里**，不再集中到 `config.py`）；
-4. **登记**：在 `sources/__init__.py` 的 `_SOURCE_PACKAGES` 加一项；
-5. **可选能力**（按目标站实际支持情况声明，上层据此决定给不给入口）：
-
-   - `capabilities = {"search", "ref"}` —— 支持关键词搜索（覆写 `search_comics`）
-     与作品链接/ID 解析（覆写 `parse_comic_ref`）。两者齐备后，搜索页才会出现
-     「其他来源」与「导入并阅读」；
-   - `image_hosts = {"图床域名"}` —— 允许下载的图片域名白名单（转存与穿透取图都校验，
-     防 SSRF）。图床与站点不同域的源务必补上。
-
-子包固定 4 件套：`__init__.py`（导出 + SOURCES）、`adapter.py`（解析）、
-`README.md`（接口/请求头/限流/已知坑）、`fixtures/`（离线样例，可选）。
-
-**判重只看 `(source, source_comic_id)`**（`uk_source_comic` 唯一键）：重复抓取幂等覆盖。
-跨源**不合并** ——同一部作品在别的源收过就是另一行（不同译本进度往往不同，合并会丢信息）。
-`fingerprint.py` 算出的指纹（标题归一化 + 作者 → sha1 前 16 位）**只写不判重**，
-留作"这几行可能是同一部作品"的观测标记。
-
-## 按需导入（用户指定看哪一部）
-
-采集只能碰到源站「最近更新」榜上的作品；**按需导入**正好相反 —— 用户给出**
-一部作品（关键词 / 作品链接 / 作品 ID），把它收进库。入口是搜索页的
-「其他来源 → 导入并阅读」，或直接 `POST /api/admin/import`。
-
-| 环节 | 行为 | 请求数 |
+| 成员 | 必选 | 作用 |
 |---|---|---|
-| 详情 | 拿书目 + **全部章节** | 1 |
-| 书目 | 写 `comic` 1 行（幂等：只看 `(源, 源作品 ID)`；同一部作品在别的源收过会新增一行） | — |
-| 章节 | **全量收目录**（`first_chapters=None`，且补齐库内缺的那几话） | — |
-| 页清单 | **一页都不登记** | 0 |
-| 图片 | **一张都不下载**（封面除外，落 `covers/{id}.jpg`） | 1 |
+| `fetch_comic_list(page, since)` | ✓ | 列表页 → 漫画摘要 + `has_next`（翻页由它驱动，`since` 为增量窗口起点） |
+| `fetch_comic_detail(comic)` | ✓ | 详情页 → 简介 + 章节列表 |
+| `fetch_chapter_pages(detail, chapter)` | ✓ | 章节页 → 分页图片 URL（按 `page_no` 升序） |
+| `fetch_source_page_urls(comic_id, chapter_id)` | 可选 | 签名 URL 过期时**现场重拉整章**重新签发（默认不支持） |
+| `search_comics(keyword, limit)` | 可选 | 源站关键词搜索，需声明 `capabilities={"search"}` |
+| `parse_comic_ref(ref)` | 可选 | 作品链接 / ID → `source_comic_id`，需声明 `capabilities={"ref"}` |
+| `image_hosts` | 可选 | 图床域名白名单（转存与穿透都校验，防 SSRF）；**留空 = 不校验** |
+| `pre_fetch` / `post_fetch` | 可选 | 每轮抓取前后的钩子（robots 预检 / 释放资源） |
 
-所以导入 100 话也只花 1~2 次请求、约 2 秒。页清单与图片都在用户**真正打开那一话**
-时才产生：`/api/chapters/{id}/pages` 现场登记页清单（`api-service/services/ondemand.py`），
-`/api/images/...` 本地没有就**穿透源站取回这一张、顺手落盘**
-（`images/transfer.fetch_page_bytes`）—— 用户等待只等于「源站响应一张图」，
-而不是「整话下载完」。
+新增源站：`cp -r sources/zaimanhua sources/<新源名>` → 改 `adapter.py` 三个必选方法 → 在该子包
+`__init__.py` 声明 `SOURCES`（频率 / 启停**就近维护**）→ 在 `sources/__init__.py` 的 `_SOURCE_PACKAGES` 登记。
+**全程只动 `sources/`**。子包 4 件套：`__init__.py`（导出 + `SOURCES`）、`adapter.py`（解析）、
+`README.md`（接口 / 请求头 / 限流 / 已知坑）、`fixtures/`（离线样例，可选）。
 
-**不保存也不展示章节页数**：源站只有「单话章节接口」能给出页数（`picnum`），**没有任何批量途径**
-（列表 / 详情 / 搜索接口都不带页数，实测确认），逐话拉取既慢、又会被源站软限流（密集请求返回空）。
-因此 `GET /api/comics/{id}/chapters` 只返回章节元数据，**不含页数**；
-`get_chapters` / `get_chapter` 也不再做 `COUNT(page)` 统计（少一次 JOIN，接口更快）。
-页清单本身仍然按需产生：用户打开某一话时才登记（`ensure_chapter_pages`），图片由穿透过取回。
+## 功能与接口
 
-**不可读内容会被拒绝，但判据必须可靠**：详情接口的逐章 `canRead` **不可信**
-（实测「午夜心旋律」详情里 131 章全为 false，实际最新话可读 21 页 —— 那是未计算的默认值），
-所以 `import_comic` 改为**实测探测**（`_probe_readable`：先探最新章、再退最老章，
-最多 2 次请求），任一章取到图就放行 —— 源站**部分章节没有数据是常见情况**
-（如 71419 的 1、2 话；接口分不清是数据缺失还是需付费，故不归因）。
-只有 `is_lock` 为真、或探测全空，才抛 `ComicRestricted` 拒绝。
+**命令行**（`python -m comic_crawler.cli <子命令>`）
 
-## 标签归一化（跨源统一为中文标签）
+| 子命令 | 作用 |
+|---|---|
+| `run --source X [--mode incremental\|full] [--since D] [--limit N]` | 采集某源（默认增量；`--limit` 为受控样本） |
+| `transfer-images [--since D] [--until D] [--limit N] [--source X]` | 转存窗口内的**未转存页**（默认不限量；`--source` 只转某源） |
+| `inspect [--source X] [--since D] [--until D]` | 失效巡检：转存未转存页 + **全表**校验已转存对象 + 丢失恢复 |
+| `serve [--source X] [--interval S]` | 常驻定时调度：增量按各源间隔 / 每日全量 / 每小时巡检 |
+| `list` · `show` | 列出已注册适配器 · 查看库内数据 |
 
-不同源站各说各话 —— mangadex 全英文（`Comedy` / `Romance` / `Slice of Life`）、zaimanhua 用中文
-（`搞笑` / `爱情` / `校园`）、weebcentral 又是英文，甚至混入日文（`ゆり`）。不做归一化时同一概念在库里
-是**多行互不相干的标签**（`Comedy` 30 部、`搞笑` 9 部各算各的），既看不出真实规模，也没法按标签筛选。
+**按需导入**（`scheduling/ondemand.import_comic`；入口为搜索页「导入并阅读」或 `POST /api/admin/import`）
+—— 与采集共用同一套入库逻辑（`sync._upsert_detail`），差别只在驱动方式：
 
-做法：`taxonomy.py` + `data/tag_synonyms.json`（「规范名 → 同义词」对照表），**在写入标签时查一次**：
+| 环节 | 行为 |
+|---|---|
+| 详情 | 1 次请求拿书目 + **全部章节** |
+| 书目 / 章节 | 写 `comic` 1 行 + 补齐库内缺失的全部章节（判重见下） |
+| 页清单 | **一页都不登记** |
+| 正文图 | **一张都不下载**（只落封面） |
+| 可读性 | **实测探测**（先最新章、再退最老章），任一章取到图即放行；全取不到才拒绝 |
 
-```python
-name = canonical_tag(raw)     # 命中换成中文规范名；未命中保持原文（不猜测、不丢弃）
+**图片链路**（`images/`）
+
+| 阶段 | 作用 |
+|---|---|
+| 登记 | 采集 / 导入**不产生 page 行**；用户首次打开某话时由 api-service 调 `ensure_chapter_pages` 登记页清单（只记 `source_url`、`cached_status='未转存'`） |
+| 批量转存 | `lazy_transfer`：下载 → 写 `ImageStore` → 回填 `oss_url` + 置 `已转存`；**只处理已登记的页**，并发 2 路 |
+| 读时穿透 | `fetch_page_bytes`：本地没有就现场取**这一张**并顺手落盘；签名过期自动重拉。三道约束见「约定」 |
+| 巡检 | `inspect_sync`：转存未转存页 + 按 `id` **键集分页**校验全表对象存在性并恢复（不被固定条数截断） |
+| 封面 | `ensure_cover_local`（单部落盘原语）/ `heal_covers`（按源、按作品批量自愈） |
+
+## 基础命令
+
+```bash
+# 环境（zhconv 用于标签繁转简，纯 Python 无需编译工具链）
+python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
+
+# 数据库容器（本项目独占实例，宿主 127.0.0.1:3309；连接参数读 deploy/.env，无需手工导出）
+docker compose -f ../deploy/docker-compose.yml up -d comic-mysql
+
+# 采集 / 转存 / 巡检 / 定时调度
+PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --limit 3
+PYTHONPATH=src python -m comic_crawler.cli transfer-images
+PYTHONPATH=src python -m comic_crawler.cli inspect
+PYTHONPATH=src python -m comic_crawler.cli serve
+
+# 单测（纯逻辑：不连库、不写临时文件）
+PYTHONPATH=src python -m unittest discover -s tests -t tests
 ```
 
-因为统一发生在**写入侧**，所以搜索、排行、详情页、分类页自动一致，查询侧**没有任何翻译逻辑**
-（`list_comics` 的素材检索本就含 `t.name LIKE`，故「搜喜剧」能跨源命中）。
+> 用容器起库**不需要手工建表**（数据卷首次初始化会执行 `sql/mysql_schema.sql`）；
+> 只有连外部 MySQL 才手工建 —— 注意 schema 是纯 DDL，里面**没有 `CREATE DATABASE`**。
 
-**边界（刻意不做）**：不做机器翻译（错译一旦入库会被固化成"规范名"，比保留原文更难收拾）；
-形态类（`Web Comic` / `Full Color` / `Long Strip` / `Oneshot` / `Doujinshi`）、更新季（`2026春`）、
-敏感标签（`Loli` / `Shota` / `Incest` / `Sexual Violence`）与不明词（`AA`）**一律保留原文**。
+## 约定
 
-**历史数据**：迁移一次即可 —— `cd crawler-service && PYTHONPATH=src python ../tools/normalize_tags.py`
-（执行前会把 `tag` / `comic_tag` 全表导出到 `backup/` 以便回滚；幂等可重跑）。
-实测：标签 83 → 61 行、关联 397 → 393（少的 4 条是合并时去掉的重复关联），
-`喜剧` 43 部（= Comedy 30 + 搞笑 9 + 欢乐向 4）、`恋爱` 36（= Romance 27 + 爱情 9）。
+**存储与判重**
+- 唯一存储是 MySQL（`MySQLStorage`），`Storage` / `UserStore` 抽象作为契约保留；取连接走**共享连接池**（`storage/mysql/_pool.py`，每进程上限 20）。
+- **判重只看 `(source, source_comic_id)`**（`uk_source_comic`），重复抓取幂等覆盖；**跨源不合并** —— 同一部作品在别的源收过就是另一行（译本进度往往不同，合并会丢信息）。
+- `fingerprint`（标题归一 + 作者）**只写不判重**，留作「这几行可能是同一部作品」的观测标记。
+- **时间列一律 `DATETIME`**（naive 本机时间）；容器**必须配时区**（`COMIC_TZ`，默认 `Asia/Shanghai`），否则存进去的比北京时间早 8 小时。
+- 每张表都有自增代理主键 `id`；**业务唯一性用 `UNIQUE KEY` 单独表达** —— 幂等写入依赖的是这些唯一键，不是主键。
+- `log_record` 是「**真下载**」的**流水**而非状态快照（封面文件已在本地时不写日志）；任务级统计另见 `sync_log`。
 
-**维护**：遇到未归一的标签，往 `data/tag_synonyms.json` 加一行、重跑迁移即可（不必改代码）。
+**采集与章节**
+- **增量 = 时间窗口**：`since` 不填则取该源上次同步时间（`sync_log.finished_at`）为水位，窗口 `[水位, now]`；**手动 `since` 优先于水位**；全量默认无窗口。
+- **章节采样**：首采与增量都**补齐库内缺失的全部章节**（含历史空洞）。
+- **页清单一律不在入库时登记**：逐话请求源站页清单既慢又易触发风控，留到用户真正打开那一话。
+- **接口不返回章节页数**：源站只有单话接口能给页数、没有批量途径，故 `get_chapters` 不做 `COUNT(page)`。
+- **读一张图只查一行**：`get_page_context(chapter_id, page_no)`（含 `total_pages` 标量子查询）——不要为拿总页数去 `get_pages()` 拉整章。
+- **读时穿透的三道约束**：出站并发上限 4 / 同一页并发只下一次 / 失败进 60s 负缓存（闸门排队超时**不写**负缓存 —— 拥挤不是"这一页坏了"）。
 
-## 章节采样（首采 / 增量都补齐库内缺失的全部章节）
+**标签**
+- 归一发生在**写入侧**（`taxonomy.py` + `data/tag_synonyms.json` 的 `canonical_tag`），查询侧零翻译；未命中的标签**保持原文，不猜测、不丢弃**。
+- **刻意不做**：机器翻译（错译会被固化成"规范名"）、形态类（`Web Comic` / `Full Color` / `Long Strip` …）、更新季、敏感标签。
+- 维护：往 `data/tag_synonyms.json` 加一行，重跑 `tools/normalize_tags.py`（幂等；执行前自动导出备份到 `backup/`）。
 
-- 首次收录 / 后续增量：都入库**库内缺失的全部章节**（`FIRST_CHAPTERS = None`）——
-  首次即收全目录；增量既补新章（`chapter_no` 大于库内最大章号）、也补历史空洞
-  （早期只收过 1 话的老作品在这里自愈补齐）。本轮覆盖哪些漫画由增量时间窗口决定。
-- **页清单一律不在入库时登记**（2026-09-21 决策）：采集 / 导入都只写 `comic` + `chapter`
-  两行，不逐章请求源站页清单（258 话 = 258 次请求，既慢又易触发源站风控）。用户真正
-  打开某一话时才由 `ensure_chapter_pages` 现场登记（见下节）。
+**图片与封面**
+- 图库根**唯一真源** `images.store.default_store_root()`（`COMIC_IMAGE_ROOT` → `<服务根>/data/image_store`）——**读写两端共用同一函数**，不随进程 cwd 漂移。
+- DB 只存**图库内相对 key**（`covers/26.jpg`、`comic/26/34/001.jpg`），不存外链 / 绝对路径。
+- 封面落盘判据只看「**文件在不在**」，故普通自愈**修不到错图**；要修「文件在、内容错」用 `force=True`（管理台「封面自愈 · 指定作品」）。
+- 换一个 `ImageStore` 实现即可接 OSS / COS（生产用），上层无需改动。
 
-## 图片链路（懒转存 + 失效巡检）
+**合规（务必阅读）**
+- 确认目标站允许抓取（robots.txt / 服务条款）或已获授权；**仅收录已授权 / 开放版权（CC）/ 公共领域内容**。
+- **不绕过登录、验证码等技术壁垒**；限速 / UA 池 / 指数退避已在 `http.py` 内实现；保留来源链（`sync_log`）以便定向清理。
 
-- 入库（采集 / 导入）**不产生 page 行**；用户打开某一话时 `ensure_chapter_pages` 才登记
-  页清单（只记 `source_url`，`cached_status='未转存'`），图片字节**仍不主动下载**；
-- `transfer-images` / 阅读服务触发 `lazy_transfer`：下载 → 写入 ImageStore →
-  回填 `oss_url`、状态置 `已转存`（`lazy_transfer` 只处理**已登记**的页）；
-- **下载器连接复用**：`images.transfer.default_downloader` 用模块级 `httpx.Client` 单例
-  （keep-alive），批量转存不重复做 TCP/TLS 握手。**实测结论（2026-09-08）**：
-  复用连接对**国内图床**显著有效（zaimanhua 单张 365KB 约 0.32s）；但**境外图床**
-  （如 MangaDex `*.mangadex.network`）带宽才是瓶颈——单张 2.26MB 大图即使复用连接
-  仍需 9~25s（瓶颈非握手，keep-alive 在此无优势），因此对境外源靠**并发**解耦；
-- **并发转存**（`images.transfer.CONCURRENCY = 2`，默认 2 路）：`lazy_transfer` 用
-  `ThreadPoolExecutor(max_workers=2)` + 抽出的 `_transfer_one(row)` 并发处理。
-  实测 MangaDex 从原串行 179 页约 45 分钟缩短到 **5 分钟**跑完（单张 3~5s）。
-  并发安全：`MySQLStorage` 每方法独立连接(autocommit)、`httpx` 共享 client 走线程安全
-  连接池、`LocalImageStore.put` 独立文件写。低频合规：MangaDex AUP 约 5 req/s，2 路远低于该值；
-- **签名过期兜底**：短时效签名源（zaimanhua 的 `images.zaimanhua.com` URL 带
-  `sign+t`，数日过期；mangadex 的 at-home 分发 URL 同样短时效）——`lazy_transfer`
-  先本地解析 URL 的 `t` 预判过期：过期则经适配器 `fetch_source_page_urls` 现场重拉
-  该章新鲜 URL 再下载，未过期直接下载、失败再重拉兜底一次（无签名源如 weebcentral
-  永久有效，恒走直接下载）；
-- `transfer-images --since <ISO> [--until <ISO>] [--limit N] [--source <name>]`：只转存「**章节入库时间**」
-  落在窗口内的未转存页（按 `chapter.sync_time`(DATETIME) 过滤，边界**双端含**：`--until` 只给日期时含当天全天）。
-  ⚠️ 页清单是**读时**才登记的（2026-09-21 决策）：窗口内某章若还没被人打开过，就没有 page 行可转
-  —— **想兜全库请把起止留空**。**默认把窗口内所有未转存页全部转掉**，`--limit` 只是可选的兜底阀门
-  （默认不限制，需分批时才填）；`--source` 限定**只转存某数据源**的页
-  （`lazy_transfer` 内部透传给 `list_uncached_pages` 按 `co.source` 过滤），用于
-  单独补转某一个源（如管理台"仅转存某源"）；
-- `inspect` 巡检：**转存未转存页 + 全表校验已转存对象是否存在 + 丢失自动恢复**。
-  第 2 步（校验）按 `id` **键集分页**遍历全表（每次 `SCAN_BATCH=1000` 条，用返回行的最大
-  `page_id` 推进游标直到扫完），**不会被固定条数截断**——旧实现只取 500 条且 `ORDER BY id`，
-  每轮都只校验 id 最小的同一批页，其余页从未被校验/恢复。
-  `inspect_sync(storage, image_store, adapter_provider, source, since, until)`：
-  `source/since/until` 只作用于「转存」部分（与 `transfer-images` 同语义），`source` 同时限定校验范围；
-  全部留空 = 全库巡检。
-- **管理台「触发巡检」**（`POST /api/admin/inspect`）与命令行 `inspect` 走同一函数；管理台那份在 job 里**额外接了一步封面自愈**（见下「封面自愈」）。巡检是**全库**动作，故管理台只在页面顶部放**一块**面板，不随源卡片复制。
-  命令行可选参数：`--source <name>`（只巡检某源）、`--since/--until`（只限定「转存」部分的时间窗，校验始终覆盖全表）。
-  ⚠️ 管理台已**删除独立的「触发转存」入口**（2026-09-21）：巡检第 1 步本就是 `lazy_transfer`，单独按钮是其子集；CLI 的 `transfer-images` 保留。
-- **封面自愈**（`scheduling.heal.heal_covers(storage, image_store, adapter_provider, source, force, comic_ids, title_like)`）：修复图库中缺失/未落盘的封面——封面仍是外链 → 重试下载；
-  本地 key 但文件缺失 → 按 `source_comic_id` 回源重抓 `cover_url` 再落盘；健康/无法修复的跳过。
-  `source` 限定只自愈该源（`None` = 全库），走 `list_comics(source=…)` 过滤。
-  **按作品筛选**（2026-09-20 加）：`comic_ids` / `title_like` 限定范围（OR 命中，走 `Storage.find_comics`，
-  id 用主键、名称用 `LIKE`，不整表拉取）；两者都给/都空即全库。
-  **`force=True`**：跳过「文件在即健康」的早返回，一律回源重下**覆盖** —— 修**「封面文件在、但内容是错的」**
-  （普通自愈判据只看文件在不在，永远修不到错图）。
-  返回 `{checked, healed, failed, skipped}`。三个调用入口：
-  ① 管理台「**触发巡检**」的 job 里**自动执行**（并**透传所点的源**，转存与自愈同源）；
-  ② 管理台「**封面自愈 · 指定作品**」面板 / `POST /api/admin/heal-covers`（`keyword` 必填：漫画名称或 ID，
-     可多个 → `force=True` **强制刷新指定作品封面**，只修封面、不转存正文页）；
-  ③ CLI / 脚本直接调 `heal_covers(...)`。
-  ⚠️ 定时巡检（`scheduler` 的 `inspect_sync`）**不含封面自愈** —— 只有管理台那次手动巡检才调，避免每小时多打源站请求。
-- `ensure_cover_local` 是单部作品的封面落盘原语（同步链路每轮幂等调用；`force=True` 时强制覆盖重下）；
-  `heal_covers` 是按源 / 按作品的批量自愈编排；
-- `find_comics(comic_ids, title_like, source)` 是「按 id 集合 或 标题子串」取作品行的查询（封面自愈筛选用）。
-- 生产环境实现 OSS/COS 版的 `ImageStore` 替换 `LocalImageStore` 即可。
+---
 
-## 采集时间窗口（`since`，增量 vs 全量）
-
-`incremental_sync` / `full_sync` 均支持手动指定起始日期 `since`（ISO 8601），语义如下：
-
-- **增量（`--mode incremental`，默认）**：`since` 不填时自动取该源**上次同步时间**（`Storage.get_last_sync_time` 查 `sync_log.finished_at`，无记录返回 None），即采集 `[上次同步, 现在]` 窗口；手动填 `since` 则**优先于水位**，用于回补（上次同步之后漏掉/被跳过的时间段）或前移窗口。
-- **全量（`--mode full`）**：默认 `since=None` **无时间窗口**，扫描列表接口能返回的全部（不限时间）；手动填 `since` 时同样按 `[since, 现在]` 过滤。
-- **手动指定优先于水位**：`run --source xxx --mode incremental --since 2026-09-01` 即采集 9 月 1 日至今（而不是从上次同步开始）。
-- 源站按各自时间字段过滤（再漫画 `last_updatetime` Unix 时间戳；瓜子列表无时间字段，用 date 参数近似）；首采（无水位）默认收当天全部。
-- 采集管理控制台（`/#/admin`，见 api-service README）在页面上暴露上述参数，无需手敲命令行：**采集**面板可填 `mode` / `since` / `limit`；**懒转存**面板只填 `since` / `until`（**已无数量输入**，语义就是「把窗口内所有未转存页全部转掉」）；页面顶部另有**全库「失效巡检」**面板（不随源复制），同样填 `since` / `until`，语义 = 上述转存 + **全表**校验已转存对象（缺失自动恢复）。
-
-## 合规说明（务必阅读）
-
-本实现是**架构骨架**：`HttpFetcher` 的限速、UA 池、指数退避均在合规框架内。
-实际对接任何目标站前，必须（见架构方案 §6.2）：
-
-- 确认该站允许抓取（robots.txt / 服务条款）或已获授权；
-- **仅收录已授权、开放版权（CC）或公共领域内容**，未授权内容建黑名单过滤；
-- 不绕过登录、验证码等技术壁垒；接入内容审核与版权存证（`sync_log`）。
+> 各源站的接口路径 / 请求头 / 限流与已知坑见 `sources/<源名>/README.md`；
+> 修复过程与验证记录写在 `.workbuddy/memory/YYYY-MM-DD.md`，不进本文件。
