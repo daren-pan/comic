@@ -55,5 +55,6 @@ comic/
 - **文档归属**：本文件只放骨架与规矩；**参数细节、踩坑复盘写到对应模块 README 或 `docs/`**。
 - **性能**：面向**大数据量**设计 —— 禁止逐条访问（「先拿一批 id 再取对象」用 `get_comic_tags_bulk` / `get_comics_by_ids` 这类一次性批量方法）、禁止代价随数据量线性增长的写法（N+1、无索引全表扫、每次调用新建连接）。改 SQL / 存储层时按此自查。
 - **前端（comic-front）**：模板只用 uni 组件、CSS 只写类选择器、自定义组件禁止 `v-model`（多端适配的红线，详见其 README 开发约定）。
+- **前端问题先实跑取证**：页面出现**请求报错 / 样式错位 / 交互失效**时，**不必等用户要求**，先用 playwright MCP 在真浏览器里跑一遍再下结论 —— 报错看 `browser_console_messages`、请求看 `browser_network_requests`（单条详情 `browser_network_request`）、DOM 看 `browser_snapshot`。**禁止只读代码就断言"应该是 XX 问题"**。**MCP 不可用时先自检再补**：**先检测 playwright MCP 是否存在**（查工具索引 `mcp__playwright__*` / 连接器列表，**不要只看某个固定配置文件** —— 同一 MCP 可能由用户级、项目级或其他 agent 的配置提供）；确认**不存在**才写入标准配置并安装，再**显式提示用户去连接器管理页 Trust**；**已存在**（只是工具不在索引）→ 配置没坏，直接提示重新 Trust。**不得静默降级成"读代码猜"**。配置与用法见 `comic-front/README.md`。
 - **提交信息**：一律 Conventional Commits —— `<type>(<scope>): <中文主题>`。type 取 `feat` / `fix` / `refactor` / `perf` / `docs` / `chore` / `test` / `ci`；scope 取模块名（`crawler` / `api` / `web` / `db` / `deploy` / `tools`），跨模块或不限模块时可省。正文只写 2~3 行「改了什么、为什么」，不罗列文件 / 函数 / 实测数字。示例：`feat(crawler): 新增拷贝漫画源，失败日志带上漫画名`。
 - **提交时机与粒度：原子拆分** **不在一轮改动做完就提交**；先攒着，等**多个需求都完成后**再**按主题拆成多个原子提交**（一个提交只做一件事，能单独看懂、单独回退）。提交前仍要查：无意外删除、无硬编码密钥。
