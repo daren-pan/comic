@@ -248,7 +248,7 @@ onLoad(async (options) => {
               <view class="c-title u-th">作品</view>
               <view class="c-chapter u-th">章节</view>
               <view class="c-pages u-th">页数</view>
-              <view class="u-th">消息</view>
+              <view class="msg u-th">消息</view>
             </view>
           </view>
           <view class="u-tbody">
@@ -264,7 +264,7 @@ onLoad(async (options) => {
                 <view class="msg u-td" :title="row.message">{{ row.message }}</view>
               </view>
               <view v-if="expandedId === row.id" class="detail-row u-tr">
-                <view class="u-td" colspan="8">
+                <view class="u-td">
                   <view class="detail">
                     <view class="kv"><text class="u-b">记录器</text><text class="u-span">{{ row.logger }}</text></view>
                     <view class="kv" v-if="row.taskId"><text class="u-b">任务</text><text class="u-span">{{ row.taskType }} · {{ row.taskId }}</text></view>
@@ -280,10 +280,10 @@ onLoad(async (options) => {
               </view>
             </template>
             <view class="u-tr" v-if="!loading && !items.length && !error">
-              <view colspan="8" class="empty u-td">没有符合条件的日志</view>
+              <view class="empty u-td">没有符合条件的日志</view>
             </view>
             <view class="u-tr" v-if="loading">
-              <view colspan="8" class="empty u-td">查询中…</view>
+              <view class="empty u-td">查询中…</view>
             </view>
           </view>
         </view>
@@ -364,25 +364,39 @@ onLoad(async (options) => {
   overflow: auto;
   max-height: 62vh;
 }
-.u-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.u-th, .u-td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-.u-thead .u-th {
+/* ⚠️ uni 没有 <table>（小程序也不支持），原版的 table/tr/th/td 已换成 view ——
+   但**光换标签就没有表格布局了**（view 默认 block，于是每个单元格各占一行、整表塌成竖排）。
+   这里用 flex 自己把表格搭回来（`display:table*` 在小程序不可靠，flex 三端都稳）。
+   列宽由下面的 flex-basis 显式给，最后一列「消息」吃掉剩余宽度。 */
+.u-table { width: 100%; font-size: 13px; }
+.u-tr { display: flex; align-items: stretch; }
+/* min-width:0 必须写：flex 项默认 min-width:auto，会被「最窄内容」撑宽 ——
+   表头文字短、数据文字长（如时间列），于是表头与数据行的列宽对不上、整列错位。 */
+.u-th, .u-td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); min-width: 0; }
+/* 表头吸顶：sticky 挂在 .u-thead（不是每个 .u-th）上 —— 它的包含块是**整张表**，才有可吸顶的
+   余量；挂在单元格上会被「只有一行高」的包含块锁死，等于不生效。 */
+.u-thead {
   position: sticky;
   top: 0;
   z-index: 1;
   background: #fbfaf8;
-  color: var(--text-2);
-  font-weight: 600;
-  white-space: nowrap;
 }
+.u-thead .u-th { background: #fbfaf8; color: var(--text-2); font-weight: 600; white-space: nowrap; }
 .row { cursor: pointer; }
 .row:hover { background: #fdfbf9; }
 .row.open { background: #fff8f4; }
 .mono { font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace; }
-.c-time { white-space: nowrap; color: var(--text-2); }
-.c-event, .c-src, .c-pages { white-space: nowrap; }
-.c-title, .c-chapter { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 展开行与空态行只有一格 → 让它占满整行（等价原版的 colspan="8"） */
+.u-tr > .empty { flex: 1; }
+/* 列宽（固定列不收缩；.msg 吸收剩余宽度，min-width 保证窄屏下仍可读、由 .table-wrap 横向滚） */
+.c-time    { flex: 0 0 148px; white-space: nowrap; color: var(--text-2); }
+.c-level   { flex: 0 0 76px; }
+.c-event   { flex: 0 0 128px; white-space: nowrap; }
+.c-src     { flex: 0 0 104px; white-space: nowrap; }
+.c-title   { flex: 0 0 152px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-chapter { flex: 0 0 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-pages   { flex: 0 0 56px; white-space: nowrap; }
+.msg       { flex: 1 1 0; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .badge {
   display: inline-block;
@@ -395,7 +409,7 @@ onLoad(async (options) => {
 .badge.warning { background: #fff3e6; color: #b25f00; }
 .badge.error { background: #fdeceb; color: #c0392b; }
 
-.detail-row .u-td { background: #fdfbf9; }
+.detail-row .u-td { flex: 1; background: #fdfbf9; }
 .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 18px; }
 .kv { display: flex; gap: 8px; font-size: 13px; }
 .kv .u-b { color: var(--text-2); font-weight: 600; flex: 0 0 52px; }

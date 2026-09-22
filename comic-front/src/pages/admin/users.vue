@@ -140,24 +140,24 @@ onLoad(async (options) => {
       <view v-else class="user-table u-table">
         <view class="u-thead">
           <view class="u-tr">
-            <view class="u-th">用户名</view>
-            <view class="u-th">昵称</view>
-            <view class="u-th">角色</view>
-            <view class="u-th">注册时间</view>
+            <view class="c-user u-th">用户名</view>
+            <view class="c-nick u-th">昵称</view>
+            <view class="c-role u-th">角色</view>
+            <view class="c-created u-th">注册时间</view>
             <view class="act u-th">操作</view>
           </view>
         </view>
         <view class="u-tbody">
           <view class="u-tr" v-for="u in items" :key="u.id">
-            <view class="u-td">
+            <view class="c-user u-td" :title="u.username">
               {{ u.username }}
               <text v-if="u.id === myId" class="me u-span">我</text>
             </view>
-            <view class="dim u-td">{{ u.nickname }}</view>
-            <view class="u-td">
+            <view class="c-nick dim u-td" :title="u.nickname">{{ u.nickname }}</view>
+            <view class="c-role u-td">
               <text class="chip u-span" :class="u.role">{{ ROLE_LABEL[u.role] || u.role }}</text>
             </view>
-            <view class="dim u-td">{{ u.createdAt }}</view>
+            <view class="c-created dim u-td">{{ u.createdAt }}</view>
             <view class="act u-td">
               <button
                 v-if="canEdit(u)"
@@ -210,17 +210,22 @@ onLoad(async (options) => {
 }
 .total { color: var(--text-2); font-size: 13px; }
 
+/* ⚠️ uni 没有 <table>（小程序也不支持），原版的 table/tr/th/td 已换成 view ——
+   光换标签就没有表格布局了（view 默认 block，整表会塌成竖排），这里用 flex 搭回来。
+   窄屏放不下就横向滚（固定列不收缩 + 昵称列 min-width），别指望像真表格那样自动压缩。 */
 .user-table {
   width: 100%;
-  border-collapse: collapse;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 14px;
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: var(--shadow);
 }
+.user-table .u-tr { display: flex; align-items: stretch; }
+/* min-width:0 必须写：flex 项默认 min-width:auto，会被「最窄内容」撑宽 ——
+   用户名/昵称一长，表头与数据行的列宽就对不上、整列错位。 */
 .user-table .u-th,
-.user-table .u-td { padding: 10px 14px; text-align: left; font-size: 14px; }
+.user-table .u-td { padding: 10px 14px; text-align: left; font-size: 14px; min-width: 0; }
 .user-table .u-th {
   background: var(--bg);
   font-size: 13px;
@@ -229,7 +234,16 @@ onLoad(async (options) => {
   border-bottom: 1px solid var(--border);
 }
 .user-table .u-tbody .u-tr + .u-tr .u-td { border-top: 1px solid var(--border); }
-.user-table .act { width: 130px; text-align: right; }
+/* 列宽：昵称吸收剩余宽度，其余固定 */
+.user-table .c-user    { flex: 0 0 180px; }
+.user-table .c-nick    { flex: 1 1 0; min-width: 120px; }
+/* 用户名/昵称可能很长 —— 固定列 + min-width:0 之后必须自己截断，否则文字会溢出压到相邻列上
+   （原版是真表格，列宽会随内容自动变宽；view + flex 没有这个能力，只能截断，完整值放 title） */
+.user-table .c-user,
+.user-table .c-nick { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-table .c-role    { flex: 0 0 120px; }
+.user-table .c-created { flex: 0 0 160px; }
+.user-table .act       { flex: 0 0 130px; text-align: right; }
 .dim { color: var(--text-2); }
 
 .me {
