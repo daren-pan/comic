@@ -28,7 +28,8 @@ comic-front/
     │   ├── ComicCard.vue · Picker.vue · DateInput.vue
     ├── utils/                # 兼容层（comic-front 特有，见下）
     │   ├── router.ts · storage.ts · event.ts · guard.ts · ui.ts
-    │   ├── icons.ts          # 移动端底栏图标（自绘 SVG → base64 data URI）
+    │   ├── theme.ts          # 主题（明亮 / 夜间）：状态 + 持久化 + 往根节点挂主题类
+    │   ├── icons.ts          # 移动端底栏图标（自绘 SVG → base64 data URI，明亮/夜间各一套）
     └── pages/                # 每个页面一个目录（uni 约定），共 11 页
 ```
 
@@ -61,6 +62,7 @@ comic-front/
 |---|---|---|
 | `router.ts` | vue-router | 同形的 `useRoute()` / `useRouter()`；`toUniUrl()` 把 `/comic/3`、`{path,query}` 解析成 `pages/comic/index?id=3`；`openNewTab()` 在 H5 开新标签、其他端退化为同页跳转 |
 | `storage.ts` | localStorage | `get/set/remove`，语义一致（读不到返回 `null`），底层 `uni.*StorageSync` |
+| `theme.ts` | 主题管理器 | `useTheme()` → `{ theme, isDark, setTheme, toggleTheme }`；选择存本地、未选过时跟随系统，并把主题类挂到根节点（见下文「主题」） |
 | `event.ts` | `window` 自定义事件 | `emit/on/off` → `uni.$emit/$on/$off` |
 | `guard.ts` | vue-router 的 `beforeEnter` | uni 页面栈没有路由钩子 → `requireRole(superOnly, fullPath)`，由三个管理台页面在 `onLoad` 里 `await` |
 | `ui.ts` | `window.alert/confirm` | `showAlert` / `showConfirm`（内部 `uni.showModal`），小程序无 `window` |
@@ -70,11 +72,16 @@ comic-front/
 
 1. **路由参数走 `onLoad(options)`** —— uni 没有 `route.params`；`route.path/query` 由页面在 `onLoad` 里调 `setRoute()` 登记。
 2. **同页查询变更**（如搜索页切分类）：uni 不允许 `navigateTo` 自身 → `router.replace` 只做「本地状态 + H5 地址栏同步」。
+   ⚠️ 这种写法**只给 `query`、不给 `path`**（`router.replace({ query: {...} })`），`toUniUrl()` 会补当前路径
+   （`to.path || route.path`）。**别把这个兜底删掉**：缺了它 path 是 `undefined`，`toUniUrl` 里的
+   `path.indexOf('?')` 直接抛 `TypeError: Cannot read properties of undefined (reading 'indexOf')`，
+   而异常会打断调用方 —— `onCategory` 里跟在后面的 `load()` 就再也执行不到，表现为
+   **点分类标签只切高亮、不查数据**（2026-09-22 用户报的就是这个）。
 3. **管理台门卫是「页面内调用」**：在 `onLoad` 里 `await requireRole(...)`，未通过则整页不渲染并跳登录页。
 4. **H5 地址栏是 uni 自己的路径**：`#/pages/rank/index`、`#/pages/comic/index?id=43`（**不是** `#/rank`）——
    站内跳转由 `toUniUrl()` 转换，但**书签 / 外链要按 uni 这套路径写**。
 
-**对 `comic-web` 的六处有意调整**（前三条是逻辑、后三条是视觉/控件）
+**对 `comic-web` 的十二处有意调整**（前三条是逻辑、后九条是视觉/控件）
 
 | # | 位置 | 现状 | 原因 |
 |---|---|---|---|
@@ -83,7 +90,13 @@ comic-front/
 | 3 | `pages/search` 监听 `route.fullPath`（字符串） | 不再监听 `route.query` 对象 | 兼容层的 `query` 每次登记都是新对象，按引用比较会重复触发 |
 | 4 | `pages/login` 返回按钮 | 移入卡片内左上角（内缩 16/14px）、绿色 `#15803d` | 用户指定的视觉调整；绿色就地取值，**未**新增调色板变量以保持 `style.css` 与 comic-web 同源 |
 | 5 | 管理台日期控件（5 处） | 改用 `components/DateInput.vue`（H5 仍是原生 `<input type="date">`，其它端降级为文本输入） | uni 的 `<input>` **不支持 `type="date"`**（白名单外会被抹成 `text`） |
-| 6 | 移动端（≤860px）导航 | 顶栏精简为「用户 · 搜索 · 消息」，主导航移到**底部固定栏** | 用户指定的交互调整；comic-web 无此形态，详见下文「移动端底栏导航」 |
+| 6 | 移动端（≤860px）导航 | 顶栏精简为「菜单 · 搜索 · 消息 · 主题」，主导航移到**底部固定栏**；账号入口收进左侧滑出菜单 | 用户指定的交互调整；comic-web 无此形态，详见下文「移动端底栏导航」 |
+| 7 | 移动端封面网格列数 | 手机（≤560px）由 2 列改 **3 列**、间距收到 10px；`ComicCard` 配套收紧字号 | 用户要求「移动端每行三部、增加信息量」；详见下文「移动端漫画列表」 |
+| 8 | `style.css` 的 `.page` | `padding: 20px 0 48px` → `20px 16px 48px` | 原写法把 `.container` 的 `0 16px` 覆盖成 0 → 窄屏内容贴屏幕边缘 |
+| 9 | 首页各区块（热门 / 最新 / 分类精选） | 每块由 5–8 部统一改 **3 部**、网格由 `.grid-5` 改 `.grid`，标题行右侧加「全部 ›」 | 用户要求「只显示排名最前的三部，其余走链接」 |
+| 10 | 主题（明亮 / 夜间） | 新增，顶栏右侧一个 🌙/☀️ 按钮切换 | 用户要求；comic-web 只有明亮一套 |
+| 11 | 漫画明细页移动端 | 封面挪到卡片左上、明细+按钮在右上；章节列表改 **每行 4 个**网格 | 用户要求「适配移动端」；详见下文「漫画明细页」 |
+| 12 | 阅读器页面图宽度 | 横向 `92vw` → `100vw`、竖排 `96vw` → `100vw`（并隐掉 scroll-view 的 8px 滚动条） | 用户要求「左右黑边都去掉」；详见上文「阅读器页面图尺寸」 |
 
 ### uni 内置组件样式归一化（`src/uni-compat.css`）
 
@@ -132,7 +145,7 @@ H5 与小程序（mp-weixin）共用同一份源码，靠**条件编译 + 只用
 | `IntersectionObserver` → `onReachBottom` + 分批渲染 | 排行页懒加载 |
 | `e.clientX` → `eventX()`（H5 取 `clientX`、小程序取 `detail.x`） | 点击热区、进度条 |
 | `@click.self` → **`@click.stop`（遮罩上关闭 + 面板自身 `@click.stop` 拦冒泡）** | 阅读器两个弹层（目录 / 设置） |
-| `<transition>` → CSS `@keyframes` | 消息面板 / toast / 弹层（小程序不支持 transition 组件） |
+| `<transition>` → CSS `@keyframes` | 消息面板 / toast / 弹层 / 移动端菜单抽屉（小程序不支持 transition 组件） |
 | `window.alert/confirm` → `utils/ui.ts` | 日志页清理确认 |
 | `document` 点击关面板 → 保留 H5 分支 + `#ifndef H5` 透明遮罩 | 顶栏消息中心 |
 | `aspect-ratio` → padding-bottom 比例盒 / 写死高度 | 卡片、书架、缩略图 |
@@ -162,6 +175,23 @@ uni 的 `<image>` **不是 `<img>`**，而是包装元素 `<uni-image>`；真正
 
 > `lazy-load` 在 uni-h5 基本不生效（Image 在 `onMounted` 就直接加载），别指望它省流量。
 
+### 阅读器页面图尺寸（满幅，左右不留黑边）
+
+给 `<uni-image>` 的方框就是「视口里能放下的最大框」，宽度取 `min(视口宽, 可用高度 × 0.705)`：
+
+| 模式 | 宽度 | 高度 |
+|---|---|---|
+| 横向（单张居中） | `min(100vw, calc((100vh - 40px) * 0.705))` | `calc(100vh - 40px)` |
+| 竖排（连播） | `min(100vw, 720px)` | `auto`（配 `widthFix`） |
+
+- 两项取 `min` 是为了**两种受限方向都覆盖**：手机竖屏走「宽度受限」（= `100vw`，图片铺满、左右无黑边），
+  桌面走「高度受限」（`(100vh - 40px) × 0.705`，不会撑成一条巨大横幅）。
+- 原来是 `92vw` / `96vw`，手机竖屏下左右各留 4vw / 2vw 的**黑边**（2026-09-23 改满幅）。
+- ⚠️ **竖排模式还额外中了一刀**：uni 的 `<scroll-view>` 内层 `uni-scroll-view` 在桌面 Chrome 下
+  **实占 8px 滚动条宽**（实测 `offsetWidth - clientWidth = 8`），把 `100vw` 的图挤成 382px、右侧露黑边。
+  靠 `:deep(.uni-scroll-view)::-webkit-scrollbar { display:none }` + `scrollbar-width: none` 隐掉 ——
+  阅读区本来就是全幅暗色层，位置由底部进度条反映，不需要滚动条。
+
 ### ⚠️ 弹层遮罩关闭（踩过坑，必读）
 
 `@click.self` 是 **Web 专有修饰符**（小程序不支持），移植时容易改成「比较 `target` 与 `currentTarget`」——
@@ -177,6 +207,23 @@ uni 的 `<image>` **不是 `<img>`**，而是包装元素 `<uni-image>`；真正
 ```
 
 `.stop` 小程序 / H5 都支持；遮罩上的 `.stop` 还顺带挡住点击冒泡到根节点（否则会触发根节点的翻页热区）。
+
+### ⚠️ 弹层的进场 / 退场动画（踩过坑，必读）
+
+`v-if` 是「挂载即出现、卸载即消失」，只有进没有出 —— 观感就是**原地弹出 / 弹没**。
+要做「从左侧滑出」这类动效，统一用 **CSS 动画 + 定时器**（不用 `<transition>`，小程序不支持）：
+
+| 环节 | 做法 |
+|---|---|
+| 进场 | 元素自带 `animation: drawer-in 0.24s ...`（`translateX(-100%) → 0`），挂载即自动播放 |
+| 退场 | 关闭时**先挂 `.closing` 类**换成 `drawer-out`，等 `MENU_ANIM_MS` 到点再置 `v-if=false` 卸载；直接卸载会「秒没」 |
+| 幂等 | 关闭入口有多个（× 按钮 / 点遮罩 / 路由变化 / 菜单项），`closeMenu()` 用「已关闭或已在收起中则 return」保证不重复计时 |
+| 卸载前 | `onBeforeUnmount` 里 `clearTimeout`，别让定时器活过组件 |
+
+⚠️ **页间跳转必须等动画播完再 `router.push`**：uni 的跳转是**页面级**的（每个页面各自持有自己的
+`Layout`），push 的瞬间当前页连同 Layout 一起被卸载，抽屉会跟着秒消失、动画白做 ——
+`Layout.vue` 的 `goFromMenu()` 因此把 push 延后到动画结束（2026-09-22）。
+
 
 ### ⚠️ 表格：`table` 换成 `view` 后必须用 flex 重新搭（踩过坑，必读）
 
@@ -203,20 +250,21 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 
 | 区域 | 内容 |
 |---|---|
-| 顶栏左 | 用户头像圆点（窄屏隐藏昵称）—— **点击展开菜单**（接管原 `☰` 的职责） |
+| 顶栏左 | **☰ 菜单按钮**（`order: 1` 排到最左）—— 点击从左侧滑出二级菜单 |
 | 顶栏中 | 搜索框（吃掉剩余宽度） |
-| 顶栏右 | 消息铃铛 |
+| 顶栏右 | 消息铃铛 + **主题切换**（🌙/☀️） |
 | 底栏 | 首页 · 最近更新 · 分类（三等分，带图标，选中态变主题橙） |
+| 菜单内 | **账号区**（未登录=整宽「登录」按钮 / 已登录=头像+昵称+「退出登录」）+ 全部导航（首页/分类/最近更新/排行/我的收藏与历史/采集管理/授权管理） |
 
-- 顶栏重排靠 **flex `order`**、不改 DOM 顺序 → 桌面端布局完全不受影响。
-- 窄屏下 `logo` / `.nav-links` / `.logout` / `.menu-btn` 统一 `display: none`。
-- 菜单内容沿用原来的 `.mobile-menu`（首页/分类/最近更新/排行/我的收藏与历史/采集管理/授权管理/退出登录）。
+- 顶栏重排靠 **flex `order`**（菜单 1 / 搜索 2 / 消息 3 / 主题 4）、不改 DOM 顺序 → 桌面端布局完全不受影响。
+- 窄屏下 `.logo` / `.nav-links` / `.logout` / `.login-link` / `.user-chip` 隐藏；
+  **只留 `.menu-btn`（+ 搜索框 + 消息 + 主题）** —— 账号入口全部收进菜单。
 
 **改这里时别踩的坑**
 
-- **断点 860 有两份，必须同步**：CSS 的 `@media (max-width: 860px)` 与脚本里的 `MOBILE_MAX`（都在 `Layout.vue`）。
-  两者不一致 → 点用户头像会走错分支（该展开菜单却跳页）。
-- **判断宽度用 `viewportWidth()`**：H5 走 `window.innerWidth`，其他端回退 `uni.getSystemInfoSync().windowWidth`（同 `pages/reader` 的写法）。
+- **断点只有 CSS 一处**（`@media (max-width: 860px)`，`Layout.vue`）：**脚本里没有宽度判断**。
+  菜单只由 ☰ 触发，不需要「按宽度分流」—— 旧实现里的 `MOBILE_MAX` / `viewportWidth()`（用来判断
+  点「用户头像」该展开菜单还是跳页）已随「账号入口收进菜单」一并删除，**别再照抄回来**。
 - **底栏 z-index = 120**：高于内容、低于消息面板（200）与 toast（999）。
   阅读器是 `position: fixed` + z-index 200 的全屏层，**会盖住底栏** —— 与顶栏（z-index 100）同一处理方式，因此不需要额外排除逻辑。
 - **底部安全区**：底栏带 `padding-bottom: env(safe-area-inset-bottom)`；页脚补了 `padding-bottom: 84px`
@@ -231,11 +279,99 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 - 不用裸 `<svg>` 标签 —— 项目约定「模板只用 uni 组件」，`<image>` 三端行为一致。
 - 不用 `.svg` 文件 —— `<image>` 对 svg **文件**的支持各端不一致；base64 data URI 最通用。
 - 不引图标库 —— 3 个图标不值得加依赖。
-- **颜色写死在 SVG 里**（`<image>` 不认 `currentColor`）→ 选中/未选中各生成一份，模板按 `route.path === t.path` 切 `:src`。
+- **颜色写死在 SVG 里**（`<image>` 不认 `currentColor`）→ **主题 × 选中态 = 4 份**：
+  `TAB_ICONS`（明亮）/ `TAB_ICONS_DARK`（夜间），各含 `off`/`on`；`Layout` 抽了个
+  `tabIcon(path, on)` 按 `isDark` + `route.path === t.path` 选 `:src`。夜间那份不能省 —— 默认态
+  用的是 `--text-2`，夜间该值变亮，用明亮那套在深底上基本看不见。
 - 不用 `btoa`（部分运行环境没有）→ 自带 ASCII 版 base64 编码器（SVG 内容全 ASCII），已与 `Buffer.toString('base64')` 逐字节比对通过。
 - ⚠️ `<image>` **必须显式给宽高**（uni 默认 320×240），这里 `.bn-icon { width: 22px; height: 22px }`。
 
 **未验证项**：App 端未实机跑过（需 HBuilderX 打包）；断点与图标在 App 端走同一套 CSS / 组件，理论上一致。
+
+## 移动端漫画列表（封面网格一律 3 列）
+
+2026-09-22 用户要求「移动端每行三部」。**所有封面网格列表统一 3 列**：
+
+| 位置 | 类名 | 桌面 | ≤900px | ≤560px（手机） |
+|---|---|---|---|---|
+| 首页 热门 / 最近更新 | `index/index.vue` `.grid` | 4 | 3 | 3（gap 16→10） |
+| 首页 分类精选 | `.grid` | 4 | 3 | 3（gap 16→10） |
+| 最近更新 | `latest/index.vue` `.grid` | 5 | 3 | 3（gap 16→10） |
+| 分类 / 搜索 | `search/index.vue` `.grid` | 5 | 3 | 3（gap 16→10） |
+| 我的收藏 | `me/index.vue` `.fav-grid` | 6 | 4 | 3（gap 14→10） |
+
+- 手机列宽只有 **~110px**（390px 视口，含 16px 页面内边距 + 10px 间距），所以卡片的字号/内边距
+  由 **`components/ComicCard.vue` 里的同名 ≤560 断点**统一收紧（标题 13px、作者/最新话 11px、
+  角标 10px），作者名补了 `ellipsis`（原先没截断，窄卡片下会撑破行）。**改列数时记得一起看它。**
+- **行式列表不适用，别顺手改**：`我的 · 最近阅读`（`.row`，带「读到第 N 页」进度 + 续读/删除按钮）
+  与 `排行榜`（`.rank`，带排名序号 + 🔥热度）保持行式 —— 改成封面网格会丢掉这些信息/操作
+  （2026-09-22 已与用户确认）。
+- ⚠️ **页面左右内边距**：`style.css` 里 `.page { padding: 20px 16px 48px }` 的左右 16px **不能省** ——
+  `.page` 与 `.container` 同为单类选择器且 `.page` 在后面，简写 `padding` 会把 `.container` 的 `0 16px`
+  整体覆盖成 0，窄屏下网格直接贴屏幕边缘（原 comic-web 同此写法，属移植过来的既有问题，已修）。
+
+## 首页区块（每块 3 部 + 「全部」链接）
+
+首页**三类区块一律只放排名最前的 3 部**（`index/index.vue` 的 `TOP_N = 3`）：🔥 热门榜单、⚡ 最新更新、
+各 `分类 · 精选`；其余走**区块标题行右侧**的「全部 ›」。
+
+| 区块 | 取数 | 「全部 ›」→ |
+|---|---|---|
+| 🔥 热门榜单 | `getComics({ sort: 'views', pageSize: 3 })` | `goAll('/rank')` → 排行页（按分类分块，块内热度前 10） |
+| ⚡ 最新更新 | `getComics({ sort: 'updated', pageSize: 3 })` | `goAll('/latest')` → 最近更新页 |
+| `X · 精选` | `getComics({ category: X, pageSize: 3 })` | `goCategory(X)` → `/search?category=X`（分类页 `applyQuery()` 读 URL 直达） |
+
+- 链接在 `.section-title` 里，靠 `margin-left: auto` 顶到标题行最右（与容器右边缘对齐）。
+- 取数直接传 `pageSize: 3`，**不是**「取 8 条再截断」—— 不多取用不到的数据。
+- 网格用 `.grid`（4 列）而**不是原来的 `.grid-5`**：3 张卡在 5 列里会空出 40% 宽度，4 列下
+  卡片尺寸与其它区块一致。
+- ⚠️ **标题必须包一层 `.st-label`**：`.section-title` 是 flex，裸文本节点是「匿名 flex 项」、
+  会被压缩换行 —— 实测 390px 下「⚡ 最新更新」断成「最新更 / 新」两行。所以标题文字要
+  `<text class="st-label">`（`flex: 0 0 auto; white-space: nowrap`），并让同行的 `.hint` 先让位
+  （`flex: 0 1 auto; min-width: 0; white-space: nowrap`；≤560px 直接 `display: none`，
+  否则「标题 + 长提示 + 全部 ›」在 390px 下必然换行）。
+
+## 主题（明亮 / 夜间）
+
+顶栏右侧（搜索框与消息铃铛之后）一个圆形按钮切换，图标 🌙 = 当前明亮（点了进夜间）、☀️ = 当前夜间。
+
+| 环节 | 位置 | 说明 |
+|---|---|---|
+| 状态 | `utils/theme.ts` | 模块级 `ref`，`useTheme()` 给 `{ theme, isDark, setTheme, toggleTheme }` |
+| 持久化 | `storage` 的 `comic_theme` 键 | 未存过时**跟随系统**（H5 用 `prefers-color-scheme`，其它端用 `uni.getSystemInfoSync().theme`） |
+| 挂载点 | ①`Layout.vue` 的 `.app-shell`（模板根）②H5 的 `<html>` | ① 三端都生效（CSS 变量继承到整棵子树）；② 让 `html/body/page` 自身背景一起切 |
+
+- 配色全在 `style.css` 的 **`.theme-dark`** 变量组里，**组件里不该再写死表面色**。
+  ⚠️ `.theme-dark` 必须排在 `:root` **之后**：两者同为单类权重，靠源码顺序取胜。
+- 变量分工：卡片/顶栏/面板/输入框 → `var(--card)`；占位底色、页面底 → `var(--bg)`；
+  静默块（灰底小标签）→ `var(--mute)`；再淡一档的表面（表头/行 hover）→ `var(--surface-2)`；
+  开关轨道 → `var(--track)`；滚动条 → `var(--scroll-thumb)`。**新增组件样式时按这套选变量，别写 `#fff`。**
+- ⚠️ **底栏图标要换第二套**：图标颜色是烘死在 SVG 里的（`<image>` 不认 `currentColor`），
+  默认态用的是 `--text-2`，夜间该值变亮 → 不换图标在深底上基本看不见。
+  `utils/icons.ts` 因此导出 `TAB_ICONS` / `TAB_ICONS_DARK`，由 `Layout` 按 `isDark` 选用。
+- ⚠️ **`.app-shell` 上不能写 `position` / `z-index` / `transform` / `filter`**：任一项都会形成层叠上下文
+  或包含块，里面那两个 `position: fixed` 的抽屉/遮罩就压不过外面的底栏了（它们本就为此放在 `.nav` 之外）。
+  另外 `min-height: 100vh` 是给小程序兜底 —— 那边 `page` 元素背景不随主题变，靠这层铺满视口。
+- ⚠️ **个别带固定底色的徽标仍是浅底**（如管理台的 `.badge.warning`、`.src-tag.real`、`.msg-kind` 的
+  来源色块）：它们底色与文字色是**成对写死**的，夜间呈现为「浅底 + 深字」的小色块，可读但不够融合。
+  要彻底统一得给每个色块都配一套夜间值，本次未做。
+
+## 漫画明细页（`pages/comic`）
+
+桌面端（>700px）保持原样：封面 190×253 在左，明细在右，章节列表 3 列（带序号徽标）。
+
+移动端（≤700px）改「同构缩放」而不是上下堆叠：
+
+| 部分 | 桌面 | ≤700px |
+|---|---|---|
+| `.hero` | 横向，padding 22px，封面 190×253 | 横向，padding 14px，封面 **96×128 在左上**，明细与按钮进 **右上**（`.hero-info`，宽 ~214px），标题 26→17px |
+| `.actions` | 并排 | 并排 + `flex-wrap`（「续读第 N 话」变长时兜底换行），按钮字号 13px |
+| `.chapters` | 3 列 | **4 列**（列宽 ~82px），**隐藏 `.no` 序号徽标**（否则吃掉一半宽度），标题居中、12px |
+
+- 章节标题本身就是「第 12 话」这类短语，所以窄屏只留标题、不显示序号徽标；桌面端两者都在。
+- 卡片下方依次是 `.desc`（描述）与「章节列表」—— 描述块在窄屏一并收小（padding 10/12、13px）。
+- ⚠️ `.chapters` 的列数是**用真实章节数据量过的**：390px 下 4 列 = 4×82px + 3×8px = 352px，
+  正好落在 `.page` 的 16px 内边距里，无横向溢出。
 
 ## 基础命令
 
@@ -358,6 +494,8 @@ WorkBuddy **不会自动启用**新 MCP：需要用户到**连接器管理页右
   白名单外一律被抹成 `text` —— 所以 `type="date"` 必须走 `DateInput.vue`。
 - `DateInput` **不带样式**，靠根元素的 `class="date-inp"` 钩子让页面挂样式（uni 会把 scoped 的 `input` 改写成
   `uni-input`，匹配不到这个原生 input）。
+- **表面色一律走 CSS 变量，禁止再写 `#fff`**：主题（明亮 / 夜间）就是换一套变量值，写死的白底在夜间
+  会变成「白底 + 浅字」。对照表见上文「主题（明亮 / 夜间）」；新增组件时按那张表选变量。
 
 **已知残留风险**（详细取舍见 `.workbuddy/memory/2026-09-22.md`）
 
