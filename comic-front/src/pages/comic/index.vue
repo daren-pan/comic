@@ -223,9 +223,27 @@ function fmtTime(iso: string): string {
 }
 .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text); }
 
+/* ---- 移动端（≤700px）----
+   布局与桌面端「同构、只缩放」：卡片保持横向，封面挪到左上、明细与按钮在右上，
+   卡片下面紧接章节网格。**不改成上下堆叠**（旧实现是封面居中 + 文字居中，浪费大半屏）。 */
 @media (max-width: 700px) {
-  .hero { flex-direction: column; align-items: center; text-align: center; }
-  .hero-meta, .actions { justify-content: center; }
-  .chapters { grid-template-columns: 1fr; }
+  .hero { padding: 14px; gap: 12px; align-items: flex-start; }
+  .hero-cover { width: 96px; height: 128px; border-radius: 8px; }
+  .hero-info .u-h1 { font-size: 17px; margin-bottom: 6px; }
+  .hero-meta { gap: 6px; margin-bottom: 6px; }
+  .hero-line { font-size: 12px; margin: 2px 0; }
+  .actions { gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .actions .btn { padding: 7px 12px; font-size: 13px; }
+
+  .desc { padding: 10px 12px; margin-top: 12px; font-size: 13px; line-height: 1.7; }
+
+  .section-title { font-size: 17px; margin: 20px 0 10px; }
+  .section-title::before { height: 17px; }
+  /* 章节：每行 4 个。列宽只剩 ~80px，序号徽标要占掉一半宽度 → 窄屏隐藏，
+     只留标题（标题本身就是「第 12 话」这样的短语），居中排布。 */
+  .chapters { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .chapter { justify-content: center; padding: 9px 4px; font-size: 12px; gap: 0; }
+  .chapter .no { display: none; }
+  .name { flex: 1 1 auto; text-align: center; }
 }
 </style>
