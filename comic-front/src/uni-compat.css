@@ -1,0 +1,97 @@
+/* uni-app 内置组件的「默认样式归一化」。
+ *
+ * 背景：comic-web 的样式表是按**原生** `input` / `button` / `form` 写的。搬到 comic-front 后，
+ * uni-app H5 会把它们编译成内置组件（`uni-input` / `uni-button` / `uni-form`），
+ * 而**这些组件自带一套默认样式 + 一层多余结构**，会盖掉「原生元素的默认表现」—— 于是 CSS 一字未改却错位。
+ * （uni 的编译器会把 scoped CSS 里的 `input` / `button` 选择器自动改写成 `uni-input` / `uni-button`，
+ *   所以「样式没生效」不是选择器的问题，是**组件默认样式 + 结构差异**的问题。）
+ *
+ * 这份文件只做一件事：把 uni 的默认行为归一到**原生元素的盒子模型**，其余样式表原样生效。
+ * 每一处都对应一个实际踩到的错位，改前请先读注释。
+ *
+ * ⚠️ 所有选择器都带 `html` 前缀 —— uni 的组件样式是**运行时用 `insertRule` 写进 CSSOM** 的
+ *    （所以 `--dump-dom` 里看不到它），且**排在本文件之后** —— 同权重（`uni-button` 都是 0,0,1）
+ *    时后者胜出，重置会静默失效。加上 `html` 变成 0,0,2 就不受注入顺序影响。
+ */
+
+/* ⓪ 字体：原生表单控件**不继承页面字体** —— 浏览器 UA 给 <button>/<input> 用的是 Arial
+ *    （实测 Chrome/Edge 计算值 `font-family: Arial`，`font-size: 13.3333px`），
+ *    而 uni 的 uni-button / uni-input 会**继承 body 的字体栈**。
+ *    Arial 与「PingFang / 微软雅黑」的行盒高度不同（15px 字号下 17px vs 20px）→
+ *    输入框整体高 3px、按钮文字行盒也差 3px，看上去就是「错位」。
+ *    要跟 comic-web 渲染一致，这里显式对齐 UA 的字体。 */
+html uni-button,
+html uni-input { font-family: Arial; }
+
+/* ① uni 的 <form> 会在子元素外面**再包一层 <span>**（uni-form 内部实现，写死的），
+ *    于是 `.xxx { display: flex }` 落在 uni-form 上、真正的子元素却在那层 span 里 →
+ *    **flex 从未生效**：搜索框和搜索按钮各占一行、还按占位符宽度收缩。
+ *    `display: contents` 让这层 span 不产生盒子 → 子元素重新变成 uni-form 的直接 flex 子项。
+ *    （小程序/App 端 uni 不注入这层 span，本规则自然空转，同一份模板照样正确。） */
+uni-form > span { display: contents; }
+
+/* ② uni-button：把「原生 <button> 的默认表现」补回来。
+ *
+ * 原生 <button>（comic-web 里的那个）有一项浏览器**内置**行为：它的内容盒是**垂直居中**的
+ * （UA 用匿名盒居中），且默认 `display: inline-block`（收缩到内容宽）、`padding: 1px 6px`。
+ * uni 把这些全换掉了：
+ *   - `display: block`            → 不设宽度的按钮会**占满整行**（登录页「没有账号？去注册」本该只有 124px）
+ *   - 靠 `line-height: 2.5555` **近似**垂直居中 → 业务 CSS 一旦改掉 line-height（如搜索按钮）就**文字贴顶**
+ *   - `margin-left/right: auto`   → 按钮在**任何 flex 行**里都被吸到两端（分类标签 / 排序 / 分页被整行撑散）
+ *   - `padding-left/right: 14px`  → 未声明内边距的按钮比原生宽 16px
+ *   - `overflow: hidden`          → 把消息中心铃铛上的未读红点裁掉
+ *   - `font-size: 18px`           → 未声明字号的按钮比原生大
+ * 这里逐项归一到原生：inline-flex + 居中替代「匿名盒居中」，padding 取原生默认值。
+ * （业务 CSS 里显式写过的属性权重更高（0,1,x > 0,0,2），不会被这里覆盖。） */
+html uni-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 1px 6px;
+  font-size: 13.3333px;
+  line-height: normal;
+  overflow: visible;
+}
+
+/* ③ uni-button 默认用 ::after 画一圈 1px 边框 —— 无边框的纯文字按钮会多出一个方框
+ *    （登录页「← 返回」「没有账号？去注册」）。comic-web 的按钮边框都由自身 CSS 定义。
+ *    同样要压过 uni 的 `uni-button:after`（0,0,2）→ 这里 0,0,3。 */
+html uni-button::after { border: none; }
+
+/* ④ uni-input：把「原生 <input> 的高度模型」补回来。
+ *
+ * 原生 <input> 的高度 = 行高 + 内边距 + 边框（**内容撑开**）。uni 换成了固定高度：
+ *   - `height/min-height: 1.4em` + `box-sizing: border-box` →
+ *     业务 CSS 只给 padding 不给 height 时（登录页输入框就是 `padding: 11px 14px`），
+ *     内容盒高度 = 1.4em − padding 会**算成 0**；
+ *   - 内部 `.uni-input-wrapper` / `.uni-input-input` 又是 `height: 100%` →
+ *     相对那个 0 高的内容盒 → **真正的 <input> 高 0px**，于是**点不进去、打不了字**。
+ *   - `line-height: 1.4em` → 比原生（`normal`）高 4px。
+ * 归一到原生：高度由内容撑开、行高用 normal。外层若被业务 CSS 指定了 height
+ * （如搜索框 `height: 44px`），`.uni-input-wrapper` 仍是 `height: 100%` + `justify-content: center`，
+ * 输入内容会照旧在框内垂直居中。 */
+html uni-input {
+  height: auto;
+  min-height: 0;
+  line-height: normal;
+}
+html uni-input .uni-input-input { height: auto; }
+
+/* ⑤ uni 的 <label> 组件**只要有子内容**就挂上 `.uni-label-pointer` → `cursor: pointer`
+ *    （uni 源码：const pointer = computed(() => props.for || slots.default && slots.default.length)），
+ *    而原生 <label> 的 UA 默认是 `cursor: default`。
+ *    于是登录页「用户名 / 密码」两行文字凭空出现小手 —— 它们只是 label 里的说明文字，不可点。
+ *
+ *    注意 cursor 是**继承属性**：label 上的这一个 pointer 会一路传给 `.field span`、`uni-input`、
+ *    `.uni-input-wrapper`、`.uni-input-placeholder`（后者虽有 pointer-events: none、不接管光标，
+ *    但计算值仍是 pointer）。所以**只需修这一处**，整条链就都回到 default。
+ *
+ *    归一到原生：label 默认箭头；**真正可点的元素各自显式声明** —— `.btn` / `.switch` / `.back` 都写过
+ *    `cursor: pointer`，且 scoped CSS 编译后会带上属性选择器（`.back[data-v-x]` = 0,2,0），
+ *    权重高于本行，不受影响。admin 的 `<label class="switch">` 靠内部 `.slider`（同样 0,2,0）兜住，
+ *    行为与 comic-web 一致。
+ *
+ *    ⚠️ 权重：`.uni-label-pointer` 是 (0,1,0)，`html uni-label` 只有 (0,0,2) **压不过**，
+ *       必须写成 `html uni-label.uni-label-pointer` = (0,1,2)。 */
+html uni-label.uni-label-pointer { cursor: default; }

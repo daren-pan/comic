@@ -13,6 +13,9 @@ node_modules/
 dist/
 */dist/
 
+# ---- uni-app 构建产物（comic-front 各端打包输出 dist/{build,dev}/<平台>，已由上面的 dist/ 规则覆盖）----
+#   例：comic-front/dist/build/h5（H5 发布）、comic-front/dist/dev/mp-weixin（小程序开发）
+
 # ---- 打包产物（scripts/package.* 按需生成部署包，不入库）----
 build/
 
