@@ -5,7 +5,9 @@
 //   - `<RouterView />` → `<slot />`（uni 无全局 outlet，改由每个页面用 <Layout> 包住自身内容）；
 //   - `useRoute/useRouter` 来自 utils/router（compat 层，签名与 vue-router 同形）；
 //   - `document.addEventListener`（点击空白关面板）仅在 H5 存在 → 条件编译；
-//   - `<RouterLink>` → `<a @click.prevent>`（保留 a 标签，CSS 选择器不变）。
+//   - `<RouterLink>` → `<view class="u-a" @click>`：`<a>` 在本项目里是**布局容器**
+//     （.nav-links 的 flex 子项 / .mobile-menu 自己就是 display:flex），而小程序规定
+//     `<text>` 内不得放 `<view>`/`<image>` 等块级组件，故统一映射成 `view` + `u-a` 类。
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from '../utils/router'
@@ -98,122 +100,123 @@ watch(() => route.path, () => {
 </script>
 
 <template>
-  <header class="nav">
-    <div class="container nav-inner">
-      <a href="javascript:;" class="logo" @click="router.push('/')">
-        <span class="logo-mark">漫</span>
-        <span class="logo-text">漫阅<em>COMIC</em></span>
-      </a>
+  <view class="nav">
+    <view class="container nav-inner">
+      <view class="logo u-a" @click="router.push('/')">
+        <text class="logo-mark u-span">漫</text>
+        <text class="logo-text u-span">漫阅<text class="u-em">COMIC</text></text>
+      </view>
 
-      <nav class="nav-links">
-        <a href="javascript:;" :class="{ on: route.path === '/' }" @click="router.push('/')">首页</a>
-        <a href="javascript:;" :class="{ on: route.path === '/search' }" @click="router.push('/search')">分类</a>
-        <a href="javascript:;" :class="{ on: route.path === '/latest' }" @click="router.push('/latest')">最近更新</a>
-        <a href="javascript:;" :class="{ on: route.path === '/rank' }" @click="router.push('/rank')">排行</a>
-        <a href="javascript:;" :class="{ on: route.path === '/me' }" @click="router.push('/me')">我的</a>
+      <view class="nav-links">
+        <view class="u-a" :class="{ on: route.path === '/' }" @click="router.push('/')">首页</view>
+        <view class="u-a" :class="{ on: route.path === '/search' }" @click="router.push('/search')">分类</view>
+        <view class="u-a" :class="{ on: route.path === '/latest' }" @click="router.push('/latest')">最近更新</view>
+        <view class="u-a" :class="{ on: route.path === '/rank' }" @click="router.push('/rank')">排行</view>
+        <view class="u-a" :class="{ on: route.path === '/me' }" @click="router.push('/me')">我的</view>
         <!-- 管理：管理员（含超管）可见；授权：**仅超管**（普通管理员没有授权权限） -->
-        <a v-if="isAdmin" href="javascript:;" :class="{ on: route.path === '/admin' }" @click="router.push('/admin')">管理</a>
-        <a v-if="isSuperAdmin" href="javascript:;" :class="{ on: route.path === '/admin/users' }" @click="router.push('/admin/users')">授权</a>
-      </nav>
+        <view v-if="isAdmin" class="u-a" :class="{ on: route.path === '/admin' }" @click="router.push('/admin')">管理</view>
+        <view v-if="isSuperAdmin" class="u-a" :class="{ on: route.path === '/admin/users' }" @click="router.push('/admin/users')">授权</view>
+      </view>
 
-      <div class="nav-right">
+      <view class="nav-right">
         <!-- 提交语义走 uni 的 form-type（不是 HTML 的 type="submit"，那在 uni 里不触发提交）；
              回车提交用 uni-input 的 confirm 事件补齐（uni-form 不是原生 form，没有隐式提交）。 -->
         <form class="search-box" @submit="onSearch">
-          <input v-model="keyword" type="text" placeholder="搜索漫画 / 作者 / 标签" @confirm="onSearch" />
-          <button form-type="submit" aria-label="搜索">🔍</button>
+          <input class="u-input" v-model="keyword" type="text" placeholder="搜索漫画 / 作者 / 标签" @confirm="onSearch" />
+          <button class="u-button" form-type="submit" aria-label="搜索">🔍</button>
         </form>
 
         <!-- 消息中心：任务结果 + 系统消息（点击展开） -->
-        <div class="msg-wrap">
-          <button class="msg-btn" :class="{ on: showMsg }" @click.stop="toggleMsg" title="消息">
-            <span class="msg-icon">🔔</span>
-            <span v-if="msgStore.unread" class="msg-badge">{{ msgStore.unread > 99 ? '99+' : msgStore.unread }}</span>
+        <view class="msg-wrap">
+          <button class="msg-btn u-button" :class="{ on: showMsg }" @click.stop="toggleMsg" title="消息">
+            <text class="msg-icon u-span">🔔</text>
+            <text v-if="msgStore.unread" class="msg-badge u-span">{{ msgStore.unread > 99 ? '99+' : msgStore.unread }}</text>
           </button>
-          <transition name="drop">
-            <div v-if="showMsg" class="msg-panel" @click.stop>
-              <div class="msg-head">
-                <span class="msg-title">消息</span>
-                <div class="msg-actions">
-                  <button v-if="msgStore.unread" class="msg-link" @click="msgStore.markAllRead()">全部已读</button>
-                  <button v-if="msgStore.notices.length" class="msg-link" @click="msgStore.clear()">清空</button>
-                </div>
-              </div>
-              <div v-if="!msgStore.notices.length" class="msg-empty">暂无消息</div>
-              <div v-else class="msg-list">
-                <div
-                  v-for="n in msgStore.notices"
-                  :key="n.id"
-                  class="msg-item"
-                  :class="[n.kind, n.status, { unread: !n.read }]"
-                >
-                  <div class="msg-item-head">
-                    <span class="msg-kind">{{ kindLabel(n.kind) }}</span>
-                    <span class="msg-status">{{ statusLabel(n) }}</span>
-                    <span class="msg-time">{{ fmtMsgTime(n.time) }}</span>
-                  </div>
-                  <div class="msg-summary">{{ n.summary }}</div>
-                  <div v-if="n.detail" class="msg-detail">{{ n.detail }}</div>
-                  <div v-if="n.kind !== 'system' && n.source" class="msg-src">
-                    源：{{ n.source }}<template v-if="n.mode"> · {{ n.mode === 'full' ? '全量' : '增量' }}</template>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </transition>
-        </div>
+          <!-- #ifndef H5 -->
+          <!-- 小程序没有全局 document 点击（H5 用 document.addEventListener('click') 关面板）：
+               铺一层透明遮罩承接「点空白关闭」。z-index 低于面板(200)、高于顶栏(100)。 -->
+          <view v-if="showMsg" class="msg-mask" @click="showMsg = false"></view>
+          <!-- #endif -->
+          <view v-if="showMsg" class="msg-panel" @click.stop>
+            <view class="msg-head">
+              <text class="msg-title u-span">消息</text>
+              <view class="msg-actions">
+                <button v-if="msgStore.unread" class="msg-link u-button" @click="msgStore.markAllRead()">全部已读</button>
+                <button v-if="msgStore.notices.length" class="msg-link u-button" @click="msgStore.clear()">清空</button>
+              </view>
+            </view>
+            <view v-if="!msgStore.notices.length" class="msg-empty">暂无消息</view>
+            <view v-else class="msg-list">
+              <view
+                v-for="n in msgStore.notices"
+                :key="n.id"
+                class="msg-item"
+                :class="[n.kind, n.status, { unread: !n.read }]"
+              >
+                <view class="msg-item-head">
+                  <text class="msg-kind u-span">{{ kindLabel(n.kind) }}</text>
+                  <text class="msg-status u-span">{{ statusLabel(n) }}</text>
+                  <text class="msg-time u-span">{{ fmtMsgTime(n.time) }}</text>
+                </view>
+                <view class="msg-summary">{{ n.summary }}</view>
+                <view v-if="n.detail" class="msg-detail">{{ n.detail }}</view>
+                <view v-if="n.kind !== 'system' && n.source" class="msg-src">
+                  源：{{ n.source }}<template v-if="n.mode"> · {{ n.mode === 'full' ? '全量' : '增量' }}</template>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
 
         <template v-if="logged">
-          <button class="user-chip" @click="router.push('/me')" title="我的书架">
-            <span class="avatar">{{ (user?.nickname || '我').slice(0, 1) }}</span>
+          <button class="user-chip u-button" @click="router.push('/me')" title="我的书架">
+            <text class="avatar u-span">{{ (user?.nickname || '我').slice(0, 1) }}</text>
             {{ user?.nickname || user?.username }}
           </button>
-          <button class="logout" @click="onLogout">退出</button>
+          <button class="logout u-button" @click="onLogout">退出</button>
         </template>
-        <a v-else href="javascript:;" class="login-link" @click="router.push('/login')">登录</a>
-        <button class="menu-btn" @click="showMenu = !showMenu" aria-label="菜单">☰</button>
-      </div>
-    </div>
+        <view v-else class="login-link u-a" @click="router.push('/login')">登录</view>
+        <button class="menu-btn u-button" @click="showMenu = !showMenu" aria-label="菜单">☰</button>
+      </view>
+    </view>
 
     <!-- 移动端菜单 -->
-    <div v-if="showMenu" class="mobile-menu">
-      <a href="javascript:;" @click="router.push('/'); showMenu = false">首页</a>
-      <a href="javascript:;" @click="router.push('/search'); showMenu = false">分类</a>
-      <a href="javascript:;" @click="router.push('/latest'); showMenu = false">最近更新</a>
-      <a href="javascript:;" @click="router.push('/rank'); showMenu = false">排行</a>
-      <a href="javascript:;" @click="router.push('/me'); showMenu = false">我的收藏与历史</a>
-      <a v-if="isAdmin" href="javascript:;" @click="router.push('/admin'); showMenu = false">采集管理</a>
-      <a v-if="isSuperAdmin" href="javascript:;" @click="router.push('/admin/users'); showMenu = false">授权管理</a>
-      <a v-if="!logged" href="javascript:;" @click="router.push('/login'); showMenu = false">登录</a>
-      <a v-else href="javascript:;" @click="onLogout(); showMenu = false">退出登录</a>
-    </div>
-  </header>
+    <view v-if="showMenu" class="mobile-menu">
+      <view class="u-a" @click="router.push('/'); showMenu = false">首页</view>
+      <view class="u-a" @click="router.push('/search'); showMenu = false">分类</view>
+      <view class="u-a" @click="router.push('/latest'); showMenu = false">最近更新</view>
+      <view class="u-a" @click="router.push('/rank'); showMenu = false">排行</view>
+      <view class="u-a" @click="router.push('/me'); showMenu = false">我的收藏与历史</view>
+      <view class="u-a" v-if="isAdmin" @click="router.push('/admin'); showMenu = false">采集管理</view>
+      <view class="u-a" v-if="isSuperAdmin" @click="router.push('/admin/users'); showMenu = false">授权管理</view>
+      <view class="u-a" v-if="!logged" @click="router.push('/login'); showMenu = false">登录</view>
+      <view class="u-a" v-else @click="onLogout(); showMenu = false">退出登录</view>
+    </view>
+  </view>
 
-  <main class="container page">
+  <view class="container page">
     <slot />
-  </main>
+  </view>
 
-  <footer class="footer">
-    <div class="container">
-      <p>漫阅 Comic — 漫画聚合阅读平台
-        <span v-if="backend === true" class="src-tag real">● 已连接采集服务（真实数据）</span>
-        <span v-else class="src-tag">● 演示模式（本地 mock 数据）</span>
-      </p>
-      <p class="tip">仅收录已授权 / 开放版权 / 公共领域内容 · 尊重版权，支持正版</p>
-    </div>
-  </footer>
+  <view class="footer">
+    <view class="container">
+      <view class="u-p">漫阅 Comic — 漫画聚合阅读平台
+        <text v-if="backend === true" class="src-tag real u-span">● 已连接采集服务（真实数据）</text>
+        <text v-else class="src-tag u-span">● 演示模式（本地 mock 数据）</text>
+      </view>
+      <view class="tip u-p">仅收录已授权 / 开放版权 / 公共领域内容 · 尊重版权，支持正版</view>
+    </view>
+  </view>
 
   <!-- 任务结果 toast：任务执行完毕提示（全站可见） -->
-  <transition name="toast">
-    <div v-if="msgStore.toast" class="toast" :class="msgStore.toast.status">
-      <div class="toast-head">
-        <span class="toast-title">{{ kindLabel(msgStore.toast.kind) }} · {{ statusLabel(msgStore.toast) }}</span>
-        <button class="toast-close" @click="msgStore.dismissToast()">×</button>
-      </div>
-      <div class="toast-text">{{ msgStore.toast.summary }}</div>
-      <div v-if="msgStore.toast.detail" class="toast-detail">{{ msgStore.toast.detail }}</div>
-    </div>
-  </transition>
+  <view v-if="msgStore.toast" class="toast" :class="msgStore.toast.status">
+    <view class="toast-head">
+      <text class="toast-title u-span">{{ kindLabel(msgStore.toast.kind) }} · {{ statusLabel(msgStore.toast) }}</text>
+      <button class="toast-close u-button" @click="msgStore.dismissToast()">×</button>
+    </view>
+    <view class="toast-text">{{ msgStore.toast.summary }}</view>
+    <view v-if="msgStore.toast.detail" class="toast-detail">{{ msgStore.toast.detail }}</view>
+  </view>
 </template>
 
 <style scoped>
@@ -242,10 +245,10 @@ watch(() => route.path, () => {
   display: flex; align-items: center; justify-content: center;
 }
 .logo-text { font-weight: 800; font-size: 19px; color: var(--text); }
-.logo-text em { font-style: normal; font-size: 11px; color: var(--primary); margin-left: 4px; letter-spacing: 1px; }
+.logo-text .u-em { font-style: normal; font-size: 11px; color: var(--primary); margin-left: 4px; letter-spacing: 1px; }
 
 .nav-links { display: flex; gap: 2px; flex: 1; min-width: 0; }
-.nav-links a {
+.nav-links .u-a {
   padding: 6px 10px;
   border-radius: 8px;
   font-weight: 600;
@@ -255,16 +258,16 @@ watch(() => route.path, () => {
   transition: all 0.15s;
   text-decoration: none;
 }
-.nav-links a:hover { color: var(--primary); background: var(--primary-soft); }
-.nav-links a.on { color: var(--primary); background: var(--primary-soft); }
+.nav-links .u-a:hover { color: var(--primary); background: var(--primary-soft); }
+.nav-links .u-a.on { color: var(--primary); background: var(--primary-soft); }
 
 .nav-right { display: flex; align-items: center; gap: 10px; }
 .search-box { display: flex; align-items: center; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 0 4px 0 14px; height: 36px; width: 220px; min-width: 150px; flex-shrink: 1; transition: border 0.15s; }
 .search-box:focus-within { border-color: var(--primary); background: #fff; }
-/* min-width:0 让 input 可以真正收缩（默认 auto 会按默认字符宽度撑住，把右侧按钮压扁）； */
-.search-box input { border: none; outline: none; background: transparent; flex: 1 1 auto; min-width: 0; font-size: 13px; color: var(--text); }
+/* min-width:0 让 .u-input 可以真正收缩（默认 auto 会按默认字符宽度撑住，把右侧按钮压扁）； */
+.search-box .u-input { border: none; outline: none; background: transparent; flex: 1 1 auto; min-width: 0; font-size: 13px; color: var(--text); }
 /* 按钮固定 28×28 不被压缩，圆形图标居中 —— 否则窄容器下会被 flex 压成扁椭圆 */
-.search-box button { border: none; background: var(--primary); color: #fff; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 999px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; padding: 0; }
+.search-box .u-button { border: none; background: var(--primary); color: #fff; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 999px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; padding: 0; }
 
 .menu-btn { display: none; border: none; background: none; font-size: 20px; cursor: pointer; color: var(--text); }
 
@@ -292,7 +295,7 @@ watch(() => route.path, () => {
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.user-chip span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-chip .u-span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .logout {
   border: none;
   background: none;
@@ -320,9 +323,9 @@ watch(() => route.path, () => {
   background: #fff;
   flex-direction: column;
 }
-.mobile-menu a { padding: 10px 8px; border-radius: 8px; font-weight: 600; color: var(--text-2); display: flex; justify-content: space-between; text-decoration: none; }
-.mobile-menu a.on { color: var(--primary); background: var(--primary-soft); }
-.mobile-menu span { color: #bbb; font-size: 13px; }
+.mobile-menu .u-a { padding: 10px 8px; border-radius: 8px; font-weight: 600; color: var(--text-2); display: flex; justify-content: space-between; text-decoration: none; }
+.mobile-menu .u-a.on { color: var(--primary); background: var(--primary-soft); }
+.mobile-menu .u-span { color: #bbb; font-size: 13px; }
 
 .footer {
   border-top: 1px solid var(--border);
@@ -338,6 +341,9 @@ watch(() => route.path, () => {
 
 /* ---- 消息中心 ---- */
 .msg-wrap { position: relative; flex-shrink: 0; }
+/* 点空白关闭的遮罩：只在非 H5 端渲染（H5 走 onDocClick 的 document 监听）。
+   类名在这里无条件声明 —— H5 端没有这个元素，规则不生效，无需再套条件编译。 */
+.msg-mask { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 150; }
 .msg-btn {
   position: relative;
   width: 36px; height: 36px;
@@ -402,8 +408,14 @@ watch(() => route.path, () => {
 .msg-summary { font-size: 13px; font-weight: 600; color: var(--text); }
 .msg-detail { font-size: 12px; color: var(--text-2); margin-top: 2px; }
 .msg-src { font-size: 12px; color: var(--text-2); margin-top: 2px; }
-.drop-enter-active, .drop-leave-active { transition: all 0.18s; }
-.drop-enter-from, .drop-leave-to { opacity: 0; transform: translateY(-6px); }
+/* ⚠️ 不用 `<transition>`：**小程序不支持该组件**（会被当成未知组件，弹层不显示或报错）。
+   改用 CSS 动画表达「出现」——原 enter 的位移/淡入效果保留，leave 的淡出省略
+   （v-if 立刻移除即可，视觉上等同原来的快速收起）。 */
+.msg-panel { animation: drop-in 0.18s ease; }
+@keyframes drop-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* ---- 任务结果 toast（全站） ---- */
 .toast {
@@ -426,8 +438,12 @@ watch(() => route.path, () => {
 .toast-close:hover { color: var(--text); }
 .toast-text { font-size: 13px; font-weight: 600; margin-top: 4px; }
 .toast-detail { font-size: 12px; color: var(--text-2); margin-top: 2px; }
-.toast-enter-active, .toast-leave-active { transition: all 0.25s; }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(20px); }
+/* 同上：`<transition>` 在小程序不可用，用 CSS 动画替代「出现」 */
+.toast { animation: toast-in 0.25s ease; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: none; }
+}
 
 @media (max-width: 860px) {
   .nav-links, .search-box { display: none; }

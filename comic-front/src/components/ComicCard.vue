@@ -11,18 +11,18 @@ const router = useRouter()
 </script>
 
 <template>
-  <a href="javascript:;" class="card" @click="router.push(`/comic/${comic.id}`)">
-    <div class="cover">
-      <img :src="comic.cover" :alt="comic.title" loading="lazy" />
-      <span class="status" :class="{ done: comic.status === '已完结' }">{{ comic.status }}</span>
-      <span v-if="time" class="time">{{ time }}</span>
-    </div>
-    <div class="info">
-      <h3 class="title">{{ comic.title }}</h3>
-      <p class="meta">{{ comic.author }}</p>
-      <p class="update">{{ comic.latestChapterTitle }}</p>
-    </div>
-  </a>
+  <view class="card u-a" @click="router.push(`/comic/${comic.id}`)">
+    <view class="cover">
+      <image mode="aspectFill" class="u-img" :src="comic.cover" :alt="comic.title" loading="lazy" />
+      <text class="status u-span" :class="{ done: comic.status === '已完结' }">{{ comic.status }}</text>
+      <text v-if="time" class="time u-span">{{ time }}</text>
+    </view>
+    <view class="info">
+      <view class="title u-h3">{{ comic.title }}</view>
+      <view class="meta u-p">{{ comic.author }}</view>
+      <view class="update u-p">{{ comic.latestChapterTitle }}</view>
+    </view>
+  </view>
 </template>
 
 <style scoped>
@@ -38,8 +38,12 @@ const router = useRouter()
 }
 .card:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover); }
 
-.cover { position: relative; aspect-ratio: 3 / 4; background: #eee; }
-.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 封面 3:4 比例盒：**不用 `aspect-ratio`** —— 小程序 WebView 视基础库/系统版本而定
+   （需 Chrome 88+ / iOS 15+），改用「高度 0 + padding-bottom 撑比例」这一到处都能用的写法
+   （padding 的百分比按**包含块宽度**解析，正好得到宽度驱动的等比高度）。
+   ⚠️ absolute 子元素的包含块是祖先的 padding box，故 .status / .time 的 top/left 定位不受影响。 */
+.cover { position: relative; height: 0; padding-bottom: 133.33%; background: #eee; overflow: hidden; }
+.cover .u-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .status {
   position: absolute;

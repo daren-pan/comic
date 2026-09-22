@@ -1,4 +1,14 @@
 <script setup lang="ts">
+// 阅读器（由 comic-web 的 ReaderView 移植）。
+//
+// ⚠️ 多端适配说明（2026-09-22）：comic-web 的交互全部建立在 H5 API 上，小程序端**全都不可用**：
+//   - `PointerEvent`            → 改为 `touchstart/touchend`（小程序/H5 触屏）+ 保留 pointer（H5 桌面鼠标拖拽）
+//   - `requestAnimationFrame`   → 改为 `setTimeout` 节流（小程序没有 rAF）
+//   - `element.scrollTo`        → 改为 `scroll-view` 的 `scroll-into-view`（小程序普通 view 不能滚）
+//   - `getBoundingClientRect`   → 改为 `uni.createSelectorQuery().boundingClientRect`（三端同一套）
+//   - `e.clientX`               → 小程序把坐标放在 `e.detail.x`，统一由 `eventX()` 取
+//   - `e.currentTarget`         → 进度条点击改为按需量轨道位置（只在点击时量，不是热路径）
+// **业务判定规则一字未改**：滑动阈值 60px / 800ms、左右热区各 25%、当前页取"视口中心最近的那页"。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { getChapters, getChapter, getChapterPages, getHistory, upsertHistory } from '../../api'
@@ -24,7 +34,8 @@ const showSettings = ref(false)
 const theme = ref<'dark' | 'light'>('dark')
 // 阅读模式：horizontal = 左右滑动单张翻页；vertical = 竖排连播下拉
 const mode = ref<'horizontal' | 'vertical'>('horizontal')
-const readerEl = ref<HTMLElement>()
+// 竖排连播的滚动锚点（scroll-view 的 scroll-into-view 目标 id）
+const scrollAnchor = ref('')
 
 const chapterIdx = computed(() => chapters.value.findIndex((c) => c.id === chapterId.value))
 const hasPrev = computed(() => chapterIdx.value > 0)
@@ -36,6 +47,38 @@ const isVertical = computed(() => mode.value === 'vertical')
 // 横向模式懒加载：仅当前页与前后各一页真实渲染
 function isNear(p: number) {
   return Math.abs(p - pageNo.value) <= 1
+}
+
+// ---------------- 跨端坐标 / 测量 ----------------
+/** 取事件里的横坐标：H5 是 `clientX`，小程序把坐标放在 `detail.x` */
+function eventX(e: unknown): number {
+  const ev = e as { clientX?: number; detail?: { x?: number } }
+  return ev.clientX ?? ev.detail?.x ?? 0
+}
+
+/** 触摸点坐标（touchstart 读 touches、touchend 读 changedTouches） */
+function touchPoint(e: unknown): { x: number; y: number } | null {
+  const ev = e as {
+    touches?: Array<{ clientX?: number; pageX?: number; clientY?: number; pageY?: number }>
+    changedTouches?: Array<{ clientX?: number; pageX?: number; clientY?: number; pageY?: number }>
+  }
+  const t = ev.touches?.[0] ?? ev.changedTouches?.[0]
+  if (!t) return null
+  return { x: t.clientX ?? t.pageX ?? 0, y: t.clientY ?? t.pageY ?? 0 }
+}
+
+/** 量一个节点的位置（uni 的跨端选择器查询） */
+function measureOne(selector: string, cb: (rect: any) => void) {
+  uni.createSelectorQuery().select(selector).boundingClientRect((r: any) => cb(r ?? null)).exec()
+}
+
+/** 量一批节点的位置 */
+function measureAll(selector: string, cb: (rects: any[]) => void) {
+  uni
+    .createSelectorQuery()
+    .selectAll(selector)
+    .boundingClientRect((r: any) => cb(Array.isArray(r) ? r : []))
+    .exec()
 }
 
 // ---------------- 设置持久化 ----------------
@@ -61,8 +104,8 @@ function setMode(m: 'horizontal' | 'vertical') {
   saveSettings()
   showSettings.value = false
   nextTick(() => {
+    // 切到竖排：定位回当前页；切到横向：单张居中，本来就没有滚动位置
     if (m === 'vertical') scrollToPage(pageNo.value)
-    else readerEl.value?.scrollTo({ top: 0 })
   })
 }
 
@@ -76,7 +119,6 @@ async function loadChapter(id: number) {
   loading.value = false
   await nextTick()
   if (isVertical.value) scrollToPage(1)
-  else readerEl.value?.scrollTo({ top: 0 })
 }
 
 function goChapter(id: number) {
@@ -104,57 +146,67 @@ function goPage(p: number) {
   pageNo.value = p
   imgLoading.value = true
   if (isVertical.value) scrollToPage(p)
-  else readerEl.value?.scrollTo({ top: 0 })
 }
 
 // ---------------- 竖排连播：滚动定位 + 当前页推导 ----------------
+/** 滚到某页顶部：用 `scroll-into-view`（跨端可用）。同一个 id 连设两次不会触发，
+ *  故先清空再于 nextTick 设回 —— uni 的惯用写法。 */
 function scrollToPage(p: number) {
-  const el = readerEl.value
-  if (!el) return
-  const target = el.querySelector(`[data-page="${p}"]`) as HTMLElement | null
-  if (!target) return
-  const rel = target.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
-  el.scrollTo({ top: rel, behavior: 'auto' })
+  scrollAnchor.value = ''
+  nextTick(() => {
+    scrollAnchor.value = `pb${p}`
+  })
 }
 
-let raf = 0
+let measureTimer: ReturnType<typeof setTimeout> | undefined
+/** 滚动回调：节流后量一次（原实现用 requestAnimationFrame 节流，小程序没有 rAF） */
 function onScroll() {
   if (!isVertical.value) return
-  if (raf) return
-  raf = requestAnimationFrame(() => {
-    raf = 0
-    const el = readerEl.value
-    if (!el) return
-    const vr = el.getBoundingClientRect()
-    const viewCenter = vr.top + vr.height * 0.5
-    let best = 1
-    let bestDist = Infinity
-    el.querySelectorAll('[data-page]').forEach((s) => {
-      const r = (s as HTMLElement).getBoundingClientRect()
-      const dist = Math.abs(r.top + r.height / 2 - viewCenter)
-      if (dist < bestDist) {
-        bestDist = dist
-        best = Number((s as HTMLElement).dataset.page)
+  if (measureTimer) return
+  measureTimer = setTimeout(() => {
+    measureTimer = undefined
+    measureCurrentPage()
+  }, 120)
+}
+
+/** 取「离视口中心最近的那一页」为当前页 —— 与 comic-web 的判定规则完全一致，
+ *  只是把 getBoundingClientRect 换成 uni 的选择器查询（三端同 API）。 */
+function measureCurrentPage() {
+  measureOne('#pages-scroll', (vr) => {
+    if (!vr || !vr.height) return
+    measureAll('.page-block', (blocks) => {
+      if (!blocks.length) return
+      const viewCenter = vr.top + vr.height * 0.5
+      let best = 1
+      let bestDist = Infinity
+      for (const b of blocks) {
+        const dist = Math.abs(b.top + b.height / 2 - viewCenter)
+        if (dist < bestDist) {
+          bestDist = dist
+          best = Number(b.dataset?.page) || best
+        }
       }
+      if (best !== pageNo.value) pageNo.value = best
     })
-    if (best !== pageNo.value) pageNo.value = best
   })
 }
 
 // ---------------- 横向模式：点击热区 + 滑动翻页 ----------------
 const SWIPE_THRESHOLD = 60
 const swipe = ref({ x: 0, y: 0, t: 0, active: false })
-const suppressClick = ref(false)
-let suppressTimer: ReturnType<typeof setTimeout> | undefined
 
-function onPointerDown(e: PointerEvent) {
-  if (isVertical.value || !e.isPrimary) return
-  swipe.value = { x: e.clientX, y: e.clientY, t: Date.now(), active: true }
+function beginSwipe(x: number, y: number) {
+  if (isVertical.value) return
+  swipe.value = { x, y, t: Date.now(), active: true }
 }
-function onPointerUp(e: PointerEvent) {
+
+/** 结束一次滑动：判定与 comic-web 一字不差（<800ms、位移 ≥60px、且横向位移不小于纵向）。
+ *  ⚠️ pointer 与 touch 两套绑定都会调它 —— 靠 `active` 守卫天然去重：
+ *     第一个到达的把 active 置 false，第二个直接 return。 */
+function endSwipe(x: number, y: number) {
   if (isVertical.value || !swipe.value.active) return
-  const dx = e.clientX - swipe.value.x
-  const dy = e.clientY - swipe.value.y
+  const dx = x - swipe.value.x
+  const dy = y - swipe.value.y
   const dt = Date.now() - swipe.value.t
   swipe.value.active = false
   if (dt > 800) return
@@ -167,7 +219,26 @@ function onPointerUp(e: PointerEvent) {
     else goPage(pageNo.value - 1)
   }
 }
-function cancelPointer() {
+
+// H5（含桌面鼠标拖拽）：pointer 事件
+function onPointerDown(e: PointerEvent) {
+  if (!e.isPrimary) return
+  beginSwipe(e.clientX, e.clientY)
+}
+function onPointerUp(e: PointerEvent) {
+  endSwipe(e.clientX, e.clientY)
+}
+// 小程序 / H5 触屏：touch 事件
+function onTouchStart(e: unknown) {
+  const p = touchPoint(e)
+  if (p) beginSwipe(p.x, p.y)
+}
+function onTouchEnd(e: unknown) {
+  const p = touchPoint(e)
+  if (p) endSwipe(p.x, p.y)
+  else swipe.value.active = false
+}
+function cancelSwipe() {
   swipe.value.active = false
 }
 
@@ -184,16 +255,12 @@ function viewportWidth(): number {
 // - 顶栏隐藏时：点击屏幕中心（水平 25%~75%及垂直上方区域）唤醒顶栏
 // - 顶栏可见时：点击中心隐藏顶栏；左右 25% 区翻页
 // - 竖排模式：点任意位置仅唤醒/隐藏顶栏（不翻页，避免误触）
-function onTapZone(e: MouseEvent) {
+function onTapZone(e: unknown) {
   if (isVertical.value) {
     toggleBar()
     return
   }
-  if (suppressClick.value) {
-    suppressClick.value = false
-    return
-  }
-  const x = e.clientX / viewportWidth()
+  const x = eventX(e) / viewportWidth()
   // 点击顶栏区域（上方）或中心区 → 唤醒/隐藏顶栏
   if (x > 0.25 && x < 0.75) {
     toggleBar()
@@ -202,6 +269,17 @@ function onTapZone(e: MouseEvent) {
   // 左右 25% 区 → 翻页
   if (x < 0.25) goPage(pageNo.value - 1)
   else if (x > 0.75) goPage(pageNo.value + 1)
+}
+
+/** 点进度条跳页：原来直接读 `e.clientX` 与 `currentTarget.getBoundingClientRect()`（H5 专有），
+ *  这里改成**点击时按需量一次轨道位置**（不是热路径，不必缓存）。 */
+function onSeek(e: unknown) {
+  const x = eventX(e)
+  measureOne('#progress-track', (r) => {
+    if (!r || !r.width) return
+    const ratio = Math.min(1, Math.max(0, (x - r.left) / r.width))
+    goPage(Math.max(1, Math.round(ratio * total.value)))
+  })
 }
 
 function onKey(e: KeyboardEvent) {
@@ -215,6 +293,15 @@ function onKey(e: KeyboardEvent) {
     if (e.key === 'ArrowLeft') goPage(pageNo.value - 1)
     else if (e.key === 'ArrowRight') goPage(pageNo.value + 1)
   }
+}
+
+/** 弹层遮罩点击关闭：原来用 `@click.self`（小程序不支持该修饰符），
+ *  改成比较 `target` 与 `currentTarget`（两端都有的字段）——语义等价：
+ *  只有点在遮罩本身、而不是面板内部时才关闭。 */
+function onMaskTap(e: unknown, close: () => void) {
+  const ev = e as { target?: unknown; currentTarget?: unknown }
+  if (ev.target && ev.currentTarget && ev.target !== ev.currentTarget) return
+  close()
 }
 
 // 进度记忆：翻页时写入历史
@@ -264,7 +351,6 @@ onMounted(async () => {
   // #ifdef H5
   window.addEventListener('keydown', onKey)
   // #endif
-  readerEl.value?.addEventListener('scroll', onScroll, { passive: true })
   pokeBar()
 })
 
@@ -272,178 +358,195 @@ onBeforeUnmount(() => {
   // #ifdef H5
   window.removeEventListener('keydown', onKey)
   // #endif
-  readerEl.value?.removeEventListener('scroll', onScroll)
-  if (raf) cancelAnimationFrame(raf)
+  clearTimeout(measureTimer)
   clearTimeout(hideTimer)
-  clearTimeout(suppressTimer)
 })
 </script>
 
+
 <template>
   <Layout>
-    <div
-      ref="readerEl"
+    <view
       class="reader"
       :class="{ light: theme === 'light', vertical: isVertical }"
-      @scroll="onScroll"
       @click="onTapZone"
+      @touchstart="onTouchStart"
+      @touchend="onTouchEnd"
+      @touchcancel="cancelSwipe"
       @pointerdown="onPointerDown"
       @pointerup="onPointerUp"
-      @pointercancel="cancelPointer"
-      @pointerleave="cancelPointer"
+      @pointercancel="cancelSwipe"
+      @pointerleave="cancelSwipe"
     >
       <!-- 顶栏 -->
-      <header class="topbar" :class="{ hide: !showBar }" @click.stop>
-        <div class="tb-left">
-          <button class="icon-btn" @click="router.push(`/comic/${comicId}`)" aria-label="返回">←</button>
-          <span class="tb-title">{{ chapter?.title }}</span>
-        </div>
-        <div class="tb-right">
-          <button class="ghost-sm" :disabled="!hasPrev" @click="prevChapter">上一章</button>
-          <button class="ghost-sm" :disabled="!hasNext" @click="nextChapter">下一章</button>
-          <button class="icon-btn" title="设置" aria-label="设置" @click="showSettings = !showSettings">⚙</button>
-          <button class="icon-btn" title="目录" aria-label="目录" @click="showMenu = !showMenu">☰</button>
-        </div>
-      </header>
+      <view class="topbar" :class="{ hide: !showBar }" @click.stop>
+        <view class="tb-left">
+          <button class="icon-btn u-button" @click="router.push(`/comic/${comicId}`)" aria-label="返回">←</button>
+          <text class="tb-title u-span">{{ chapter?.title }}</text>
+        </view>
+        <view class="tb-right">
+          <button class="ghost-sm u-button" :disabled="!hasPrev" @click="prevChapter">上一章</button>
+          <button class="ghost-sm u-button" :disabled="!hasNext" @click="nextChapter">下一章</button>
+          <button class="icon-btn u-button" title="设置" aria-label="设置" @click="showSettings = !showSettings">⚙</button>
+          <button class="icon-btn u-button" title="目录" aria-label="目录" @click="showMenu = !showMenu">☰</button>
+        </view>
+      </view>
 
       <!-- 设置面板 -->
-      <transition name="fade">
-        <div v-if="showSettings" class="settings-mask" @click.self="showSettings = false" @click.stop>
-          <div class="settings-panel">
-            <h3>阅读设置</h3>
+      <view
+        v-if="showSettings"
+        class="settings-mask"
+        @click.stop="onMaskTap($event, () => (showSettings = false))"
+      >
+        <view class="settings-panel">
+          <view class="u-h3">阅读设置</view>
 
-            <div class="set-row">
-              <span class="set-label">阅读模式</span>
-              <div class="seg">
-                <button class="seg-btn" :class="{ on: mode === 'horizontal' }" @click="setMode('horizontal')">左右滑动</button>
-                <button class="seg-btn" :class="{ on: mode === 'vertical' }" @click="setMode('vertical')">竖排连播</button>
-              </div>
-            </div>
+          <view class="set-row">
+            <text class="set-label u-span">阅读模式</text>
+            <view class="seg">
+              <button class="seg-btn u-button" :class="{ on: mode === 'horizontal' }" @click="setMode('horizontal')">左右滑动</button>
+              <button class="seg-btn u-button" :class="{ on: mode === 'vertical' }" @click="setMode('vertical')">竖排连播</button>
+            </view>
+          </view>
 
-            <div class="set-row">
-              <span class="set-label">背景主题</span>
-              <div class="seg">
-                <button class="seg-btn" :class="{ on: theme === 'dark' }" @click="setTheme('dark')">深色</button>
-                <button class="seg-btn" :class="{ on: theme === 'light' }" @click="setTheme('light')">浅色</button>
-              </div>
-            </div>
+          <view class="set-row">
+            <text class="set-label u-span">背景主题</text>
+            <view class="seg">
+              <button class="seg-btn u-button" :class="{ on: theme === 'dark' }" @click="setTheme('dark')">深色</button>
+              <button class="seg-btn u-button" :class="{ on: theme === 'light' }" @click="setTheme('light')">浅色</button>
+            </view>
+          </view>
 
-            <p class="set-hint">
-              {{ mode === 'horizontal' ? '左右滑动或点击两侧翻页；上下滑动不切页' : '上下滑动连续浏览本章全部页' }}
-            </p>
-          </div>
-        </div>
-      </transition>
+          <view class="set-hint u-p">
+            {{ mode === 'horizontal' ? '左右滑动或点击两侧翻页；上下滑动不切页' : '上下滑动连续浏览本章全部页' }}
+          </view>
+        </view>
+      </view>
 
       <!-- 章节目录抽屉 -->
-      <transition name="fade">
-        <div v-if="showMenu" class="menu-mask" @click.self="showMenu = false" @click.stop>
-          <div class="chapter-menu">
-            <h3>章节目录</h3>
-            <button
-              v-for="(c, i) in chapters"
-              :key="c.id"
-              class="menu-item"
-              :class="{ on: c.id === chapterId }"
-              @click="goChapter(c.id)"
-            >
-              <span>{{ i + 1 }}. {{ c.title }}</span>
-            </button>
-          </div>
-        </div>
-      </transition>
+      <view
+        v-if="showMenu"
+        class="menu-mask"
+        @click.stop="onMaskTap($event, () => (showMenu = false))"
+      >
+        <view class="chapter-menu">
+          <view class="u-h3">章节目录</view>
+          <button
+            v-for="(c, i) in chapters"
+            :key="c.id"
+            class="menu-item u-button"
+            :class="{ on: c.id === chapterId }"
+            @click="goChapter(c.id)"
+          >
+            <text class="u-span">{{ i + 1 }}. {{ c.title }}</text>
+          </button>
+        </view>
+      </view>
 
       <!-- ============ 竖排连播模式 ============ -->
-      <div v-if="isVertical" class="stage vertical-stage">
-        <div v-if="loading" class="center-hint">加载章节中…</div>
+      <view v-if="isVertical" class="stage vertical-stage">
+        <view v-if="loading" class="center-hint">加载章节中…</view>
         <!-- 源站这一话没有图片数据（page 清单为空）：给明确提示，别让人以为是加载中 -->
-        <div v-else-if="pages.length === 0" class="empty-chapter">
-          <p class="main">该话在源站暂无内容</p>
-          <p class="sub">源站这一话没有图片数据，换一话看看</p>
-          <div class="empty-btns">
-            <button class="btn ghost" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
-            <button class="btn" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
-          </div>
-        </div>
-        <template v-else>
-          <div v-if="imgLoading && pageNo === 1" class="page-loading">
-            <div class="spinner"></div>
-            <span>图片加载中…</span>
-          </div>
+        <view v-else-if="pages.length === 0" class="empty-chapter">
+          <view class="main u-p">该话在源站暂无内容</view>
+          <view class="sub u-p">源站这一话没有图片数据，换一话看看</view>
+          <view class="empty-btns">
+            <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
+            <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
+          </view>
+        </view>
+        <!-- 竖排连播的滚动容器：**小程序里普通 view 不能滚**，必须用 scroll-view
+             （原来靠 .reader.vertical 的 overflow-y:auto，那是 H5 专有）。
+             跳页用 scroll-into-view 定位到对应页块的 id（跨端可用）。 -->
+        <scroll-view
+          v-else
+          id="pages-scroll"
+          class="pages-scroll"
+          scroll-y
+          :scroll-into-view="scrollAnchor"
+          @scroll="onScroll"
+        >
+          <view v-if="imgLoading && pageNo === 1" class="page-loading">
+            <view class="spinner"></view>
+            <text class="u-span">图片加载中…</text>
+          </view>
 
-          <div class="pages-stream">
-            <div v-for="(p, i) in pages" :key="i" class="page-block" :data-page="p.pageNo">
-              <img
+          <view class="pages-stream">
+            <view
+              v-for="(p, i) in pages"
+              :id="`pb${p.pageNo}`"
+              :key="i"
+              class="page-block"
+              :data-page="p.pageNo"
+            >
+              <!-- uni 的 <image> 没有 alt / draggable；懒加载是 lazy-load（scroll-view 内默认开） -->
+              <image mode="aspectFill"
                 :src="p.imageUrl"
-                :alt="`第${p.pageNo}页`"
-                class="page-img"
-                loading="lazy"
+                class="page-img u-img"
+                lazy-load
                 @load="onImgLoad"
-                draggable="false"
               />
-              <div v-if="pages.length > 1" class="page-indicator">{{ p.pageNo }}</div>
-            </div>
-          </div>
+              <view v-if="pages.length > 1" class="page-indicator">{{ p.pageNo }}</view>
+            </view>
+          </view>
 
-          <div v-if="pageNo === total" class="end-bar">
-            <p>— 本章完 —</p>
-            <div class="end-btns">
-              <button class="btn ghost" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
-              <button class="btn" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
-            </div>
-          </div>
-        </template>
-      </div>
+          <view v-if="pageNo === total" class="end-bar">
+            <view class="u-p">— 本章完 —</view>
+            <view class="end-btns">
+              <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
+              <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
+            </view>
+          </view>
+        </scroll-view>
+      </view>
 
       <!-- ============ 左右滑动模式 ============ -->
-      <div v-else class="stage horizontal-stage">
-        <div v-if="loading" class="center-hint">加载章节中…</div>
-        <div v-else-if="pages.length === 0" class="empty-chapter">
-          <p class="main">该话在源站暂无内容</p>
-          <p class="sub">源站这一话没有图片数据，换一话看看</p>
-          <div class="empty-btns">
-            <button class="btn ghost" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
-            <button class="btn" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
-          </div>
-        </div>
+      <view v-else class="stage horizontal-stage">
+        <view v-if="loading" class="center-hint">加载章节中…</view>
+        <view v-else-if="pages.length === 0" class="empty-chapter">
+          <view class="main u-p">该话在源站暂无内容</view>
+          <view class="sub u-p">源站这一话没有图片数据，换一话看看</view>
+          <view class="empty-btns">
+            <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
+            <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
+          </view>
+        </view>
         <template v-else>
-          <div class="page-wrap">
-            <img
+          <view class="page-wrap">
+            <image mode="aspectFill"
               v-if="isNear(pageNo)"
               :src="pages[pageNo - 1]?.imageUrl"
-              :alt="`第${pageNo}页`"
-              class="page-img"
+              class="page-img u-img"
               :class="{ hidden: imgLoading }"
               @load="onImgLoad"
-              draggable="false"
             />
-            <div v-if="imgLoading" class="page-loading">
-              <div class="spinner"></div>
-              <span>图片加载中…</span>
-            </div>
-          </div>
+            <view v-if="imgLoading" class="page-loading">
+              <view class="spinner"></view>
+              <text class="u-span">图片加载中…</text>
+            </view>
+          </view>
 
-          <div class="zone-hint prev" :class="{ show: pageNo > 1 }">‹</div>
-          <div class="zone-hint next" :class="{ show: pageNo < total }">›</div>
+          <view class="zone-hint prev" :class="{ show: pageNo > 1 }">‹</view>
+          <view class="zone-hint next" :class="{ show: pageNo < total }">›</view>
 
-          <div v-if="pageNo === total" class="end-bar">
-            <p>— 本章完 —</p>
-            <div class="end-btns">
-              <button class="btn ghost" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
-              <button class="btn" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
-            </div>
-          </div>
+          <view v-if="pageNo === total" class="end-bar">
+            <view class="u-p">— 本章完 —</view>
+            <view class="end-btns">
+              <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
+              <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
+            </view>
+          </view>
         </template>
-      </div>
+      </view>
 
       <!-- 底部进度条 -->
-      <footer class="bottombar" :class="{ hide: !showBar }" @click.stop>
-        <div class="progress-track" @click="(e: MouseEvent) => goPage(Math.max(1, Math.round(((e.clientX - (e.currentTarget as HTMLElement).getBoundingClientRect().left) / (e.currentTarget as HTMLElement).clientWidth) * total)))">
-          <div class="progress-fill" :style="{ width: progress + '%' }"></div>
-        </div>
-        <span class="page-no">{{ pageNo }} / {{ total }}</span>
-      </footer>
-    </div>
+      <view class="bottombar" :class="{ hide: !showBar }" @click.stop>
+        <view id="progress-track" class="progress-track" @click="onSeek">
+          <view class="progress-fill" :style="{ width: progress + '%' }"></view>
+        </view>
+        <text class="page-no u-span">{{ pageNo }} / {{ total }}</text>
+      </view>
+    </view>
   </Layout>
 </template>
 
@@ -452,7 +555,7 @@ onBeforeUnmount(() => {
   --reader-bg: #141210;
   --reader-text: #fff;
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   background: var(--reader-bg);
   z-index: 200;
   user-select: none;
@@ -520,7 +623,7 @@ onBeforeUnmount(() => {
 /* 设置面板 */
 .settings-mask {
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   background: rgba(0,0,0,0.35);
   z-index: 6;
 }
@@ -537,7 +640,7 @@ onBeforeUnmount(() => {
   z-index: 7;
 }
 .reader.light .settings-panel { box-shadow: 0 12px 40px rgba(0,0,0,0.2); }
-.settings-panel h3 { margin: 0 0 16px; font-size: 15px; }
+.settings-panel .u-h3 { margin: 0 0 16px; font-size: 15px; }
 .set-row {
   display: flex;
   align-items: center;
@@ -571,7 +674,7 @@ onBeforeUnmount(() => {
 /* 目录抽屉 */
 .menu-mask {
   position: fixed;
-  inset: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   background: rgba(0,0,0,0.45);
   z-index: 6;
 }
@@ -584,7 +687,7 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   z-index: 7;
 }
-.chapter-menu h3 { margin: 0 0 12px; font-size: 16px; }
+.chapter-menu .u-h3 { margin: 0 0 12px; font-size: 16px; }
 .menu-item {
   display: flex;
   justify-content: space-between;
@@ -672,6 +775,9 @@ onBeforeUnmount(() => {
 
 /* ---- 竖排模式：一连串图片 ---- */
 .vertical-stage { padding-top: 40px; overflow: visible; }
+/* 竖排连播的滚动容器：absolute 铺满 stage（top:40px 与 .vertical-stage 的 padding-top 对齐，
+   避开固定顶栏）。小程序里普通 view 不能滚，滚动必须交给 scroll-view。 */
+.pages-scroll { position: absolute; top: 40px; left: 0; right: 0; bottom: 0; }
 .pages-stream {
   display: flex;
   flex-direction: column;
@@ -709,7 +815,7 @@ onBeforeUnmount(() => {
   z-index: 4;
 }
 .reader.light .end-bar { color: #555; }
-.end-bar p { margin: 0 0 10px; font-size: 14px; letter-spacing: 2px; }
+.end-bar .u-p { margin: 0 0 10px; font-size: 14px; letter-spacing: 2px; }
 .end-btns { display: flex; gap: 10px; justify-content: center; }
 
 /* 底部进度 */
@@ -743,6 +849,11 @@ onBeforeUnmount(() => {
 .page-no { color: #fff; font-size: 13px; min-width: 60px; text-align: right; }
 .reader.light .page-no { color: #1a1a1a; }
 
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+/* 两个弹层（设置 / 目录）的出现动画 —— 原来用 `<transition name="fade">`，
+   而**小程序不支持 transition 组件**，改用 CSS 动画（视觉效果一致，离开时直接移除）。 */
+.settings-mask, .menu-mask { animation: fade-in 0.2s ease; }
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 </style>

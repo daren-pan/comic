@@ -97,50 +97,50 @@ function fmtTime(iso: string): string {
 
 <template>
   <Layout>
-    <div v-if="loading" class="empty">加载中…</div>
-    <div v-else-if="comic" class="detail">
-      <div class="hero">
-        <img class="hero-cover" :src="comic.cover" :alt="comic.title" />
-        <div class="hero-info">
-          <h1>{{ comic.title }}</h1>
-          <p class="hero-meta">
-            <span class="chip">{{ comic.category }}</span>
-            <span class="chip done" v-if="comic.status === '已完结'">{{ comic.status }}</span>
-            <span class="chip hot" v-else>{{ comic.status }}</span>
-            <span class="tag" v-for="t in comic.tags" :key="t">#{{ t }}</span>
-          </p>
-          <p class="hero-line">作者：{{ comic.author }}</p>
-          <p class="hero-line">章节：{{ chapterCount }} 话 · 热度 {{ comic.heat.toLocaleString() }} · 更新 {{ fmtTime(comic.updatedAt) }}</p>
-          <p class="hero-line sources">数据来源：<em>{{ comic.source }}</em></p>
-          <div class="actions">
-            <button class="btn" @click="onPrimaryRead">
+    <view v-if="loading" class="empty">加载中…</view>
+    <view v-else-if="comic" class="detail">
+      <view class="hero">
+        <image mode="aspectFill" class="hero-cover u-img" :src="comic.cover" :alt="comic.title" />
+        <view class="hero-info">
+          <view class="u-h1">{{ comic.title }}</view>
+          <view class="hero-meta u-p">
+            <text class="chip u-span">{{ comic.category }}</text>
+            <text class="chip done u-span" v-if="comic.status === '已完结'">{{ comic.status }}</text>
+            <text class="chip hot u-span" v-else>{{ comic.status }}</text>
+            <text class="tag u-span" v-for="t in comic.tags" :key="t">#{{ t }}</text>
+          </view>
+          <view class="hero-line u-p">作者：{{ comic.author }}</view>
+          <view class="hero-line u-p">章节：{{ chapterCount }} 话 · 热度 {{ comic.heat.toLocaleString() }} · 更新 {{ fmtTime(comic.updatedAt) }}</view>
+          <view class="hero-line sources u-p">数据来源：<text class="u-em">{{ comic.source }}</text></view>
+          <view class="actions">
+            <button class="btn u-button" @click="onPrimaryRead">
               {{ lastRead ? `续读${lastRead.chapterTitle ?? ''}` : '▶ 开始阅读' }}
             </button>
-            <button class="btn ghost" :class="{ active: fav }" @click="onFav">
+            <button class="btn ghost u-button" :class="{ active: fav }" @click="onFav">
               {{ fav ? '★ 已收藏' : '☆ 收藏' }}
             </button>
-          </div>
-          <p v-if="favNotice" class="fav-notice">
-            收藏需要登录 — <a href="javascript:;" @click="gotoLogin">去登录</a>，登录后可跨设备同步收藏
-          </p>
-        </div>
-      </div>
+          </view>
+          <view v-if="favNotice" class="fav-notice u-p">
+            收藏需要登录 — <view class="u-a" @click="gotoLogin">去登录</view>，登录后可跨设备同步收藏
+          </view>
+        </view>
+      </view>
 
-      <p class="desc">{{ comic.description }}</p>
+      <view class="desc u-p">{{ comic.description }}</view>
 
-      <h2 class="section-title">章节列表（{{ chapterCount }}）</h2>
-      <div class="chapters">
+      <view class="section-title">章节列表（{{ chapterCount }}）</view>
+      <view class="chapters">
         <button
           v-for="(ch, i) in sortedChapters"
           :key="ch.id"
-          class="chapter"
+          class="chapter u-button"
           @click="read(ch)"
         >
-          <span class="no">{{ i + 1 }}</span>
-          <span class="name">{{ ch.title }}</span>
+          <text class="no u-span">{{ i + 1 }}</text>
+          <text class="name u-span">{{ ch.title }}</text>
         </button>
-      </div>
-    </div>
+      </view>
+    </view>
   </Layout>
 </template>
 
@@ -155,13 +155,13 @@ function fmtTime(iso: string): string {
 }
 .hero-cover { width: 190px; height: 253px; border-radius: 10px; object-fit: cover; flex-shrink: 0; box-shadow: 0 6px 18px rgba(0,0,0,0.18); }
 .hero-info { flex: 1; min-width: 0; }
-.hero-info h1 { margin: 0 0 10px; font-size: 26px; }
+.hero-info .u-h1 { margin: 0 0 10px; font-size: 26px; }
 .hero-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
 .chip.done { background: #eef0f2; color: #555; }
 .chip.hot { background: #fff3e6; color: #b25f00; }
 .tag { font-size: 12px; color: var(--text-2); }
 .hero-line { margin: 4px 0; color: var(--text-2); font-size: 14px; }
-.sources em {
+.sources .u-em {
   font-style: normal;
   background: #f0ede8;
   border-radius: 6px;
@@ -179,7 +179,7 @@ function fmtTime(iso: string): string {
   border-radius: 8px;
   padding: 8px 12px;
 }
-.fav-notice a { color: var(--primary); font-weight: 700; text-decoration: underline; }
+.fav-notice .u-a { color: var(--primary); font-weight: 700; text-decoration: underline; }
 
 .desc {
   background: #fff;

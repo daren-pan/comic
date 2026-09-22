@@ -14,13 +14,16 @@ import {
   getLogRecords,
   purgeLogs,
 } from '../../api'
-import type { LogRecord, SourceInfo } from '../../types'
+import type { LogRecord, PickerOption, SourceInfo } from '../../types'
 import { onLoad } from '@dcloudio/uni-app'
 import { setRoute, useRouter } from '../../utils/router'
 import { requireRole } from '../../utils/guard'
+import { showAlert, showConfirm } from '../../utils/ui'
 import Layout from '../../components/Layout.vue'
 // 日期输入：uni 的 <input> 会把 type=date 强制成 text（白名单外），故用专用组件产出原生控件
 import DateInput from '../../components/DateInput.vue'
+// 下拉选择：小程序没有 <select>，统一走 uni <picker> 的封装（见该组件注释）
+import Picker from '../../components/Picker.vue'
 
 const router = useRouter()
 // 门卫通过前不渲染页面主体（等价 comic-web 守卫拦住时整页不出现）
@@ -51,6 +54,25 @@ const f = ref({
 // 展开的日志行（详情含异常堆栈，要单独取一次）
 const expandedId = ref<number | null>(null)
 const detail = ref<LogRecord | null>(null)
+
+// 三个下拉的选项（首项恒为「全部」= 空串，与原生 <select> 里手写的 <option value=""> 等价）。
+// picker 只认「数组 + 下标」，由 Picker 组件负责换算，这里只提供 {value,label}。
+const levelOptions = computed<PickerOption[]>(() => [
+  { value: '', label: '全部' },
+  ...levels.value.map((lv) => ({ value: lv, label: lv })),
+])
+const sourceOptions = computed<PickerOption[]>(() => [
+  { value: '', label: '全部' },
+  ...sources.value.map((s) => ({ value: s.name, label: s.name })),
+])
+const eventOptions = computed<PickerOption[]>(() => [
+  { value: '', label: '全部' },
+  ...events.value.map((ev) => ({ value: ev, label: ev })),
+])
+const pageSizeOptions: PickerOption[] = [20, 50, 100, 200].map((n) => ({
+  value: n,
+  label: String(n),
+}))
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
@@ -124,13 +146,14 @@ async function toggle(row: LogRecord) {
 
 async function doPurge() {
   const days = 30
-  if (!window.confirm(`删除 ${days} 天前的日志？此操作不可撤销。`)) return
+  // 用 utils/ui 的跨端弹窗：小程序没有 window，window.confirm/alert 会直接抛错
+  if (!(await showConfirm(`删除 ${days} 天前的日志？此操作不可撤销。`, '清理日志'))) return
   try {
     const r = await purgeLogs(days)
-    window.alert(`已删除 ${r.deleted} 条`)
+    showAlert(`已删除 ${r.deleted} 条`)
     search()
   } catch (e) {
-    window.alert((e as Error).message || '清理失败')
+    showAlert((e as Error).message || '清理失败')
   }
 }
 
@@ -155,126 +178,132 @@ onLoad(async (options) => {
 
 <template>
   <Layout>
-    <div v-if="ready">
-      <div class="title-row">
-        <h2 class="section-title">日志查询</h2>
-        <button class="btn ghost" @click="doPurge">清理 30 天前</button>
-        <a href="javascript:;" class="btn ghost" @click="router.push('/admin')">← 返回采集管理</a>
-      </div>
-      <p class="lead">
-        采集 / 巡检 / 按需导入 / 读图的运行日志（与后端 <code>logs/api.log</code> 同一批记录，已落库）。
+    <view v-if="ready">
+      <view class="title-row">
+        <view class="section-title">日志查询</view>
+        <button class="btn ghost u-button" @click="doPurge">清理 30 天前</button>
+        <view class="btn ghost u-a" @click="router.push('/admin')">← 返回采集管理</view>
+      </view>
+      <view class="lead u-p">
+        采集 / 巡检 / 按需导入 / 读图的运行日志（与后端 <text class="u-code">logs/api.log</text> 同一批记录，已落库）。
         失败日志的正文带作品 id 与名称，点某行展开详情（含异常堆栈全文）。
-      </p>
+      </view>
 
       <!-- 筛选条件 -->
-      <div class="filters">
-        <label>级别
-          <select v-model="f.level" @change="search">
-            <option value="">全部</option>
-            <option v-for="lv in levels" :key="lv" :value="lv">{{ lv }}</option>
-          </select>
-        </label>
-        <label>源站
-          <select v-model="f.source" @change="search">
-            <option value="">全部</option>
-            <option v-for="s in sources" :key="s.name" :value="s.name">{{ s.name }}</option>
-          </select>
-        </label>
-        <label>事件
-          <select v-model="f.event" @change="search">
-            <option value="">全部</option>
-            <option v-for="ev in events" :key="ev" :value="ev">{{ ev }}</option>
-          </select>
-        </label>
-        <label>作品 ID
-          <input v-model="f.comicId" type="number" min="1" placeholder="如 151" @keyup.enter="search" />
-        </label>
-        <label>任务 ID
-          <input v-model="f.taskId" placeholder="如 inspect-2-…" @keyup.enter="search" />
-        </label>
-        <label>起始
-          <DateInput v-model="f.since" />
-        </label>
-        <label>截止（含当天）
-          <DateInput v-model="f.until" />
-        </label>
-        <label class="grow">关键字
-          <input v-model="f.keyword" placeholder="正文 / 作品名 / 章节名 / 原因" @keyup.enter="search" />
-        </label>
-        <button class="btn" @click="search">查询</button>
-        <button class="btn ghost" @click="reset">重置</button>
-      </div>
+      <view class="filters">
+        <view class="u-label">级别
+          <Picker
+            class="u-select"
+            :model-value="f.level"
+            :options="levelOptions"
+            @update:model-value="f.level = String($event); search()"
+          />
+        </view>
+        <view class="u-label">源站
+          <Picker
+            class="u-select"
+            :model-value="f.source"
+            :options="sourceOptions"
+            @update:model-value="f.source = String($event); search()"
+          />
+        </view>
+        <view class="u-label">事件
+          <Picker
+            class="u-select"
+            :model-value="f.event"
+            :options="eventOptions"
+            @update:model-value="f.event = String($event); search()"
+          />
+        </view>
+        <view class="u-label">作品 ID
+          <input class="u-input" v-model="f.comicId" type="number" min="1" placeholder="如 151" @confirm="search" />
+        </view>
+        <view class="u-label">任务 ID
+          <input class="u-input" v-model="f.taskId" placeholder="如 inspect-2-…" @confirm="search" />
+        </view>
+        <view class="u-label">起始
+          <DateInput :model-value="f.since" @update:model-value="f.since = $event" />
+        </view>
+        <view class="u-label">截止（含当天）
+          <DateInput :model-value="f.until" @update:model-value="f.until = $event" />
+        </view>
+        <view class="grow u-label">关键字
+          <input class="u-input" v-model="f.keyword" placeholder="正文 / 作品名 / 章节名 / 原因" @confirm="search" />
+        </view>
+        <button class="btn u-button" @click="search">查询</button>
+        <button class="btn ghost u-button" @click="reset">重置</button>
+      </view>
 
-      <div v-if="error" class="empty" style="color:#e23">{{ error }}</div>
+      <view v-if="error" class="empty" style="color:#e23">{{ error }}</view>
 
       <!-- 列表 -->
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th class="c-time">时间</th>
-              <th class="c-level">级别</th>
-              <th class="c-event">事件</th>
-              <th class="c-src">源站</th>
-              <th class="c-title">作品</th>
-              <th class="c-chapter">章节</th>
-              <th class="c-pages">页数</th>
-              <th>消息</th>
-            </tr>
-          </thead>
-          <tbody>
+      <view class="table-wrap">
+        <view class="u-table">
+          <view class="u-thead">
+            <view class="u-tr">
+              <view class="c-time u-th">时间</view>
+              <view class="c-level u-th">级别</view>
+              <view class="c-event u-th">事件</view>
+              <view class="c-src u-th">源站</view>
+              <view class="c-title u-th">作品</view>
+              <view class="c-chapter u-th">章节</view>
+              <view class="c-pages u-th">页数</view>
+              <view class="u-th">消息</view>
+            </view>
+          </view>
+          <view class="u-tbody">
             <template v-for="row in items" :key="row.id">
-              <tr class="row" :class="{ open: expandedId === row.id }" @click="toggle(row)">
-                <td class="c-time mono">{{ row.createdAt }}</td>
-                <td class="c-level"><span class="badge" :class="row.level.toLowerCase()">{{ row.level }}</span></td>
-                <td class="c-event mono">{{ row.event || '—' }}</td>
-                <td class="c-src">{{ row.source || '—' }}</td>
-                <td class="c-title" :title="row.comicTitle">{{ row.comicTitle || (row.comicId ? `#${row.comicId}` : '—') }}</td>
-                <td class="c-chapter" :title="row.chapterTitle">{{ row.chapterTitle || (row.chapterId ? `#${row.chapterId}` : '—') }}</td>
-                <td class="c-pages">{{ row.pages ?? '—' }}</td>
-                <td class="msg" :title="row.message">{{ row.message }}</td>
-              </tr>
-              <tr v-if="expandedId === row.id" class="detail-row">
-                <td colspan="8">
-                  <div class="detail">
-                    <div class="kv"><b>记录器</b><span>{{ row.logger }}</span></div>
-                    <div class="kv" v-if="row.taskId"><b>任务</b><span>{{ row.taskType }} · {{ row.taskId }}</span></div>
-                    <div class="kv" v-if="row.reason"><b>原因</b><span>{{ row.reason }}</span></div>
-                    <div class="kv" v-if="row.endpoint"><b>接口/地址</b><span class="mono">{{ row.endpoint }}</span></div>
-                    <div class="kv full"><b>消息</b><span>{{ row.message }}</span></div>
+              <view class="row u-tr" :class="{ open: expandedId === row.id }" @click="toggle(row)">
+                <view class="c-time mono u-td">{{ row.createdAt }}</view>
+                <view class="c-level u-td"><text class="badge u-span" :class="row.level.toLowerCase()">{{ row.level }}</text></view>
+                <view class="c-event mono u-td">{{ row.event || '—' }}</view>
+                <view class="c-src u-td">{{ row.source || '—' }}</view>
+                <view class="c-title u-td" :title="row.comicTitle">{{ row.comicTitle || (row.comicId ? `#${row.comicId}` : '—') }}</view>
+                <view class="c-chapter u-td" :title="row.chapterTitle">{{ row.chapterTitle || (row.chapterId ? `#${row.chapterId}` : '—') }}</view>
+                <view class="c-pages u-td">{{ row.pages ?? '—' }}</view>
+                <view class="msg u-td" :title="row.message">{{ row.message }}</view>
+              </view>
+              <view v-if="expandedId === row.id" class="detail-row u-tr">
+                <view class="u-td" colspan="8">
+                  <view class="detail">
+                    <view class="kv"><text class="u-b">记录器</text><text class="u-span">{{ row.logger }}</text></view>
+                    <view class="kv" v-if="row.taskId"><text class="u-b">任务</text><text class="u-span">{{ row.taskType }} · {{ row.taskId }}</text></view>
+                    <view class="kv" v-if="row.reason"><text class="u-b">原因</text><text class="u-span">{{ row.reason }}</text></view>
+                    <view class="kv" v-if="row.endpoint"><text class="u-b">接口/地址</text><text class="mono u-span">{{ row.endpoint }}</text></view>
+                    <view class="kv full"><text class="u-b">消息</text><text class="u-span">{{ row.message }}</text></view>
                     <template v-if="row.excType">
-                      <div class="kv"><b>异常</b><span>{{ row.excType }}</span></div>
-                      <pre class="trace">{{ detail?.excText || '（读取堆栈中…）' }}</pre>
+                      <view class="kv"><text class="u-b">异常</text><text class="u-span">{{ row.excType }}</text></view>
+                      <view class="trace">{{ detail?.excText || '（读取堆栈中…）' }}</view>
                     </template>
-                  </div>
-                </td>
-              </tr>
+                  </view>
+                </view>
+              </view>
             </template>
-            <tr v-if="!loading && !items.length && !error">
-              <td colspan="8" class="empty">没有符合条件的日志</td>
-            </tr>
-            <tr v-if="loading">
-              <td colspan="8" class="empty">查询中…</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+            <view class="u-tr" v-if="!loading && !items.length && !error">
+              <view colspan="8" class="empty u-td">没有符合条件的日志</view>
+            </view>
+            <view class="u-tr" v-if="loading">
+              <view colspan="8" class="empty u-td">查询中…</view>
+            </view>
+          </view>
+        </view>
+      </view>
 
       <!-- 分页 -->
-      <div class="pager">
-        <span>共 {{ total }} 条 · 第 {{ page }} / {{ totalPages }} 页</span>
-        <label class="size">每页
-          <select v-model.number="pageSize" @change="onPageSize">
-            <option :value="20">20</option>
-            <option :value="50">50</option>
-            <option :value="100">100</option>
-            <option :value="200">200</option>
-          </select>
-        </label>
-        <button class="btn ghost" :disabled="page <= 1" @click="go(-1)">上一页</button>
-        <button class="btn ghost" :disabled="page >= totalPages" @click="go(1)">下一页</button>
-      </div>
-    </div>
+      <view class="pager">
+        <text class="u-span">共 {{ total }} 条 · 第 {{ page }} / {{ totalPages }} 页</text>
+        <view class="size u-label">每页
+          <Picker
+            class="u-select"
+            :model-value="pageSize"
+            :options="pageSizeOptions"
+            @update:model-value="pageSize = Number($event); onPageSize()"
+          />
+        </view>
+        <button class="btn ghost u-button" :disabled="page <= 1" @click="go(-1)">上一页</button>
+        <button class="btn ghost u-button" :disabled="page >= totalPages" @click="go(1)">下一页</button>
+      </view>
+    </view>
   </Layout>
 </template>
 
@@ -291,7 +320,7 @@ onLoad(async (options) => {
 .title-row .btn:first-of-type { margin-left: auto; }
 
 .lead { color: var(--text-2); font-size: 14px; margin: 0 0 14px; }
-.lead code { background: #f0ede8; border-radius: 4px; padding: 1px 5px; }
+.lead .u-code { background: #f0ede8; border-radius: 4px; padding: 1px 5px; }
 
 .filters {
   display: flex;
@@ -304,7 +333,7 @@ onLoad(async (options) => {
   padding: 14px 16px;
   margin-bottom: 14px;
 }
-.filters label {
+.filters .u-label {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -312,10 +341,9 @@ onLoad(async (options) => {
   color: var(--text-2);
 }
 .filters .grow { flex: 1; min-width: 200px; }
-/* `.date-inp`：日期控件是 DateInput 产出的**原生 input**，uni 会把上面的 `input` 改写成
+/* `.date-inp`：日期控件是 DateInput 产出的**原生 .u-input**，uni 会把上面的 `.u-input` 改写成
    `uni-input`、匹配不到它，故这里额外挂上它的类名。 */
-.filters input,
-.filters select,
+.filters .u-input,
 .filters .date-inp {
   font: inherit;
   font-size: 13px;
@@ -325,6 +353,8 @@ onLoad(async (options) => {
   border-radius: 8px;
   padding: 6px 8px;
 }
+/* Picker 组件自带边框/内边距 → 这里只给宽度，再画一遍会变双边框 */
+.filters .u-select { min-width: 96px; }
 .filters .date-inp { min-width: 138px; }
 
 .table-wrap {
@@ -334,9 +364,9 @@ onLoad(async (options) => {
   overflow: auto;
   max-height: 62vh;
 }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-thead th {
+.u-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.u-th, .u-td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.u-thead .u-th {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -365,12 +395,12 @@ thead th {
 .badge.warning { background: #fff3e6; color: #b25f00; }
 .badge.error { background: #fdeceb; color: #c0392b; }
 
-.detail-row td { background: #fdfbf9; }
+.detail-row .u-td { background: #fdfbf9; }
 .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 18px; }
 .kv { display: flex; gap: 8px; font-size: 13px; }
-.kv b { color: var(--text-2); font-weight: 600; flex: 0 0 52px; }
+.kv .u-b { color: var(--text-2); font-weight: 600; flex: 0 0 52px; }
 .kv.full { grid-column: 1 / -1; }
-.kv span { word-break: break-all; }
+.kv .u-span { word-break: break-all; }
 .trace {
   grid-column: 1 / -1;
   margin: 6px 0 0;
@@ -397,13 +427,6 @@ thead th {
   color: var(--text-2);
 }
 .pager .size { display: flex; align-items: center; gap: 6px; }
-.pager select {
-  font: inherit;
-  font-size: 13px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 6px;
-  background: #fff;
-  color: var(--text);
-}
+/* Picker 组件自带盒子样式（见 components/Picker.vue），这里只约束宽度 */
+.pager .u-select { min-width: 72px; }
 </style>

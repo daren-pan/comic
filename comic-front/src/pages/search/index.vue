@@ -160,106 +160,106 @@ onLoad((options) => setRoute('/search', options ?? {}))
 
 <template>
   <Layout>
-    <div>
-      <h2 class="section-title">{{ keyword ? '搜索结果' : '分类浏览' }}</h2>
+    <view>
+      <view class="section-title">{{ keyword ? '搜索结果' : '分类浏览' }}</view>
 
-      <div class="toolbar">
+      <view class="toolbar">
         <form class="big-search" @submit="onSearch">
-          <input v-model="input" type="text" placeholder="输入漫画名 / 作者 / 标签…" @confirm="onSearch" />
-          <button form-type="submit">搜索</button>
+          <input class="u-input" v-model="input" type="text" placeholder="输入漫画名 / 作者 / 标签…" @confirm="onSearch" />
+          <button class="u-button" form-type="submit">搜索</button>
         </form>
 
-        <div class="cats">
+        <view class="cats">
           <button
             v-for="c in categories"
             :key="c.name"
-            class="chip-btn"
+            class="chip-btn u-button"
             :class="{ on: category === c.name }"
             @click="onCategory(c.name)"
-          >{{ c.name }}<span>{{ c.count }}</span></button>
-        </div>
+          >{{ c.name }}<text class="u-span">{{ c.count }}</text></button>
+        </view>
 
-        <div class="sorts">
-          <span class="label">排序</span>
-          <button :class="{ on: sort === 'updated' }" @click="onSort('updated')">最新更新</button>
-          <button :class="{ on: sort === 'views' }" @click="onSort('views')">最热</button>
-        </div>
-      </div>
+        <view class="sorts">
+          <text class="label u-span">排序</text>
+          <button class="u-button" :class="{ on: sort === 'updated' }" @click="onSort('updated')">最新更新</button>
+          <button class="u-button" :class="{ on: sort === 'views' }" @click="onSort('views')">最热</button>
+        </view>
+      </view>
 
-      <p v-if="keyword" class="result-hint">
+      <view v-if="keyword" class="result-hint u-p">
         关键词「{{ keyword }}」共 {{ total }} 部作品
-      </p>
+      </view>
 
-      <div v-if="loading" class="empty">搜索中…</div>
-      <div v-else-if="comics.length === 0" class="empty">
+      <view v-if="loading" class="empty">搜索中…</view>
+      <view v-else-if="comics.length === 0" class="empty">
         <template v-if="keyword">站内没有「{{ keyword }}」，看看下面的其他来源</template>
         <template v-else>没有找到相关漫画，换个关键词试试</template>
-      </div>
-      <div v-else class="grid">
+      </view>
+      <view v-else class="grid">
         <ComicCard v-for="c in comics" :key="c.id" :comic="c" />
-      </div>
+      </view>
 
-      <div v-if="totalPages() > 1" class="pager">
-        <button class="btn ghost" :disabled="page <= 1" @click="page--; load()">上一页</button>
-        <span class="page-info">{{ page }} / {{ totalPages() }}</span>
-        <button class="btn ghost" :disabled="page >= totalPages()" @click="page++; load()">下一页</button>
-      </div>
+      <view v-if="totalPages() > 1" class="pager">
+        <button class="btn ghost u-button" :disabled="page <= 1" @click="page--; load()">上一页</button>
+        <text class="page-info u-span">{{ page }} / {{ totalPages() }}</text>
+        <button class="btn ghost u-button" :disabled="page >= totalPages()" @click="page++; load()">下一页</button>
+      </view>
 
       <!-- 其他来源：站内搜不到时去各源站找，点「导入并阅读」即可收录后打开 -->
       <template v-if="keyword">
-        <h3 class="remote-title">
+        <view class="remote-title u-h3">
           其他来源
-          <small v-if="remoteLoading" class="hint">正在搜索源站…</small>
-        </h3>
+          <text v-if="remoteLoading" class="hint">正在搜索源站…</text>
+        </view>
 
-        <p v-if="notice" class="notice">{{ notice }}</p>
-        <p v-if="importError" class="notice err">{{ importError }}</p>
-        <p v-if="remoteError" class="empty">{{ remoteError }}</p>
-        <p v-else-if="!remoteLoading && remoteGroups.length === 0" class="empty">
+        <view v-if="notice" class="notice u-p">{{ notice }}</view>
+        <view v-if="importError" class="notice err u-p">{{ importError }}</view>
+        <view v-if="remoteError" class="empty u-p">{{ remoteError }}</view>
+        <view v-else-if="!remoteLoading && remoteGroups.length === 0" class="empty u-p">
           其他来源也没有找到「{{ keyword }}」
-        </p>
+        </view>
 
         <!-- 多个站点同时命中：用标签切换来源（结果是一次全拿到的，切换不重新请求） -->
-        <div v-if="remoteGroups.length > 1" class="remote-tabs">
-          <span class="tabs-label">来源</span>
+        <view v-if="remoteGroups.length > 1" class="remote-tabs">
+          <text class="tabs-label u-span">来源</text>
           <button
             v-for="g in remoteGroups"
             :key="g.source"
-            class="remote-tab"
+            class="remote-tab u-button"
             :class="{ on: activeSource === g.source }"
             @click="activeSource = g.source"
           >
-            {{ g.source }}<span>{{ g.items.length }}</span>
+            {{ g.source }}<text class="u-span">{{ g.items.length }}</text>
           </button>
-        </div>
+        </view>
 
-        <div v-if="activeGroup" class="remote-group">
+        <view v-if="activeGroup" class="remote-group">
           <!-- 只有一个来源时不显示标签条，改为一行来源说明 -->
-          <div v-if="remoteGroups.length <= 1" class="remote-src">
-            <span class="src-name">{{ activeGroup.source }}</span>
-            <span class="src-count">{{ activeGroup.items.length }} 条</span>
-          </div>
-          <div class="remote-list">
-            <div
+          <view v-if="remoteGroups.length <= 1" class="remote-src">
+            <text class="src-name u-span">{{ activeGroup.source }}</text>
+            <text class="src-count u-span">{{ activeGroup.items.length }} 条</text>
+          </view>
+          <view class="remote-list">
+            <view
               v-for="it in activeGroup.items"
               :key="it.source + it.sourceComicId"
               class="remote-item"
             >
-              <img class="remote-cover" :src="it.cover" :alt="it.title" loading="lazy" @error="hideImg" />
-              <div class="remote-info">
-                <div class="remote-name">{{ it.title }}</div>
-                <div class="remote-meta">
+              <image mode="aspectFill" class="remote-cover u-img" :src="it.cover" :alt="it.title" loading="lazy" @error="hideImg" />
+              <view class="remote-info">
+                <view class="remote-name">{{ it.title }}</view>
+                <view class="remote-meta">
                   {{ it.author || '未知作者' }}
-                  <span v-if="it.latestChapterTitle">· 更新至 {{ it.latestChapterTitle }}</span>
-                </div>
-                <div v-if="it.tags.length" class="remote-tags">
-                  <span v-for="t in it.tags.slice(0, 4)" :key="t">{{ t }}</span>
-                </div>
-              </div>
-              <div class="remote-action">
-                <span v-if="it.inLibrary" class="badge">已收录</span>
+                  <text class="u-span" v-if="it.latestChapterTitle">· 更新至 {{ it.latestChapterTitle }}</text>
+                </view>
+                <view v-if="it.tags.length" class="remote-tags">
+                  <text class="u-span" v-for="t in it.tags.slice(0, 4)" :key="t">{{ t }}</text>
+                </view>
+              </view>
+              <view class="remote-action">
+                <text v-if="it.inLibrary" class="badge u-span">已收录</text>
                 <button
-                  class="btn"
+                  class="btn u-button"
                   :disabled="!!importing"
                   @click="onImport(it)"
                 >
@@ -271,12 +271,12 @@ onLoad((options) => setRoute('/search', options ?? {}))
                         : '导入并阅读'
                   }}
                 </button>
-              </div>
-            </div>
-          </div>
-        </div>
+              </view>
+            </view>
+          </view>
+        </view>
       </template>
-    </div>
+    </view>
   </Layout>
 </template>
 
@@ -284,7 +284,7 @@ onLoad((options) => setRoute('/search', options ?? {}))
 .toolbar { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
 
 .big-search { display: flex; gap: 8px; }
-.big-search input {
+.big-search .u-input {
   flex: 1;
   height: 44px;
   border: 2px solid var(--border);
@@ -295,8 +295,8 @@ onLoad((options) => setRoute('/search', options ?? {}))
   transition: border 0.15s;
   background: #fff;
 }
-.big-search input:focus { border-color: var(--primary); }
-.big-search button {
+.big-search .u-input:focus { border-color: var(--primary); }
+.big-search .u-button {
   border: none;
   background: var(--primary);
   color: #fff;
@@ -306,7 +306,7 @@ onLoad((options) => setRoute('/search', options ?? {}))
   font-weight: 700;
   cursor: pointer;
 }
-.big-search button:hover { background: var(--primary-dark); }
+.big-search .u-button:hover { background: var(--primary-dark); }
 
 .cats { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip-btn {
@@ -319,14 +319,14 @@ onLoad((options) => setRoute('/search', options ?? {}))
   transition: all 0.15s;
   color: var(--text);
 }
-.chip-btn span { color: #b5aca2; font-size: 12px; margin-left: 3px; }
+.chip-btn .u-span { color: #b5aca2; font-size: 12px; margin-left: 3px; }
 .chip-btn:hover { border-color: var(--primary); color: var(--primary); }
 .chip-btn.on { background: var(--primary); border-color: var(--primary); color: #fff; }
-.chip-btn.on span { color: rgba(255, 255, 255, 0.75); }
+.chip-btn.on .u-span { color: rgba(255, 255, 255, 0.75); }
 
 .sorts { display: flex; align-items: center; gap: 8px; }
 .sorts .label { font-size: 13px; color: var(--text-2); }
-.sorts button {
+.sorts .u-button {
   border: 1px solid var(--border);
   background: #fff;
   padding: 4px 12px;
@@ -335,7 +335,7 @@ onLoad((options) => setRoute('/search', options ?? {}))
   cursor: pointer;
   color: var(--text-2);
 }
-.sorts button.on { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); font-weight: 600; }
+.sorts .u-button.on { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); font-weight: 600; }
 
 .result-hint { font-size: 13px; color: var(--text-2); margin: 0 0 12px; }
 
@@ -365,10 +365,10 @@ onLoad((options) => setRoute('/search', options ?? {}))
   padding: 5px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
   transition: all 0.15s; display: inline-flex; align-items: center;
 }
-.remote-tab span { color: #b5aca2; font-size: 12px; margin-left: 5px; }
+.remote-tab .u-span { color: #b5aca2; font-size: 12px; margin-left: 5px; }
 .remote-tab:hover { border-color: var(--primary); color: var(--primary); }
 .remote-tab.on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
-.remote-tab.on span { color: rgba(255, 255, 255, 0.75); }
+.remote-tab.on .u-span { color: rgba(255, 255, 255, 0.75); }
 
 .remote-src { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; }
 .remote-src .src-name { font-weight: 600; }
@@ -391,7 +391,7 @@ onLoad((options) => setRoute('/search', options ?? {}))
 }
 .remote-meta { font-size: 12px; color: var(--text-2); margin-top: 3px; }
 .remote-tags { display: flex; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
-.remote-tags span {
+.remote-tags .u-span {
   font-size: 11px; padding: 1px 7px; border-radius: 6px;
   background: var(--primary-soft); color: var(--primary-dark);
 }

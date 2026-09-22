@@ -8,12 +8,13 @@ import {
   startAdminHealCovers,
 } from '../../api'
 import { useMessageStore } from '../../stores/message'
-import type { SourceInfo } from '../../types'
+import type { PickerOption, SourceInfo } from '../../types'
 import { onLoad } from '@dcloudio/uni-app'
 import { setRoute, useRouter } from '../../utils/router'
 import { requireRole } from '../../utils/guard'
 import Layout from '../../components/Layout.vue'
 import DateInput from '../../components/DateInput.vue'
+import Picker from '../../components/Picker.vue'
 
 // 每个源的采集操作表单状态（独立参数）
 interface SourceVM {
@@ -22,6 +23,16 @@ interface SourceVM {
   syncSince: string   // 起始日期（yyyy-MM-dd 或空）
   syncLimit: string   // 数量（空=不限）
   running: boolean    // 是否正在触发（防重复点击）
+}
+
+// 采集模式下拉：小程序没有 <select>，统一走 Picker（见 components/Picker.vue）
+const syncModeOptions: PickerOption[] = [
+  { value: 'incremental', label: '增量' },
+  { value: 'full', label: '全量' },
+]
+
+function onSyncMode(vm: SourceVM, mode: string | number) {
+  vm.syncMode = mode === 'full' ? 'full' : 'incremental'
 }
 
 const sources = ref<SourceVM[]>([])
@@ -156,115 +167,126 @@ onLoad(async (options) => {
 
 <template>
   <Layout>
-    <div v-if="ready">
+    <view v-if="ready">
       <!-- 标题行：右侧放「运行日志」入口（跳转日志查询页） -->
-      <div class="title-row">
-        <h2 class="section-title">采集管理</h2>
-        <button class="btn ghost" @click="openLogs">📄 运行日志</button>
-      </div>
-      <p class="lead">
+      <view class="title-row">
+        <view class="section-title">采集管理</view>
+        <button class="btn ghost u-button" @click="openLogs">📄 运行日志</button>
+      </view>
+      <view class="lead u-p">
         手动触发各数据源的采集；关闭的源将拒绝触发采集。
-        顶部的<b>失效巡检</b>是<b>全库维护的唯一入口</b>（转存未转存页 + 全表校验恢复 + 封面自愈）；
-        <b>封面自愈</b>按<b>指定作品</b>（名称/ID）强制刷新。
-        任务进度与结果见右上角 <b>🔔 消息</b>（含历史记录，执行完毕会有提示）。
-      </p>
+        顶部的<text class="u-b">失效巡检</text>是<text class="u-b">全库维护的唯一入口</text>（转存未转存页 + 全表校验恢复 + 封面自愈）；
+        <text class="u-b">封面自愈</text>按<text class="u-b">指定作品</text>（名称/ID）强制刷新。
+        任务进度与结果见右上角 <text class="u-b">🔔 消息</text>（含历史记录，执行完毕会有提示）。
+      </view>
 
-      <div v-if="error" class="empty" style="color:#e23">{{ error }}</div>
-      <div v-else-if="!loaded" class="empty">加载数据源中…</div>
+      <view v-if="error" class="empty" style="color:#e23">{{ error }}</view>
+      <view v-else-if="!loaded" class="empty">加载数据源中…</view>
 
       <template v-else>
         <!-- 全库维护区：失效巡检（全库）+ 封面自愈（按指定作品），不放各源卡片内 -->
-        <div class="maint-row">
+        <view class="maint-row">
           <!-- 失效巡检：全库动作（扫描整张 page 表） -->
-          <div class="maintenance">
-            <div class="maint-head">
-              <span class="maint-title">失效巡检</span>
-              <span class="maint-tag">全库</span>
-            </div>
-            <p class="maint-desc">
-              <b>全库维护的唯一入口</b>：把所选时间范围内的未转存页<b>全部转存</b>、
-              <b>全表校验</b>已转存对象是否还在（缺失自动恢复），并做<b>全库封面自愈</b>
+          <view class="maintenance">
+            <view class="maint-head">
+              <text class="maint-title u-span">失效巡检</text>
+              <text class="maint-tag u-span">全库</text>
+            </view>
+            <view class="maint-desc u-p">
+              <text class="u-b">全库维护的唯一入口</text>：把所选时间范围内的未转存页<text class="u-b">全部转存</text>、
+              <text class="u-b">全表校验</text>已转存对象是否还在（缺失自动恢复），并做<text class="u-b">全库封面自愈</text>
               （起止留空 = 全库）。
-            </p>
-            <div class="row-inputs">
-              <label>起始
-                <DateInput v-model="inspectSince" />
-              </label>
-              <label>截止（含当天）
-                <DateInput v-model="inspectUntil" />
-              </label>
-            </div>
-            <button class="btn ghost" :disabled="inspecting" @click="runInspect">
+            </view>
+            <view class="row-inputs">
+              <view class="u-label">起始
+                <DateInput
+                  :model-value="inspectSince"
+                  @update:model-value="inspectSince = $event"
+                />
+              </view>
+              <view class="u-label">截止（含当天）
+                <DateInput
+                  :model-value="inspectUntil"
+                  @update:model-value="inspectUntil = $event"
+                />
+              </view>
+            </view>
+            <button class="btn ghost u-button" :disabled="inspecting" @click="runInspect">
               {{ inspecting ? '运行中…' : '触发巡检' }}
             </button>
-          </div>
+          </view>
 
           <!-- 封面自愈：按指定作品（名称/ID）强制刷新封面，只修封面、不转存正文页 -->
-          <div class="maintenance">
-            <div class="maint-head">
-              <span class="maint-title">封面自愈</span>
-              <span class="maint-tag cover">指定作品</span>
-            </div>
-            <p class="maint-desc">
-              填漫画名称或 ID（可多个）→ <b>强制</b>回源重抓封面并覆盖，专治<b>「封面文件在、但内容是错的」</b>
-              （普通自愈只看文件在不在，永远修不到错图）。只修封面、<b>不转存正文页</b>。
-            </p>
-            <label class="heal-field">
+          <view class="maintenance">
+            <view class="maint-head">
+              <text class="maint-title u-span">封面自愈</text>
+              <text class="maint-tag cover u-span">指定作品</text>
+            </view>
+            <view class="maint-desc u-p">
+              填漫画名称或 ID（可多个）→ <text class="u-b">强制</text>回源重抓封面并覆盖，专治<text class="u-b">「封面文件在、但内容是错的」</text>
+              （普通自愈只看文件在不在，永远修不到错图）。只修封面、<text class="u-b">不转存正文页</text>。
+            </view>
+            <view class="heal-field u-label">
               漫画名称或 ID（可多个，逗号 / 空格 / 换行分隔）
-              <textarea v-model="healKeyword" rows="2" placeholder="如：电锯人, 17, 海贼王"></textarea>
-            </label>
-            <button class="btn ghost" :disabled="healing" @click="runHealCovers">
+              <textarea class="u-textarea" v-model="healKeyword" rows="2" placeholder="如：电锯人, 17, 海贼王"></textarea>
+            </view>
+            <button class="btn ghost u-button" :disabled="healing" @click="runHealCovers">
               {{ healing ? '运行中…' : '触发封面自愈' }}
             </button>
-          </div>
-        </div>
+          </view>
+        </view>
 
         <!-- 数据源卡片 -->
-        <div class="grid">
-          <div v-for="vm in sources" :key="vm.info.name" class="card">
-            <div class="card-head">
-              <div class="head-left">
-                <span class="src-name">{{ vm.info.name }}</span>
-                <span class="chip pri" :class="vm.info.priority">{{ vm.info.priority === 'primary' ? '主源' : '备源' }}</span>
-              </div>
-              <label class="switch" :title="vm.info.enabled ? '点击关闭采集' : '点击开启采集'">
-                <input type="checkbox" :checked="vm.info.enabled" @change="toggleSource(vm)" />
-                <span class="slider"></span>
-              </label>
-            </div>
+        <view class="grid">
+          <view v-for="vm in sources" :key="vm.info.name" class="card">
+            <view class="card-head">
+              <view class="head-left">
+                <text class="src-name u-span">{{ vm.info.name }}</text>
+                <text class="chip pri u-span" :class="vm.info.priority">{{ vm.info.priority === 'primary' ? '主源' : '备源' }}</text>
+              </view>
+              <view class="switch u-label" :title="vm.info.enabled ? '点击关闭采集' : '点击开启采集'">
+                <input class="u-input" type="checkbox" :checked="vm.info.enabled" @change="toggleSource(vm)" />
+                <text class="slider u-span"></text>
+              </view>
+            </view>
 
-            <div class="card-meta">
-              <span>库内 <b>{{ vm.info.comicCount }}</b> 部</span>
-              <span>间隔 <b>{{ fmtInterval(vm.info.interval) }}</b></span>
-              <span>上次同步 <b>{{ fmtTime(vm.info.lastSync) }}</b></span>
-            </div>
+            <view class="card-meta">
+              <text class="u-span">库内 <text class="u-b">{{ vm.info.comicCount }}</text> 部</text>
+              <text class="u-span">间隔 <text class="u-b">{{ fmtInterval(vm.info.interval) }}</text></text>
+              <text class="u-span">上次同步 <text class="u-b">{{ fmtTime(vm.info.lastSync) }}</text></text>
+            </view>
 
             <!-- 采集区 -->
-            <div class="panel">
-              <div class="panel-title">采集</div>
-              <div class="row-inputs">
-                <label>模式
-                  <select v-model="vm.syncMode">
-                    <option value="incremental">增量</option>
-                    <option value="full">全量</option>
-                  </select>
-                </label>
-                <label>起始日期
-                  <DateInput v-model="vm.syncSince" />
-                </label>
-                <label>数量
-                  <input v-model="vm.syncLimit" type="number" min="1" placeholder="不限" />
-                </label>
-              </div>
-              <button class="btn" :disabled="vm.running || !vm.info.enabled" @click="runSync(vm)">
+            <view class="panel">
+              <view class="panel-title">采集</view>
+              <view class="row-inputs">
+                <view class="u-label">模式
+                  <Picker
+                    class="u-select"
+                    :model-value="vm.syncMode"
+                    :options="syncModeOptions"
+                    @update:model-value="onSyncMode(vm, $event)"
+                  />
+                </view>
+                <view class="u-label">起始日期
+                  <DateInput
+                    :model-value="vm.syncSince"
+                    @update:model-value="vm.syncSince = $event"
+                  />
+                </view>
+                <view class="u-label">数量
+                  <input class="u-input" v-model="vm.syncLimit" type="number" min="1" placeholder="不限" />
+                </view>
+              </view>
+              <button class="btn u-button" :disabled="vm.running || !vm.info.enabled" @click="runSync(vm)">
                 {{ vm.running ? '运行中…' : '触发采集' }}
               </button>
-            </div>
-          </div>
-        </div>
+            </view>
+          </view>
+        </view>
       </template>
 
-    </div>
+    </view>
   </Layout>
 </template>
 
@@ -281,7 +303,7 @@ onLoad(async (options) => {
 .title-row .btn { margin-left: auto; }   /* 按钮靠右，与标题同一行 */
 
 .lead { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
-.lead b { color: var(--primary-dark); }
+.lead .u-b { color: var(--primary-dark); }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
 
@@ -303,11 +325,11 @@ onLoad(async (options) => {
 .maint-tag { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: #eef7ec; color: #2f6d1f; }
 .maint-tag.cover { background: #fff4e5; color: #a15c00; }
 .maint-desc { color: var(--text-2); font-size: 13px; margin: 0 0 12px; }
-.maint-desc b { color: var(--primary-dark); }
+.maint-desc .u-b { color: var(--primary-dark); }
 
 /* 封面自愈：漫画名称/ID 输入（可多个，支持换行） */
 .heal-field { display: flex; flex-direction: column; font-size: 12px; color: var(--text-2); gap: 4px; margin-bottom: 10px; }
-.heal-field textarea {
+.heal-field .u-textarea {
   border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px;
   font-size: 13px; background: #fff; color: var(--text); font-family: inherit;
   width: 100%; box-sizing: border-box; resize: vertical;
@@ -321,26 +343,28 @@ onLoad(async (options) => {
 .chip.pri.backup { background: #f0f0f0; color: var(--text-2); }
 
 .card-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--text-2); margin-bottom: 12px; }
-.card-meta b { color: var(--text); }
+.card-meta .u-b { color: var(--text); }
 
 .panel { border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 12px; background: var(--bg); }
 .panel-title { font-size: 13px; font-weight: 700; color: var(--primary-dark); margin-bottom: 8px; }
 .row-inputs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-.row-inputs label { display: flex; flex-direction: column; font-size: 12px; color: var(--text-2); gap: 4px; }
-/* `.date-inp`：日期控件是 DateInput 产出的**原生 input**，uni 会把上面的 `input` 改写成
-   `uni-input`、匹配不到它，故这里额外挂上它的类名（其余输入框照旧走 uni-input）。 */
-.row-inputs select, .row-inputs input, .row-inputs .date-inp {
+.row-inputs .u-label { display: flex; flex-direction: column; font-size: 12px; color: var(--text-2); gap: 4px; }
+/* `.date-inp`：日期控件是 DateInput 产出的**原生 .u-input**，uni 会把上面的 `.u-input` 改写成
+   `uni-input`、匹配不到它，故这里额外挂上它的类名（其余输入框照旧走 uni-input）。
+   `.u-select` 是 Picker 组件（自带边框/内边距），这里**只给宽度**，再画边框会变双边框。 */
+.row-inputs .u-input, .row-inputs .date-inp {
   border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px;
   font-size: 13px; background: #fff; color: var(--text); min-width: 90px;
 }
-.row-inputs input[type='number'] { min-width: 70px; }
+.row-inputs .u-select { min-width: 90px; }
+.row-inputs .u-input[type='number'] { min-width: 70px; }
 
 /* 开关 */
 .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
-.switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; inset: 0; background: #d9d2ca; border-radius: 999px; transition: 0.2s; cursor: pointer; }
+.switch .u-input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: #d9d2ca; border-radius: 999px; transition: 0.2s; cursor: pointer; }
 .slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
-.switch input:checked + .slider { background: var(--primary); }
-.switch input:checked + .slider::before { transform: translateX(20px); }
+.switch .u-input:checked + .slider { background: var(--primary); }
+.switch .u-input:checked + .slider::before { transform: translateX(20px); }
 
 </style>

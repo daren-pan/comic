@@ -112,73 +112,73 @@ onLoad(async (options) => {
 
 <template>
   <Layout>
-    <div v-if="ready">
-      <div class="title-row">
-        <h2 class="section-title">授权管理</h2>
-        <a href="javascript:;" class="btn ghost" @click="router.push('/admin')">← 采集管理</a>
-      </div>
-      <p class="lead">
-        只有<b>超级管理员</b>能进这一页。角色三档：
-        <b>超级管理员</b>（管理台 + 日志 + 授权，全库唯一）、
-        <b>普通管理员</b>（管理台 + 日志，不能授权）、
-        <b>普通用户</b>（无管理台权限，默认）。
-        本页只能在<b>普通管理员 ⇄ 普通用户</b>之间切换 —— 超级管理员不可被降级，也不能修改自己的角色。
-      </p>
+    <view v-if="ready">
+      <view class="title-row">
+        <view class="section-title">授权管理</view>
+        <view class="btn ghost u-a" @click="router.push('/admin')">← 采集管理</view>
+      </view>
+      <view class="lead u-p">
+        只有<text class="u-b">超级管理员</text>能进这一页。角色三档：
+        <text class="u-b">超级管理员</text>（管理台 + 日志 + 授权，全库唯一）、
+        <text class="u-b">普通管理员</text>（管理台 + 日志，不能授权）、
+        <text class="u-b">普通用户</text>（无管理台权限，默认）。
+        本页只能在<text class="u-b">普通管理员 ⇄ 普通用户</text>之间切换 —— 超级管理员不可被降级，也不能修改自己的角色。
+      </view>
 
-      <div class="toolbar">
+      <view class="toolbar">
         <form class="search" @submit="search">
-          <input v-model="keyword" type="text" placeholder="搜索用户名 / 昵称" @confirm="search" />
-          <button class="btn" form-type="submit">搜索</button>
+          <input class="u-input" v-model="keyword" type="text" placeholder="搜索用户名 / 昵称" @confirm="search" />
+          <button class="btn u-button" form-type="submit">搜索</button>
         </form>
-        <span class="total">共 {{ total }} 个用户</span>
-      </div>
+        <text class="total u-span">共 {{ total }} 个用户</text>
+      </view>
 
-      <div v-if="error" class="empty" style="color:#e23">{{ error }}</div>
-      <div v-else-if="loading && !items.length" class="empty">加载用户中…</div>
-      <div v-else-if="!items.length" class="empty">没有匹配的用户</div>
+      <view v-if="error" class="empty" style="color:#e23">{{ error }}</view>
+      <view v-else-if="loading && !items.length" class="empty">加载用户中…</view>
+      <view v-else-if="!items.length" class="empty">没有匹配的用户</view>
 
-      <table v-else class="user-table">
-        <thead>
-          <tr>
-            <th>用户名</th>
-            <th>昵称</th>
-            <th>角色</th>
-            <th>注册时间</th>
-            <th class="act">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="u in items" :key="u.id">
-            <td>
+      <view v-else class="user-table u-table">
+        <view class="u-thead">
+          <view class="u-tr">
+            <view class="u-th">用户名</view>
+            <view class="u-th">昵称</view>
+            <view class="u-th">角色</view>
+            <view class="u-th">注册时间</view>
+            <view class="act u-th">操作</view>
+          </view>
+        </view>
+        <view class="u-tbody">
+          <view class="u-tr" v-for="u in items" :key="u.id">
+            <view class="u-td">
               {{ u.username }}
-              <span v-if="u.id === myId" class="me">我</span>
-            </td>
-            <td class="dim">{{ u.nickname }}</td>
-            <td>
-              <span class="chip" :class="u.role">{{ ROLE_LABEL[u.role] || u.role }}</span>
-            </td>
-            <td class="dim">{{ u.createdAt }}</td>
-            <td class="act">
+              <text v-if="u.id === myId" class="me u-span">我</text>
+            </view>
+            <view class="dim u-td">{{ u.nickname }}</view>
+            <view class="u-td">
+              <text class="chip u-span" :class="u.role">{{ ROLE_LABEL[u.role] || u.role }}</text>
+            </view>
+            <view class="dim u-td">{{ u.createdAt }}</view>
+            <view class="act u-td">
               <button
                 v-if="canEdit(u)"
-                class="btn ghost sm"
+                class="btn ghost sm u-button"
                 :disabled="busyId !== null"
                 @click="toggleRole(u)"
               >
                 {{ u.role === 'admin' ? '取消管理员' : '设为管理员' }}
               </button>
-              <span v-else class="dim lock" :title="rowHint(u)">不可修改</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+              <text v-else class="dim lock u-span" :title="rowHint(u)">不可修改</text>
+            </view>
+          </view>
+        </view>
+      </view>
 
-      <div v-if="items.length" class="pager">
-        <button class="btn ghost sm" :disabled="page <= 1" @click="go(-1)">上一页</button>
-        <span class="dim">第 {{ page }} / {{ totalPages }} 页</span>
-        <button class="btn ghost sm" :disabled="page >= totalPages" @click="go(1)">下一页</button>
-      </div>
-    </div>
+      <view v-if="items.length" class="pager">
+        <button class="btn ghost sm u-button" :disabled="page <= 1" @click="go(-1)">上一页</button>
+        <text class="dim u-span">第 {{ page }} / {{ totalPages }} 页</text>
+        <button class="btn ghost sm u-button" :disabled="page >= totalPages" @click="go(1)">下一页</button>
+      </view>
+    </view>
   </Layout>
 </template>
 
@@ -194,7 +194,7 @@ onLoad(async (options) => {
 .title-row .btn { margin-left: auto; }
 
 .lead { color: var(--text-2); font-size: 14px; margin: 0 0 16px; line-height: 1.7; }
-.lead b { color: var(--primary-dark); }
+.lead .u-b { color: var(--primary-dark); }
 
 .toolbar {
   display: flex;
@@ -204,7 +204,7 @@ onLoad(async (options) => {
   margin-bottom: 12px;
 }
 .search { display: flex; gap: 8px; }
-.search input {
+.search .u-input {
   border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
   font-size: 14px; background: #fff; color: var(--text); min-width: 200px;
 }
@@ -219,16 +219,16 @@ onLoad(async (options) => {
   overflow: hidden;
   box-shadow: var(--shadow);
 }
-.user-table th,
-.user-table td { padding: 10px 14px; text-align: left; font-size: 14px; }
-.user-table th {
+.user-table .u-th,
+.user-table .u-td { padding: 10px 14px; text-align: left; font-size: 14px; }
+.user-table .u-th {
   background: var(--bg);
   font-size: 13px;
   color: var(--text-2);
   font-weight: 700;
   border-bottom: 1px solid var(--border);
 }
-.user-table tbody tr + tr td { border-top: 1px solid var(--border); }
+.user-table .u-tbody .u-tr + .u-tr .u-td { border-top: 1px solid var(--border); }
 .user-table .act { width: 130px; text-align: right; }
 .dim { color: var(--text-2); }
 

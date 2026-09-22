@@ -59,46 +59,46 @@ onLoad((options) => setRoute('/login', options ?? {}))
 
 <template>
   <Layout>
-    <div class="auth-wrap">
-      <div class="auth-card">
-        <button class="back" @click="onBack">← 返回</button>
-        <div class="brand">
-          <span class="brand-mark">漫</span>
-          <span class="brand-text">漫阅<em>COMIC</em></span>
-        </div>
-        <h1 class="title">{{ mode === 'login' ? '登录' : '注册' }}</h1>
-        <p class="sub">{{ mode === 'login' ? '登录后可同步收藏到云端' : '创建账号，收藏多端同步' }}</p>
+    <view class="auth-wrap">
+      <view class="auth-card">
+        <button class="back u-button" @click="onBack">← 返回</button>
+        <view class="brand">
+          <text class="brand-mark u-span">漫</text>
+          <text class="brand-text u-span">漫阅<text class="u-em">COMIC</text></text>
+        </view>
+        <view class="title u-h1">{{ mode === 'login' ? '登录' : '注册' }}</view>
+        <view class="sub u-p">{{ mode === 'login' ? '登录后可同步收藏到云端' : '创建账号，收藏多端同步' }}</view>
 
         <form @submit="submit">
-          <label class="field">
-            <span>用户名</span>
-            <input v-model="username" type="text" autocomplete="username" placeholder="3-32 个字符" @confirm="submit" />
-          </label>
+          <view class="field u-label">
+            <text class="u-span">用户名</text>
+            <input class="u-input" v-model="username" type="text" autocomplete="username" placeholder="3-32 个字符" @confirm="submit" />
+          </view>
 
-          <label v-if="mode === 'register'" class="field">
-            <span>昵称（选填）</span>
-            <input v-model="nickname" type="text" placeholder="展示名称" @confirm="submit" />
-          </label>
+          <view v-if="mode === 'register'" class="field u-label">
+            <text class="u-span">昵称（选填）</text>
+            <input class="u-input" v-model="nickname" type="text" placeholder="展示名称" @confirm="submit" />
+          </view>
 
-          <label class="field">
-            <span>密码</span>
-            <input v-model="password" type="password" autocomplete="current-password" placeholder="至少 6 位" @confirm="submit" />
-          </label>
+          <view class="field u-label">
+            <text class="u-span">密码</text>
+            <input class="u-input" v-model="password" type="password" autocomplete="current-password" placeholder="至少 6 位" @confirm="submit" />
+          </view>
 
-          <p v-if="error" class="error">{{ error }}</p>
+          <view v-if="error" class="error u-p">{{ error }}</view>
 
-          <button class="btn block" form-type="submit" :disabled="loading">
+          <button class="btn block u-button" form-type="submit" :disabled="loading">
             {{ loading ? '处理中…' : mode === 'login' ? '登录' : '注册' }}
           </button>
         </form>
 
-        <button class="switch" @click="toggleMode">
+        <button class="switch u-button" @click="toggleMode">
           {{ mode === 'login' ? '没有账号？去注册' : '已有账号？去登录' }}
         </button>
-      </div>
+      </view>
 
-      <p class="hint">最近阅读无需登录即可使用 · 收藏需要登录以跨设备同步</p>
-    </div>
+      <view class="hint u-p">最近阅读无需登录即可使用 · 收藏需要登录以跨设备同步</view>
+    </view>
   </Layout>
 </template>
 
@@ -138,14 +138,14 @@ onLoad((options) => setRoute('/login', options ?? {}))
   display: flex; align-items: center; justify-content: center;
 }
 .brand-text { font-weight: 800; font-size: 20px; }
-.brand-text em { font-style: normal; font-size: 12px; color: var(--primary); margin-left: 4px; letter-spacing: 1px; }
+.brand-text .u-em { font-style: normal; font-size: 12px; color: var(--primary); margin-left: 4px; letter-spacing: 1px; }
 
 .title { margin: 14px 0 4px; font-size: 24px; }
 .sub { margin: 0 0 22px; color: var(--text-2); font-size: 14px; }
 
 .field { display: block; text-align: left; margin-bottom: 14px; }
-.field span { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; font-weight: 600; }
-.field input {
+.field .u-span { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; font-weight: 600; }
+.field .u-input {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -155,7 +155,7 @@ onLoad((options) => setRoute('/login', options ?? {}))
   transition: border 0.15s, background 0.15s;
   color: var(--text);
 }
-.field input:focus { outline: none; border-color: var(--primary); background: #fff; }
+.field .u-input:focus { outline: none; border-color: var(--primary); background: #fff; }
 
 .error { color: #e23; font-size: 13px; margin: -4px 0 10px; text-align: left; }
 

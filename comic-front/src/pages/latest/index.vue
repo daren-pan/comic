@@ -61,22 +61,22 @@ onLoad((options) => setRoute('/latest', options ?? {}))
 
 <template>
   <Layout>
-    <div>
-      <h2 class="section-title">⚡ 最近更新</h2>
-      <p class="lead">源站一更新，这里几分钟可见 —— 按最近更新时间倒序排列，共 {{ total }} 部。</p>
+    <view>
+      <view class="section-title">⚡ 最近更新</view>
+      <view class="lead u-p">源站一更新，这里几分钟可见 —— 按最近更新时间倒序排列，共 {{ total }} 部。</view>
 
-      <div v-if="loading" class="empty">加载中…</div>
-      <div v-else-if="comics.length === 0" class="empty">暂无更新记录</div>
-      <div v-else class="grid">
+      <view v-if="loading" class="empty">加载中…</view>
+      <view v-else-if="comics.length === 0" class="empty">暂无更新记录</view>
+      <view v-else class="grid">
         <ComicCard v-for="c in comics" :key="c.id" :comic="c" :time="fmtTime(c.updatedAt)" />
-      </div>
+      </view>
 
-      <div v-if="totalPages() > 1" class="pager">
-        <button class="btn ghost" :disabled="page <= 1" @click="go(page - 1)">上一页</button>
-        <span class="page-info">{{ page }} / {{ totalPages() }}</span>
-        <button class="btn ghost" :disabled="page >= totalPages()" @click="go(page + 1)">下一页</button>
-      </div>
-    </div>
+      <view v-if="totalPages() > 1" class="pager">
+        <button class="btn ghost u-button" :disabled="page <= 1" @click="go(page - 1)">上一页</button>
+        <text class="page-info u-span">{{ page }} / {{ totalPages() }}</text>
+        <button class="btn ghost u-button" :disabled="page >= totalPages()" @click="go(page + 1)">下一页</button>
+      </view>
+    </view>
   </Layout>
 </template>
 

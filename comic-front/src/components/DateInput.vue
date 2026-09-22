@@ -55,6 +55,6 @@ const val = computed({
   <NativeDateInput v-model="val" />
   <!-- #endif -->
   <!-- #ifndef H5 -->
-  <input v-model="val" class="date-inp" type="text" placeholder="YYYY-MM-DD" />
+  <input v-model="val" class="date-inp u-input" type="text" placeholder="YYYY-MM-DD" />
   <!-- #endif -->
 </template>

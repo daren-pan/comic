@@ -45,42 +45,42 @@ onLoad((options) => setRoute('/', options ?? {}))
 
 <template>
   <Layout>
-    <div>
+    <view>
       <!-- Banner -->
-      <section class="banner">
-        <div class="banner-inner">
-          <h1>聚合全网好漫画<br /><em>一个书架，全网追更</em></h1>
-          <p>多源采集 · 分源收录 · 秒级同步更新 —— 源站一更新，这里几分钟可见</p>
-          <div class="banner-badges">
-            <span v-for="c in categories.filter((x) => x.name !== '全部').slice(0, 6)" :key="c.name">
+      <view class="banner">
+        <view class="banner-inner">
+          <view class="u-h1">聚合全网好漫画<view class="u-br" /><text class="u-em">一个书架，全网追更</text></view>
+          <view class="u-p">多源采集 · 分源收录 · 秒级同步更新 —— 源站一更新，这里几分钟可见</view>
+          <view class="banner-badges">
+            <text class="u-span" v-for="c in categories.filter((x) => x.name !== '全部').slice(0, 6)" :key="c.name">
               {{ c.name }} {{ c.count }}
-            </span>
-          </div>
-        </div>
-      </section>
+            </text>
+          </view>
+        </view>
+      </view>
 
       <!-- 热门榜 -->
-      <h2 class="section-title">🔥 热门榜单</h2>
-      <div class="grid">
+      <view class="section-title">🔥 热门榜单</view>
+      <view class="grid">
         <ComicCard v-for="c in hotComics" :key="c.id" :comic="c" />
-      </div>
+      </view>
 
       <!-- 最新更新 -->
-      <h2 class="section-title">⚡ 最新更新 <small class="hint">（源站同步 · {{ fmtTime(latestComics[0]?.updatedAt ?? Date.now().toString()) }}内有更新）</small></h2>
-      <div class="grid">
+      <view class="section-title">⚡ 最新更新 <text class="hint">（源站同步 · {{ fmtTime(latestComics[0]?.updatedAt ?? Date.now().toString()) }}内有更新）</text></view>
+      <view class="grid">
         <ComicCard v-for="c in latestComics" :key="c.id" :comic="c" />
-      </div>
+      </view>
 
       <!-- 分类浏览 -->
       <template v-for="cat in categories.filter((x) => x.name !== '全部').slice(0, 4)" :key="cat.name">
-        <h2 class="section-title">{{ cat.name }} · 精选</h2>
-        <div class="grid grid-5">
+        <view class="section-title">{{ cat.name }} · 精选</view>
+        <view class="grid grid-5">
           <ComicCard v-for="c in catComics[cat.name]" :key="c.id" :comic="c" />
-        </div>
+        </view>
       </template>
 
-      <div v-if="!loaded" class="empty">加载中…</div>
-    </div>
+      <view v-if="!loaded" class="empty">加载中…</view>
+    </view>
   </Layout>
 </template>
 
@@ -96,11 +96,11 @@ onLoad((options) => setRoute('/', options ?? {}))
   padding: 34px 30px;
 }
 .banner-inner { max-width: 640px; }
-.banner h1 { font-size: 30px; margin: 0 0 10px; line-height: 1.35; }
-.banner h1 em { font-style: normal; color: var(--accent); }
-.banner p { margin: 0 0 16px; color: #e8dcd2; font-size: 14px; }
+.banner .u-h1 { font-size: 30px; margin: 0 0 10px; line-height: 1.35; }
+.banner .u-h1 .u-em { font-style: normal; color: var(--accent); }
+.banner .u-p { margin: 0 0 16px; color: #e8dcd2; font-size: 14px; }
 .banner-badges { display: flex; gap: 8px; flex-wrap: wrap; }
-.banner-badges span {
+.banner-badges .u-span {
   background: rgba(255, 255, 255, 0.14);
   border: 1px solid rgba(255, 255, 255, 0.22);
   padding: 3px 12px;
@@ -121,6 +121,6 @@ onLoad((options) => setRoute('/', options ?? {}))
 }
 @media (max-width: 560px) {
   .grid, .grid-5 { grid-template-columns: repeat(2, 1fr); }
-  .banner h1 { font-size: 24px; }
+  .banner .u-h1 { font-size: 24px; }
 }
 </style>

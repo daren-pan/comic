@@ -152,6 +152,18 @@ export interface LogOptions {
   events: string[]
 }
 
+/**
+ * 下拉选项（跨端 `Picker` 组件用）——`value` 是绑定值、`label` 是展示文案。
+ *
+ * 为什么需要它：小程序**没有 `<select>` 组件**，统一改用 uni 的 `<picker mode="selector">`，
+ * 而 picker 只认「字符串数组 + 下标」。这个结构把「下标 ↔ 业务值」的换算收敛在
+ * `components/Picker.vue` 里，页面只提供 `{value,label}[]`，逻辑与 comic-web 保持一致。
+ */
+export interface PickerOption {
+  value: string | number
+  label: string
+}
+
 // ---------------- 源站搜索 / 按需导入 ----------------
 export interface SourceSearchItem {
   source: string
