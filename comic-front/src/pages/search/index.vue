@@ -341,7 +341,8 @@ onLoad((options) => setRoute('/search', options ?? {}))
 
 .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
 @media (max-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 560px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+/* 手机（≤560px）保持 3 列，只收紧间距（原先降到 2 列；2026-09-22 用户要求） */
+@media (max-width: 560px) { .grid { gap: 10px; } }
 
 .pager { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 26px; }
 .page-info { color: var(--text-2); font-size: 14px; }

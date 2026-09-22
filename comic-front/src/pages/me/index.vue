@@ -169,6 +169,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
   .row-actions { flex-direction: column; }
 }
 @media (max-width: 560px) {
-  .fav-grid { grid-template-columns: repeat(3, 1fr); }
+  /* 收藏网格本来就是 3 列，与首页 / 最近更新 / 分类统一；只收紧间距（2026-09-22） */
+  .fav-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
 }
 </style>

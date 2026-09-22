@@ -82,4 +82,17 @@ const router = useRouter()
 }
 .meta { margin: 2px 0 0; font-size: 12px; color: var(--text-2); }
 .update { margin: 6px 0 0; font-size: 12px; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 手机（≤560px）三列：列宽只剩 ~110px，字号 / 内边距按比例收紧，否则标题被截得只剩两三个字。
+   断点与各页 .grid 的媒体查询一致（首页 / 最近更新 / 分类 / 我的收藏）。 */
+@media (max-width: 560px) {
+  .info { padding: 7px 8px 9px; }
+  .title { font-size: 13px; }
+  .meta, .update { font-size: 11px; }
+  /* 作者名原先没截断（行内没有 ellipsis / nowrap），窄卡片下会把行撑破 */
+  .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .update { margin-top: 4px; }
+  .status { top: 5px; left: 5px; font-size: 10px; padding: 1px 6px; }
+  .time { top: 5px; right: 5px; font-size: 10px; padding: 1px 6px; }
+}
 </style>
