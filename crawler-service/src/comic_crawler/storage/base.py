@@ -189,11 +189,12 @@ class Storage(ABC):
         """**单页 + 所属章节/作品的完整上下文**（一条 SQL，供「穿透取图」使用）。
 
         返回：page_id / page_no / source_url / oss_url / cached_status /
-        comic_id / source / source_comic_id / chapter_id / source_chapter_id。
+        comic_id / source / source_comic_id / chapter_id / source_chapter_id /
+        **total_pages**（本章总页数，供只剩占位图时显示"第 N / 共 M 页"）。
 
         为什么单独提供：读图是**逐张**请求（一话约 20 张），若由调用方分别查
         chapter 与 comic 再拼装，每张图会多出 2 次查询（一话 40 次），
-        正好是刚修掉的那类 N+1。
+        正好是刚修掉的那类 N+1。同理**不要**为了拿总页数去 `get_pages()` 拉整章。
         """
 
     @abstractmethod

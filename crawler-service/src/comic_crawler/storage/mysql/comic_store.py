@@ -1,7 +1,7 @@
 """存储层 MySQL 实现：漫画侧（comic / chapter / page / sync_log / tag / comic_tag）。
 
 对应架构方案 §3.1/§6.1。连接参数与时间/热度工具见 `._util`；
-每个方法使用独立连接（线程安全），autocommit 提交。
+每个方法从**共享连接池**取连接（见 `._pool`），autocommit 提交。
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import pymysql
 from ...models import ChapterBrief, ComicDetail, PageInfo
 from ...taxonomy import canonical_tag
 from ..base import Storage
+from ._pool import pooled_conn
 from ._util import _DSN, _as_dt, _now, _until_bound, heat_sql, logger
 
 # 作品行的统一投影：`list_comics` / `get_comic` / `get_comics_by_ids` 共用同一份，
@@ -41,11 +42,13 @@ class MySQLStorage(Storage):
 
     @contextmanager
     def _conn(self) -> Iterator[pymysql.connections.Connection]:
-        conn = pymysql.connect(**self.dsn)
-        try:
+        """借一条**池化**连接（复用 + 探活 + 出错不复用，见 `._pool`）。
+
+        调用方写法保持 `with self._conn() as conn:` 不变 —— 池化对上层透明，
+        也**不要**再手动 `conn.close()`（关闭会让池的额度对不上）。
+        """
+        with pooled_conn(self.dsn) as conn:
             yield conn
-        finally:
-            conn.close()
 
     # ------------------------------------------------------------------
     def get_comic_id_by_source(self, source: str, source_comic_id: str) -> int | None:
@@ -554,13 +557,17 @@ class MySQLStorage(Storage):
                 )
 
     def get_chapters(self, comic_id: int) -> list[dict]:
+        """章节列表（`chapter_no` 升序）。
+
+        ⚠️ 刻意**不**再 `LEFT JOIN page` 去算 `page_count`（2026-09-21 去掉）：该字段
+        全项目没有任何消费方（`serializers.to_chapter` 不返回它），却让这条查询随页数放大
+        —— 而它被详情页与**每部作品的采集补章**（`sync._upsert_detail`）都调用。
+        真需要"每章页数"就单独查 `page`（走 `idx_chapter_id`），别绑在章节列表上。
+        """
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    """SELECT ch.*, COUNT(p.id) AS page_count
-                       FROM chapter ch LEFT JOIN page p ON p.chapter_id = ch.id
-                       WHERE ch.comic_id = %s
-                       GROUP BY ch.id ORDER BY ch.chapter_no ASC""",
+                    "SELECT * FROM chapter WHERE comic_id = %s ORDER BY chapter_no ASC",
                     (comic_id,),
                 )
                 return list(cur.fetchall())
@@ -592,13 +599,19 @@ class MySQLStorage(Storage):
 
         除 id / URL / 状态外还带 **comic_title 与 chapter_title** —— 失败日志要能直接写出
         「哪部作品哪一话」，否则只有 page_id 根本定位不到（见 images/transfer 的失败日志格式）。
+
+        另带 `total_pages`（本章总页数，标量子查询）：读图端点的**占位图**要显示"第 N / 共 M 页"。
+        此前那里是 `get_pages()` 取整章再 `len()` —— 每张图都把整话页清单拉一遍（一话 40 页
+        = 40 次 × 40 行）。这里改成同一条 SQL 里带一个走 `idx_chapter_id` 的 COUNT。
         """
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """SELECT p.id AS page_id, p.page_no, p.source_url, p.oss_url, p.cached_status,
                               c.id AS comic_id, c.source, c.source_comic_id, c.title AS comic_title,
-                              ch.id AS chapter_id, ch.source_chapter_id, ch.title AS chapter_title
+                              ch.id AS chapter_id, ch.source_chapter_id, ch.title AS chapter_title,
+                              (SELECT COUNT(*) FROM page px WHERE px.chapter_id = p.chapter_id)
+                                  AS total_pages
                        FROM page p
                        JOIN chapter ch ON p.chapter_id = ch.id
                        JOIN comic c ON ch.comic_id = c.id

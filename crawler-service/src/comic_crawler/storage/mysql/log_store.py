@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from ._pool import pooled_conn
 from ._util import _DSN, _until_bound
-import pymysql
 
 # 入库列顺序（与 log_handler.record_to_row 的产出对应）
 LOG_COLUMNS: tuple[str, ...] = (
@@ -85,31 +85,25 @@ def build_filters(
 
 
 class MySQLLogStore:
-    """`log_record` 表的读写（每次调用一条连接，autocommit —— 与 `MySQLStorage` 一致）。"""
+    """`log_record` 表的读写（连接来自**共享池**，见 `._pool`；autocommit 与 `MySQLStorage` 一致）。"""
 
     def __init__(self, dsn: dict | None = None) -> None:
         self.dsn = dsn or _DSN
 
-    def _conn(self):
-        return pymysql.connect(**self.dsn)
-
     # ---------------- 写入 ----------------
     def insert_many(self, rows: list[dict]) -> int:
-        """**一次连接**批量写入（`executemany`）。返回写入行数；`rows` 为空时不建连接。"""
+        """**一次连接**批量写入（`executemany`）。返回写入行数；`rows` 为空时不取连接。"""
         if not rows:
             return 0
         cols = ", ".join(LOG_COLUMNS)
         placeholders = ", ".join(["%s"] * len(LOG_COLUMNS))
         values = [tuple(r.get(c) for c in LOG_COLUMNS) for r in rows]
-        conn = self._conn()
-        try:
+        with pooled_conn(self.dsn) as conn:
             with conn.cursor() as cur:
                 cur.executemany(
                     f"INSERT INTO log_record ({cols}) VALUES ({placeholders})", values
                 )
-            return len(values)
-        finally:
-            conn.close()
+        return len(values)
 
     # ---------------- 读取 ----------------
     def query(
@@ -129,8 +123,7 @@ class MySQLLogStore:
         cols = ", ".join(LIST_COLUMNS) + (", exc_text" if with_exc else "")
         size = max(1, min(int(page_size or 50), MAX_PAGE_SIZE))
         offset = max(0, (max(1, int(page or 1)) - 1) * size)
-        conn = self._conn()
-        try:
+        with pooled_conn(self.dsn) as conn:
             with conn.cursor() as cur:
                 cur.execute(f"SELECT COUNT(*) AS c FROM log_record{where}", params)
                 total = int(cur.fetchone()["c"])
@@ -139,19 +132,14 @@ class MySQLLogStore:
                     params + [size, offset],
                 )
                 return list(cur.fetchall()), total
-        finally:
-            conn.close()
 
     def get(self, log_id: int) -> dict | None:
         """单条（含堆栈全文）—— 查询页点开某行时用。"""
         cols = ", ".join(LIST_COLUMNS) + ", exc_text"
-        conn = self._conn()
-        try:
+        with pooled_conn(self.dsn) as conn:
             with conn.cursor() as cur:
                 cur.execute(f"SELECT {cols} FROM log_record WHERE id = %s", (int(log_id),))
                 return cur.fetchone()
-        finally:
-            conn.close()
 
     # ---------------- 保留策略 ----------------
     def purge(self, days: int = 30) -> int:
@@ -161,12 +149,9 @@ class MySQLLogStore:
         （`POST /api/admin/logs/purge`）或将来接定时任务。
         """
         keep = max(1, int(days))
-        conn = self._conn()
-        try:
+        with pooled_conn(self.dsn) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "DELETE FROM log_record WHERE created_at < (NOW() - INTERVAL %s DAY)", (keep,)
                 )
                 return int(cur.rowcount)
-        finally:
-            conn.close()

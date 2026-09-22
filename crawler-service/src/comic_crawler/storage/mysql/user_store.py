@@ -1,6 +1,6 @@
 """存储层 MySQL 实现：用户中心（user / favorite / history）。
 
-对应 api-service 的收藏/历史接口；连接参数与时间工具见 `._util`。
+对应 api-service 的收藏/历史接口；连接参数见 `._util`，取连接走**共享连接池**（`._pool`）。
 """
 from __future__ import annotations
 
@@ -10,22 +10,21 @@ from typing import Iterator
 import pymysql
 
 from ..base import UserStore
+from ._pool import pooled_conn
 from ._util import _DSN, _now
 
 
 class MySQLUserStore(UserStore):
-    """用户中心 MySQL 实现（UserStore 契约）。每个调用独立连接，autocommit 提交。"""
+    """用户中心 MySQL 实现（UserStore 契约）。连接来自共享池，autocommit 提交。"""
 
     def __init__(self, dsn: dict | None = None) -> None:
         self.dsn = dsn or _DSN
 
     @contextmanager
     def _conn(self) -> Iterator[pymysql.connections.Connection]:
-        conn = pymysql.connect(**self.dsn)
-        try:
+        """借一条**池化**连接（与 `MySQLStorage._conn` 同一套，见 `._pool`）。"""
+        with pooled_conn(self.dsn) as conn:
             yield conn
-        finally:
-            conn.close()
 
     def list_favorites(self, user_id: str) -> list[int]:
         with self._conn() as conn:
