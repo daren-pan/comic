@@ -34,6 +34,86 @@ _client: httpx.Client | None = None
 # 同时对源站保持低频合规（MangaDex AUP 约 5 req/s，2 路远低于该值）。
 CONCURRENCY = 2
 
+# ---------------------------------------------------------------------------
+# 读时穿透的闸门 / 去重 / 负缓存（2026-09-21 补）
+#
+# 背景：批量转存（`lazy_transfer`）一直有 `CONCURRENCY` 这道闸门，而**读时穿透没有** ——
+# 阅读器一话就是浏览器并发 N 张图，冷章节 = N 个出站请求同时打源站（一话 40 页就是 40 路），
+# 正是本项目反复强调要避免的源站风控场景；而且触发者可以只是**一个匿名用户**
+# （`GET /api/images/...` 公开、无鉴权、无限流）。三件事分别解决三个问题：
+#
+#   ① 闸门   —— 限制**同时**出站的数量（只约束下载；落盘 / 回填不占额度）；
+#   ② 去重   —— 同一页被并发请求（多标签页 / 快速重试）时只下载一次，其余等结果；
+#   ③ 负缓存 —— 失败后短时间内不再打源站。没有它时，失败页的 `cached_status` 仍是
+#               「未转存」，于是"用户每刷新一次就打一次源站"，可以无限重试。
+# ---------------------------------------------------------------------------
+
+#: 穿透取图的并发上限（出站下载路数）。
+PASSTHROUGH_CONCURRENCY = 4
+#: 等闸门 / 等同图下载的最长时间；等不到就返回 None（调用方给占位图），不无限占住请求线程。
+PASSTHROUGH_WAIT_SECONDS = 15.0
+#: 失败负缓存时长：同一页在此期间不再打源站。
+PASSTHROUGH_FAIL_TTL = 60.0
+#: 负缓存条目上限（防止字典无限增长；满了整体清空 —— 比 LRU 简单，效果足够）。
+PASSTHROUGH_FAIL_MAX = 2000
+
+_passthrough_gate = threading.Semaphore(PASSTHROUGH_CONCURRENCY)
+_inflight_lock = threading.Lock()
+#: page key -> 该页正在下载的信号（下载结束 set()，等待者据此醒来读落盘结果）
+_inflight: dict[str, threading.Event] = {}
+#: page key -> 负缓存到期时刻（time.monotonic 基准）
+_fail_until: dict[str, float] = {}
+
+
+def _fail_cached(key: str) -> bool:
+    """该页是否处于失败负缓存期内（顺带回收过期项）。"""
+    with _inflight_lock:
+        until = _fail_until.get(key)
+        if until is None:
+            return False
+        if until > time.monotonic():
+            return True
+        del _fail_until[key]
+        return False
+
+
+def _remember_fail(key: str) -> None:
+    """记一次失败（进入负缓存期）。"""
+    with _inflight_lock:
+        if len(_fail_until) >= PASSTHROUGH_FAIL_MAX:
+            _fail_until.clear()
+        _fail_until[key] = time.monotonic() + PASSTHROUGH_FAIL_TTL
+
+
+def _inflight_enter(key: str) -> tuple[bool, threading.Event | None]:
+    """登记"我要下载这一页"。
+
+    返回 `(True, None)` = 我是领先者，下载完必须调 `_inflight_leave(key)`；
+    返回 `(False, event)` = **已有请求在下载同一页**，调用方应等这个 event 再读落盘结果。
+    """
+    with _inflight_lock:
+        ev = _inflight.get(key)
+        if ev is not None:
+            return False, ev
+        _inflight[key] = threading.Event()
+        return True, None
+
+
+def _inflight_leave(key: str) -> None:
+    """领先者结束（无论成败）：摘掉登记并唤醒所有等待者。"""
+    with _inflight_lock:
+        ev = _inflight.pop(key, None)
+    if ev is not None:
+        ev.set()
+
+
+def _read_stored(image_store: ImageStore, key: str) -> bytes | None:
+    """从图库读刚落的盘（同图去重的等待者用；读失败按"没有"处理）。"""
+    try:
+        return image_store.get(key)
+    except Exception:
+        return None
+
 
 def _shared_client() -> httpx.Client:
     global _client
@@ -304,30 +384,38 @@ def _host_allowed(url: str, adapter: object | None) -> bool:
     return False
 
 
-def fetch_page_bytes(
+def _fetch_as_leader(
     storage: Storage,
     image_store: ImageStore,
     row: dict,
-    *,
-    adapter_provider: Callable[[str], object] | None = None,
-    downloader: Callable[[str, str], bytes] | None = None,
+    key: str,
+    adapter_provider: Callable[[str], object] | None,
+    downloader: Callable[[str, str], bytes],
 ) -> bytes | None:
-    """读某页时本地还没有图 → 现场从源站取回，**顺手落盘**后再返回（「边看边转」）。
-
-    用户等待时间因此只等于「源站响应一张图」，而不是「整话下载完」：
-
-    - 成功：写入图库 + 回填 `cached_status='已转存'` → 返回字节（下次访问走本地）；
-    - 失败：返回 None（调用方回退 SVG 占位图），状态保持「未转存」，下次访问再试。
-
-    下载策略与 `lazy_transfer` 完全一致（复用同一套函数）：登记 URL 未过期就直接用；
-    已过期或下载失败 → 现场重拉整章 URL 让源站重新签发 → 再试一次。
-    """
-    downloader = downloader or default_downloader
-    key = build_image_key(row["comic_id"], row["chapter_id"], row["page_no"])
+    """领先者路径：抢出站闸门 → 下载（必要时重拉）→ 落盘 + 回填 → 返回字节。"""
     adapter = _build_adapter(adapter_provider, str(row.get("source") or ""))
 
-    data, reason = _download_one(row.get("source_url"), key, adapter, row, downloader)
+    # ③ 出站闸门：**只**约束这次下载（落盘与 DB 回填不占额度）
+    if not _passthrough_gate.acquire(timeout=PASSTHROUGH_WAIT_SECONDS):
+        # 闸门拥挤 ≠ 这一页坏了，故**刻意不写负缓存** —— 写进去会把好页也黑掉一分钟
+        logger.warning(
+            "穿透取图排队超时（并发上限 %d，已等 %.0fs）page_id=%s",
+            PASSTHROUGH_CONCURRENCY, PASSTHROUGH_WAIT_SECONDS, row.get("page_id"),
+            extra={"log_fields": {
+                "event": "read.fail", "source": row.get("source"),
+                "comic_id": row.get("comic_id"), "comic_title": row.get("comic_title"),
+                "chapter_id": row.get("chapter_id"), "chapter_title": row.get("chapter_title"),
+                "pages": 1, "reason": "取图并发已满，排队超时",
+            }},
+        )
+        return None
+    try:
+        data, reason = _download_one(row.get("source_url"), key, adapter, row, downloader)
+    finally:
+        _passthrough_gate.release()
+
     if data is None:
+        _remember_fail(key)   # ① 进负缓存：短时间内不再为这一页打源站
         logger.warning(
             "穿透取图失败 | %s",
             _fail_body(row, adapter, reason, f"第 {row.get('page_no')} 页"),
@@ -352,6 +440,50 @@ def fetch_page_bytes(
         # 落盘/回填失败不应影响本次阅读：图片字节照常返回给用户，状态留给下次重试
         logger.warning("穿透取图落盘失败 page_id=%s: %s", row.get("page_id"), exc)
     return data
+
+
+def fetch_page_bytes(
+    storage: Storage,
+    image_store: ImageStore,
+    row: dict,
+    *,
+    adapter_provider: Callable[[str], object] | None = None,
+    downloader: Callable[[str, str], bytes] | None = None,
+) -> bytes | None:
+    """读某页时本地还没有图 → 现场从源站取回，**顺手落盘**后再返回（「边看边转」）。
+
+    用户等待时间因此只等于「源站响应一张图」，而不是「整话下载完」：
+
+    - 成功：写入图库 + 回填 `cached_status='已转存'` → 返回字节（下次访问走本地）；
+    - 失败：返回 None（调用方回退 SVG 占位图），状态保持「未转存」；
+    - **同一页并发只下一次**，失败后 `PASSTHROUGH_FAIL_TTL` 秒内不再打源站
+      （闸门 / 去重 / 负缓存三个常量的来龙去脉见本模块上方的常量块）。
+
+    下载策略与 `lazy_transfer` 完全一致（复用同一套函数）：登记 URL 未过期就直接用；
+    已过期或下载失败 → 现场重拉整章 URL 让源站重新签发 → 再试一次。
+    """
+    downloader = downloader or default_downloader
+    key = build_image_key(row["comic_id"], row["chapter_id"], row["page_no"])
+
+    # ① 负缓存：这一页刚失败过 → 直接跳过，不打源站
+    #    日志用 debug：短时间内重复访问同一坏页会刷屏，而失败本身已 warning 过一次
+    if _fail_cached(key):
+        logger.debug(
+            "穿透取图跳过（%.0fs 内已失败过）page_id=%s", PASSTHROUGH_FAIL_TTL, row.get("page_id")
+        )
+        return None
+
+    # ② 同图去重：已有请求在下载这一页 → 等它，再直接读落盘结果（不再打第二次源站）
+    leader, pending = _inflight_enter(key)
+    if not leader:
+        if pending is not None:
+            pending.wait(PASSTHROUGH_WAIT_SECONDS)
+        return _read_stored(image_store, key)
+
+    try:
+        return _fetch_as_leader(storage, image_store, row, key, adapter_provider, downloader)
+    finally:
+        _inflight_leave(key)   # 无论成败都要唤醒等待者，否则它们会一直等到超时
 
 
 def _download_one(
