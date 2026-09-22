@@ -320,14 +320,14 @@ onLoad(async (options) => {
 .title-row .btn:first-of-type { margin-left: auto; }
 
 .lead { color: var(--text-2); font-size: 14px; margin: 0 0 14px; }
-.lead .u-code { background: #f0ede8; border-radius: 4px; padding: 1px 5px; }
+.lead .u-code { background: var(--mute); border-radius: 4px; padding: 1px 5px; }
 
 .filters {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px 12px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 14px 16px;
@@ -348,7 +348,7 @@ onLoad(async (options) => {
   font: inherit;
   font-size: 13px;
   color: var(--text);
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px 8px;
@@ -358,7 +358,7 @@ onLoad(async (options) => {
 .filters .date-inp { min-width: 138px; }
 
 .table-wrap {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
   overflow: auto;
@@ -379,12 +379,12 @@ onLoad(async (options) => {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #fbfaf8;
+  background: var(--surface-2);
 }
-.u-thead .u-th { background: #fbfaf8; color: var(--text-2); font-weight: 600; white-space: nowrap; }
+.u-thead .u-th { background: var(--surface-2); color: var(--text-2); font-weight: 600; white-space: nowrap; }
 .row { cursor: pointer; }
-.row:hover { background: #fdfbf9; }
-.row.open { background: #fff8f4; }
+.row:hover { background: var(--surface-2); }
+.row.open { background: var(--primary-soft); }
 .mono { font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace; }
 /* 展开行与空态行只有一格 → 让它占满整行（等价原版的 colspan="8"） */
 .u-tr > .empty { flex: 1; }
@@ -409,7 +409,7 @@ onLoad(async (options) => {
 .badge.warning { background: #fff3e6; color: #b25f00; }
 .badge.error { background: #fdeceb; color: #c0392b; }
 
-.detail-row .u-td { flex: 1; background: #fdfbf9; }
+.detail-row .u-td { flex: 1; background: var(--surface-2); }
 .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 18px; }
 .kv { display: flex; gap: 8px; font-size: 13px; }
 .kv .u-b { color: var(--text-2); font-weight: 600; flex: 0 0 52px; }
@@ -419,7 +419,7 @@ onLoad(async (options) => {
   grid-column: 1 / -1;
   margin: 6px 0 0;
   padding: 10px 12px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 10px;
   font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;

@@ -104,7 +104,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
 .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .tabs .u-button {
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card);
   padding: 7px 20px;
   border-radius: 999px;
   font-size: 14px;
@@ -119,7 +119,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
   display: flex;
   align-items: center;
   gap: 14px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px 14px;
@@ -139,7 +139,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
 .fav-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
 .fav-login {
   text-align: center;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 48px 20px;
@@ -147,7 +147,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
 }
 .fav-login .u-p { margin: 0 0 16px; font-size: 14px; }
 .fav-item {
-  background: #fff;
+  background: var(--card);
   border-radius: 12px;
   overflow: hidden;
   cursor: pointer;
@@ -159,7 +159,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
 .fav-item:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
 /* 封面 3:4 比例盒：不用 aspect-ratio（小程序 WebView 视基础库版本而定），
    用「高度 0 + padding-bottom 撑比例」（padding 百分比按包含块**宽度**解析）。 */
-.fav-thumb { position: relative; height: 0; padding-bottom: 133.33%; background: #eee; }
+.fav-thumb { position: relative; height: 0; padding-bottom: 133.33%; background: var(--bg); }
 .fav-thumb .u-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .fav-item .u-p { margin: 6px 0 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
 .fav-item .u-span { font-size: 12px; color: var(--text-2); }

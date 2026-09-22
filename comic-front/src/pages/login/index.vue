@@ -111,7 +111,7 @@ onLoad((options) => setRoute('/login', options ?? {}))
 /* 卡片本身作定位锚点 —— 返回按钮现在在**卡片内部**（原来锚在 .auth-wrap 上、按钮挂在卡片外）。 */
 .auth-card {
   position: relative;
-  background: #fff;
+  background: var(--card);
   border-radius: 16px;
   padding: 32px 30px;
   box-shadow: var(--shadow-hover);
@@ -155,7 +155,7 @@ onLoad((options) => setRoute('/login', options ?? {}))
   transition: border 0.15s, background 0.15s;
   color: var(--text);
 }
-.field .u-input:focus { outline: none; border-color: var(--primary); background: #fff; }
+.field .u-input:focus { outline: none; border-color: var(--primary); background: var(--card); }
 
 .error { color: #e23; font-size: 13px; margin: -4px 0 10px; text-align: left; }
 

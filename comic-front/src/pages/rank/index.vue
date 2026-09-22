@@ -176,7 +176,7 @@ onReachBottom(loadMore)
 .no.top3 { color: #c9a227; }
 
 /* 缩略图：宽度固定 40px → 高度写死 54px（= 40 × 4/3）。不用 aspect-ratio，理由同 ComicCard。 */
-.thumb { flex: 0 0 auto; width: 40px; height: 54px; border-radius: 6px; overflow: hidden; background: #eee; }
+.thumb { flex: 0 0 auto; width: 40px; height: 54px; border-radius: 6px; overflow: hidden; background: var(--bg); }
 .thumb .u-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .info { flex: 1; min-width: 0; }

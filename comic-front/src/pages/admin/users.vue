@@ -206,7 +206,7 @@ onLoad(async (options) => {
 .search { display: flex; gap: 8px; }
 .search .u-input {
   border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
-  font-size: 14px; background: #fff; color: var(--text); min-width: 200px;
+  font-size: 14px; background: var(--card); color: var(--text); min-width: 200px;
 }
 .total { color: var(--text-2); font-size: 13px; }
 
@@ -215,7 +215,7 @@ onLoad(async (options) => {
    窄屏放不下就横向滚（固定列不收缩 + 昵称列 min-width），别指望像真表格那样自动压缩。 */
 .user-table {
   width: 100%;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
   overflow-x: auto;
@@ -251,13 +251,13 @@ onLoad(async (options) => {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: #f0f0f0;
+  background: var(--mute);
   color: var(--text-2);
 }
 /* 三档角色配色：超管最重（绿），普通管理员次之（主题色），普通用户最浅（默认灰底） */
 .chip.superadmin { background: #eef7ec; color: #2f6d1f; font-weight: 700; }
 .chip.admin { background: var(--primary-soft); color: var(--primary-dark); }
-.chip.user { background: #f0f0f0; color: var(--text-2); }
+.chip.user { background: var(--mute); color: var(--text-2); }
 
 .lock { font-size: 13px; cursor: help; }
 

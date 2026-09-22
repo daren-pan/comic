@@ -148,7 +148,7 @@ function fmtTime(iso: string): string {
 .hero {
   display: flex;
   gap: 24px;
-  background: #fff;
+  background: var(--card);
   border-radius: 16px;
   padding: 22px;
   box-shadow: var(--shadow);
@@ -157,13 +157,14 @@ function fmtTime(iso: string): string {
 .hero-info { flex: 1; min-width: 0; }
 .hero-info .u-h1 { margin: 0 0 10px; font-size: 26px; }
 .hero-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
-.chip.done { background: #eef0f2; color: #555; }
-.chip.hot { background: #fff3e6; color: #b25f00; }
+/* 状态徽标：底色与文字都取主题变量 —— 写死浅底会在夜间变成「浅底 + 浅字」 */
+.chip.done { background: var(--mute); color: var(--text-2); }
+.chip.hot { background: var(--primary-soft); color: var(--primary-dark); }
 .tag { font-size: 12px; color: var(--text-2); }
 .hero-line { margin: 4px 0; color: var(--text-2); font-size: 14px; }
 .sources .u-em {
   font-style: normal;
-  background: #f0ede8;
+  background: var(--mute);
   border-radius: 6px;
   padding: 1px 8px;
   font-size: 12px;
@@ -182,7 +183,7 @@ function fmtTime(iso: string): string {
 .fav-notice .u-a { color: var(--primary); font-weight: 700; text-decoration: underline; }
 
 .desc {
-  background: #fff;
+  background: var(--card);
   border-radius: 12px;
   padding: 14px 18px;
   margin: 16px 0 0;
@@ -201,7 +202,7 @@ function fmtTime(iso: string): string {
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 14px;

@@ -42,7 +42,7 @@ const router = useRouter()
    （需 Chrome 88+ / iOS 15+），改用「高度 0 + padding-bottom 撑比例」这一到处都能用的写法
    （padding 的百分比按**包含块宽度**解析，正好得到宽度驱动的等比高度）。
    ⚠️ absolute 子元素的包含块是祖先的 padding box，故 .status / .time 的 top/left 定位不受影响。 */
-.cover { position: relative; height: 0; padding-bottom: 133.33%; background: #eee; overflow: hidden; }
+.cover { position: relative; height: 0; padding-bottom: 133.33%; background: var(--bg); overflow: hidden; }
 .cover .u-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .status {

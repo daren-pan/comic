@@ -73,7 +73,7 @@ function onPick(e: { detail: { value: string | number } }) {
   min-width: 84px;
   font-size: 13px;
   color: var(--text);
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px 8px;

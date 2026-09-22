@@ -293,7 +293,7 @@ onLoad((options) => setRoute('/search', options ?? {}))
   font-size: 15px;
   outline: none;
   transition: border 0.15s;
-  background: #fff;
+  background: var(--card);
 }
 .big-search .u-input:focus { border-color: var(--primary); }
 .big-search .u-button {
@@ -311,7 +311,7 @@ onLoad((options) => setRoute('/search', options ?? {}))
 .cats { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip-btn {
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card);
   padding: 5px 14px;
   border-radius: 999px;
   font-size: 13px;
@@ -328,7 +328,7 @@ onLoad((options) => setRoute('/search', options ?? {}))
 .sorts .label { font-size: 13px; color: var(--text-2); }
 .sorts .u-button {
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card);
   padding: 4px 12px;
   border-radius: 8px;
   font-size: 13px;
@@ -362,7 +362,7 @@ onLoad((options) => setRoute('/search', options ?? {}))
 .remote-tabs { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .remote-tabs .tabs-label { font-size: 13px; color: var(--text-2); }
 .remote-tab {
-  border: 1px solid var(--border); background: #fff; color: var(--text-2);
+  border: 1px solid var(--border); background: var(--card); color: var(--text-2);
   padding: 5px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
   transition: all 0.15s; display: inline-flex; align-items: center;
 }

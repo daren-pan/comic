@@ -4,7 +4,8 @@
 //   三端（H5 桌面 / H5 移动 / App）行为一致，而裸 <svg> 绕过了这层。
 // 为什么不引图标库：只为 3 个图标引依赖不划算，自绘零依赖、样式可控。
 //
-// 颜色写死在 SVG 里（<image> 不认 currentColor），所以选中/未选中各生成一份。
+// 颜色写死在 SVG 里（<image> 不认 currentColor），所以选中/未选中各生成一份，
+// 且**夜间主题要再生成一套** —— 默认态用的是 --text-2，夜间该值变亮，图标不跟着换就看不见了。
 //
 // 用 base64 而非 encodeURIComponent：base64 data URI 是各端 <image> 最通用的形式。
 // 不用 btoa：部分运行环境没有这个全局；SVG 内容全是 ASCII，故只需 ASCII 版编码器。
@@ -28,8 +29,11 @@ function b64ascii(s: string): string {
   return out
 }
 
-const COLOR_OFF = '#6f675f' // = --text-2（默认态）
-const COLOR_ON = '#ff5a36' // = --primary（选中态）
+// 与 style.css 的 `:root` / `.theme-dark` 里的 --text-2、--primary 保持一致（改一处要改两处）
+const OFF_LIGHT = '#6f675f' // 明亮主题的 --text-2
+const OFF_DARK = '#a69d94' // 夜间主题的 --text-2
+const ON_LIGHT = '#ff5a36' // 明亮主题的 --primary
+const ON_DARK = '#ff6b4a' // 夜间主题的 --primary
 
 function icon(body: string, color: string): string {
   const svg =
@@ -49,9 +53,16 @@ const CLOCK = '<circle cx="12" cy="12" r="8.8"/><path d="M12 6.9v5.5l3.6 2.1"/>'
 const GRID =
   '<rect x="3.4" y="3.4" width="7.2" height="7.2" rx="1.7"/><rect x="13.4" y="3.4" width="7.2" height="7.2" rx="1.7"/><rect x="3.4" y="13.4" width="7.2" height="7.2" rx="1.7"/><rect x="13.4" y="13.4" width="7.2" height="7.2" rx="1.7"/>'
 
-/** 底栏 tab 图标：`off` 默认态、`on` 选中态（主题橙） */
-export const TAB_ICONS = {
-  home: { off: icon(HOME, COLOR_OFF), on: icon(HOME, COLOR_ON) },
-  latest: { off: icon(CLOCK, COLOR_OFF), on: icon(CLOCK, COLOR_ON) },
-  category: { off: icon(GRID, COLOR_OFF), on: icon(GRID, COLOR_ON) },
+/** 底栏 tab 图标：`off` 默认态、`on` 选中态（主题橙）。两套主题各一份。 */
+function tabIcons(off: string, on: string) {
+  return {
+    home: { off: icon(HOME, off), on: icon(HOME, on) },
+    latest: { off: icon(CLOCK, off), on: icon(CLOCK, on) },
+    category: { off: icon(GRID, off), on: icon(GRID, on) },
+  }
 }
+
+/** 明亮主题（默认） */
+export const TAB_ICONS = tabIcons(OFF_LIGHT, ON_LIGHT)
+/** 夜间主题 —— 用法与 TAB_ICONS 完全一致，由 Layout 按当前主题选用 */
+export const TAB_ICONS_DARK = tabIcons(OFF_DARK, ON_DARK)

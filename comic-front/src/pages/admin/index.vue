@@ -317,7 +317,7 @@ onLoad(async (options) => {
 
 /* 全库维护面板（不随源卡片复制） */
 .maintenance {
-  background: #fff; border: 1px solid var(--border); border-radius: 14px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
   padding: 16px; box-shadow: var(--shadow);
 }
 .maint-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -331,16 +331,16 @@ onLoad(async (options) => {
 .heal-field { display: flex; flex-direction: column; font-size: 12px; color: var(--text-2); gap: 4px; margin-bottom: 10px; }
 .heal-field .u-textarea {
   border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px;
-  font-size: 13px; background: #fff; color: var(--text); font-family: inherit;
+  font-size: 13px; background: var(--card); color: var(--text); font-family: inherit;
   width: 100%; box-sizing: border-box; resize: vertical;
 }
 
-.card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); }
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .head-left { display: flex; align-items: center; gap: 8px; }
 .src-name { font-weight: 800; font-size: 16px; }
 .chip.pri.primary { background: var(--primary-soft); color: var(--primary-dark); }
-.chip.pri.backup { background: #f0f0f0; color: var(--text-2); }
+.chip.pri.backup { background: var(--mute); color: var(--text-2); }
 
 .card-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--text-2); margin-bottom: 12px; }
 .card-meta .u-b { color: var(--text); }
@@ -354,7 +354,7 @@ onLoad(async (options) => {
    `.u-select` 是 Picker 组件（自带边框/内边距），这里**只给宽度**，再画边框会变双边框。 */
 .row-inputs .u-input, .row-inputs .date-inp {
   border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px;
-  font-size: 13px; background: #fff; color: var(--text); min-width: 90px;
+  font-size: 13px; background: var(--card); color: var(--text); min-width: 90px;
 }
 .row-inputs .u-select { min-width: 90px; }
 .row-inputs .u-input[type='number'] { min-width: 70px; }
@@ -362,8 +362,8 @@ onLoad(async (options) => {
 /* 开关 */
 .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
 .switch .u-input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: #d9d2ca; border-radius: 999px; transition: 0.2s; cursor: pointer; }
-.slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+.slider { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: var(--track); border-radius: 999px; transition: 0.2s; cursor: pointer; }
+.slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: var(--card); border-radius: 50%; transition: 0.2s; }
 .switch .u-input:checked + .slider { background: var(--primary); }
 .switch .u-input:checked + .slider::before { transform: translateX(20px); }
 

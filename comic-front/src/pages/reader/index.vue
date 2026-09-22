@@ -668,7 +668,7 @@ onBeforeUnmount(() => {
   position: fixed;
   top: 0; right: 0; bottom: 0;
   width: min(320px, 85vw);
-  background: #fff;
+  background: var(--card);
   padding: 18px 14px;
   overflow-y: auto;
   z-index: 7;
