@@ -31,11 +31,13 @@ class FakeDB:
 
     def __init__(self) -> None:
         self.comics: dict[int, dict] = {}
+        self.chapters: dict[int, dict] = {}      # chapter_id -> {"id": .., "comic_id": ..}
         self.batch_calls: list[list[int]] = []
         self.single_calls: list[int] = []
 
     def reset(self) -> None:
         self.comics = {}
+        self.chapters = {}
         self.batch_calls = []
         self.single_calls = []
 
@@ -50,6 +52,10 @@ class FakeDB:
         self.single_calls.append(comic_id)  # ← 出现即说明 N+1 回来了
         return self.comics.get(comic_id)
 
+    def get_chapter(self, chapter_id: int):
+        """单章 —— `put_history` 用它校验「这一章真属于这部作品」（防外键失败与脏进度）。"""
+        return self.chapters.get(chapter_id)
+
     def get_comic_tags_bulk(self, comic_ids: list[int]) -> dict[int, list[str]]:
         return {}
 
@@ -63,6 +69,10 @@ class FakeUsers:
     def __init__(self) -> None:
         self.fav_ids: list[int] = []
         self.history_rows: list[dict] = []
+        # 历史归属 / 写入（断言"登录用户走账号、游客走匿名 id"用）
+        self.history_reads: list[str] = []
+        self.history_writes: list[tuple] = []
+        self.history_deletes: list[tuple] = []
         # 账号与授权
         self.rows: list[dict] = []
         self.created: list[dict] = []
@@ -72,6 +82,9 @@ class FakeUsers:
     def reset(self) -> None:
         self.fav_ids = []
         self.history_rows = []
+        self.history_reads = []
+        self.history_writes = []
+        self.history_deletes = []
         self.rows = []
         self.created = []
         self.role_calls = []
@@ -82,7 +95,14 @@ class FakeUsers:
         return list(self.fav_ids)
 
     def list_history(self, user_id: str) -> list[dict]:
+        self.history_reads.append(user_id)
         return list(self.history_rows)
+
+    def upsert_history(self, user_id: str, comic_id: int, chapter_id: int, page_no: int) -> None:
+        self.history_writes.append((user_id, comic_id, chapter_id, page_no))
+
+    def delete_history(self, user_id: str, comic_id: int) -> None:
+        self.history_deletes.append((user_id, comic_id))
 
     # --- 账号与授权 ---
     def make(self, uid: int, username: str, role: str, nickname: str = "") -> dict:

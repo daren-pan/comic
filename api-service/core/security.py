@@ -89,6 +89,27 @@ def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer
     return user
 
 
+def get_optional_user(
+    cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> dict | None:
+    """**尽力**解析当前登录用户：无 token / token 无效 / 用户已不存在 → `None`（不抛 401）。
+
+    给「登录了按账号、没登录按匿名 id」这类接口用（目前只有**阅读历史**）。
+
+    为什么不复用 `get_current_user`：历史对游客开放（前端只在 localStorage 里放一个
+    匿名 UUID，不要求登录），所以**不能**因为缺凭证就 401。token 过期时也当游客处理，
+    免得用户连"读到第几页"都存不下来 —— 真需要登录的接口（收藏 / 管理台）会自己 401，
+    由前端拦截器统一跳登录页。
+    """
+    if cred is None:
+        return None
+    try:
+        payload = decode_token(cred.credentials)
+    except HTTPException:
+        return None
+    return users.get_user(payload.get("sub", ""))
+
+
 def is_admin(user: dict | None) -> bool:
     """是否有**管理台权限**（`superadmin` 或 `admin`）—— 不含授权页。"""
     return bool(user) and user.get("role") in ADMIN_ROLES

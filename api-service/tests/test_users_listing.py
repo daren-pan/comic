@@ -28,7 +28,15 @@ from _stub_db import DB as _DB, USERS as _USERS, install_stub  # noqa: E402
 
 install_stub()  # 必须在导入应用模块之前装桩
 
-from routers.users import favorites, history   # noqa: E402  （必须在装桩之后导入）
+from fastapi import HTTPException  # noqa: E402
+
+from routers.users import (  # noqa: E402  （必须在装桩之后导入）
+    favorites,
+    history,
+    put_history,
+    remove_history,
+)
+from schemas import HistoryPut  # noqa: E402
 
 
 def _row(comic_id: int, title: str = "") -> dict:
@@ -114,7 +122,7 @@ class TestBatchListing(unittest.TestCase):
             _history_row(5, 50),
         ]
 
-        out = history("u1")
+        out = history("u1", user=None)
 
         self.assertEqual([e["comicId"] for e in out["data"]], [6, 5])
         self.assertEqual(_DB.single_calls, [])
@@ -125,13 +133,55 @@ class TestBatchListing(unittest.TestCase):
         _DB.comics = {5: _row(5)}
         _USERS.history_rows = [_history_row(5, 50)]
 
-        entry = history("u1")["data"][0]
+        entry = history("u1", user=None)["data"][0]
 
         self.assertEqual(entry["chapterId"], 50)
         self.assertEqual(entry["pageNo"], 1)
         self.assertEqual(entry["chapterTitle"], "第1话")
         self.assertEqual(entry["readAt"], "2026-09-14 12:00:00")
         self.assertEqual(entry["comic"]["id"], 5)
+
+    # ---------------- 历史的归属与写入校验（2026-09-21 修 IDOR + 两个 500） ----------------
+
+    def test_history_anonymous_uses_path_uid(self):
+        """游客（无 token）仍按路径里的匿名 id 归属 —— 匿名续读这个能力不能被修没了。"""
+        history("anon-uuid", user=None)
+        self.assertEqual(_USERS.history_reads, ["anon-uuid"])
+
+    def test_history_logged_in_uses_account_id(self):
+        """登录后归属**账号 id**，路径里的 uid 不再被信任。
+
+        这是 IDOR 的正题：此前无条件用 URL 里的 uid，而那个 UUID 是前端明文拼在路径上的
+        （会进访问日志 / 浏览器历史 / Referer），等于"知道 UUID 就能读写删别人的历史"。
+        """
+        history("someone-elses-uuid", user={"id": 7})
+        self.assertEqual(_USERS.history_reads, ["7"])
+
+    def test_put_history_rejects_unknown_chapter(self):
+        """章节不存在 → 404。此前会一路走到 `fk_hist_comic` 外键失败，返回 **500**。"""
+        with self.assertRaises(HTTPException) as ctx:
+            put_history("u1", HistoryPut(comicId=5, chapterId=999, pageNo=1), user=None)
+        self.assertEqual(ctx.exception.status_code, 404)
+        self.assertEqual(_USERS.history_writes, [])
+
+    def test_put_history_rejects_chapter_of_other_comic(self):
+        """章节属于**别的作品** → 404（挡住"合法 comicId + 乱填 chapterId"写进脏进度）。"""
+        _DB.chapters = {60: {"id": 60, "comic_id": 6}}
+        with self.assertRaises(HTTPException) as ctx:
+            put_history("u1", HistoryPut(comicId=5, chapterId=60, pageNo=1), user=None)
+        self.assertEqual(ctx.exception.status_code, 404)
+        self.assertEqual(_USERS.history_writes, [])
+
+    def test_put_history_writes_to_resolved_owner(self):
+        """校验通过 → 按**解析后**的归属写入（登录用户写账号 id）。"""
+        _DB.chapters = {60: {"id": 60, "comic_id": 5}}
+        put_history("anon-uuid", HistoryPut(comicId=5, chapterId=60, pageNo=3), user={"id": 7})
+        self.assertEqual(_USERS.history_writes, [("7", 5, 60, 3)])
+
+    def test_remove_history_uses_resolved_owner(self):
+        """删除同样按解析后的归属 —— 否则会"删不掉自己的历史"。"""
+        remove_history("anon-uuid", 5, user={"id": 7})
+        self.assertEqual(_USERS.history_deletes, [("7", 5)])
 
 
 if __name__ == "__main__":  # pragma: no cover

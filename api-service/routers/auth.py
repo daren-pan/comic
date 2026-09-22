@@ -27,26 +27,47 @@ from serializers import user_out
 
 router = APIRouter(tags=["auth"])
 
+# 长度策略刻意写在这里而**不是** `schemas` 的 Field：Pydantic 的越界报错是 422 + 英文 detail，
+# 而这些是用户直接看得见的提示（见 api/request.ts 的 errorMessage 会把 detail 原样展示）。
+USERNAME_MIN, USERNAME_MAX = 3, 32
+PASSWORD_MIN, PASSWORD_MAX = 6, 128   # 上限只防"超长入参"（bcrypt 本身在 72 字节处截断），不做强度策略
+NICKNAME_MAX = 64                     # = user.nickname VARCHAR(64)，超了写库必失败
+
 
 @router.post("/api/auth/register")
 def register(body: RegisterBody):
     username = body.username.strip()
-    if not (3 <= len(username) <= 32):
-        raise HTTPException(status_code=400, detail="用户名长度需为 3-32 个字符")
-    if len(body.password) < 6:
-        raise HTTPException(status_code=400, detail="密码长度至少 6 位")
+    if not (USERNAME_MIN <= len(username) <= USERNAME_MAX):
+        raise HTTPException(
+            status_code=400, detail=f"用户名长度需为 {USERNAME_MIN}-{USERNAME_MAX} 个字符"
+        )
+    if not (PASSWORD_MIN <= len(body.password) <= PASSWORD_MAX):
+        raise HTTPException(
+            status_code=400, detail=f"密码长度需为 {PASSWORD_MIN}-{PASSWORD_MAX} 位"
+        )
+    # 上限是 2026-09-21 补的：原先只判下限，超长昵称会撞 `user.nickname VARCHAR(64)` 变成 500
+    nickname = body.nickname.strip()
+    if len(nickname) > NICKNAME_MAX:
+        raise HTTPException(status_code=400, detail=f"昵称长度不能超过 {NICKNAME_MAX} 个字符")
     if users.get_user_by_username(username):
         raise HTTPException(status_code=409, detail="用户名已存在")
     # 引导：库里没有任何特权用户 → 第一个注册者成为**超级管理员**（见模块头）
     role = ROLE_USER if users.count_privileged() else ROLE_SUPERADMIN
-    user = users.create_user(username, hash_password(body.password), body.nickname.strip(), role)
+    user = users.create_user(username, hash_password(body.password), nickname, role)
     return ok({"token": make_token(user["id"], user["username"]), "user": user_out(user)}, "register success")
 
 
 
 @router.post("/api/auth/login")
 def login(body: LoginBody):
-    user = users.get_user_by_username(body.username.strip())
+    username = body.username.strip()
+    # 越界一律并按「用户名或密码错误」返回：若这里返 400、密码错返 401，
+    # 就等于给了攻击者一个「这个口令长度/用户名形态存在与否」的探测差异面。
+    if not (USERNAME_MIN <= len(username) <= USERNAME_MAX) or not (
+        PASSWORD_MIN <= len(body.password) <= PASSWORD_MAX
+    ):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    user = users.get_user_by_username(username)
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     return ok({"token": make_token(user["id"], user["username"]), "user": user_out(user)}, "login success")
