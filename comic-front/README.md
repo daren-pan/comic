@@ -24,10 +24,11 @@ comic-front/
     ├── api/                  # 与 comic-web 同构：request / auth / content / user / admin / ondemand
     ├── stores/               # Pinia：user（登录态）/ message（消息中心）
     ├── components/
-    │   ├── Layout.vue        # 由 comic-web 的 App.vue 移植：顶栏 + 消息中心 + 页脚 + toast
+    │   ├── Layout.vue        # 由 comic-web 的 App.vue 移植：顶栏 + 消息中心 + 页脚 + toast + 移动端底栏
     │   ├── ComicCard.vue · Picker.vue · DateInput.vue
     ├── utils/                # 兼容层（comic-front 特有，见下）
     │   ├── router.ts · storage.ts · event.ts · guard.ts · ui.ts
+    │   ├── icons.ts          # 移动端底栏图标（自绘 SVG → base64 data URI）
     └── pages/                # 每个页面一个目录（uni 约定），共 11 页
 ```
 
@@ -73,7 +74,7 @@ comic-front/
 4. **H5 地址栏是 uni 自己的路径**：`#/pages/rank/index`、`#/pages/comic/index?id=43`（**不是** `#/rank`）——
    站内跳转由 `toUniUrl()` 转换，但**书签 / 外链要按 uni 这套路径写**。
 
-**对 `comic-web` 的五处有意调整**（前三条是逻辑、后两条是视觉/控件）
+**对 `comic-web` 的六处有意调整**（前三条是逻辑、后三条是视觉/控件）
 
 | # | 位置 | 现状 | 原因 |
 |---|---|---|---|
@@ -82,6 +83,7 @@ comic-front/
 | 3 | `pages/search` 监听 `route.fullPath`（字符串） | 不再监听 `route.query` 对象 | 兼容层的 `query` 每次登记都是新对象，按引用比较会重复触发 |
 | 4 | `pages/login` 返回按钮 | 移入卡片内左上角（内缩 16/14px）、绿色 `#15803d` | 用户指定的视觉调整；绿色就地取值，**未**新增调色板变量以保持 `style.css` 与 comic-web 同源 |
 | 5 | 管理台日期控件（5 处） | 改用 `components/DateInput.vue`（H5 仍是原生 `<input type="date">`，其它端降级为文本输入） | uni 的 `<input>` **不支持 `type="date"`**（白名单外会被抹成 `text`） |
+| 6 | 移动端（≤860px）导航 | 顶栏精简为「用户 · 搜索 · 消息」，主导航移到**底部固定栏** | 用户指定的交互调整；comic-web 无此形态，详见下文「移动端底栏导航」 |
 
 ### uni 内置组件样式归一化（`src/uni-compat.css`）
 
@@ -112,10 +114,10 @@ H5 与小程序（mp-weixin）共用同一份源码，靠**条件编译 + 只用
 
 | 原标签 → 现在 | 说明 |
 |---|---|
-| `div/section/header/nav/ul/li/p/h1-h4/table 系` → `view` | 块级 |
+| `div/section/header/nav/ul/li/p/h1-h4/table 系` → `view` | 块级；**表格换完标签还要用 flex 重搭，见下方 ⚠️** |
 | `span/b/em/small/code` → `text`；**`label` → `view`** | `label` 是 flex 容器，且 `<text>` 内不能放表单组件 |
 | `a` → **`view`** | 卡片外层 `a` 包着 `view`/`image`，**不能**映射成 `text`（小程序禁止 `<text>` 内放块级组件） |
-| `img` → `image` | 补 `mode="aspectFill"`（等价 `object-fit: cover`） |
+| `img` → `image` | **必须自己给宽高**（`<uni-image>` 无固有尺寸，见下）＋按需选 `mode`：`aspectFill`=裁剪填满 / `aspectFit`=等比不裁剪 / `widthFix`=宽度定、高度按比例自动 |
 | `select/option` → `components/Picker.vue` | 小程序无 select；内部用 `<picker mode="selector">` |
 | `input[type=checkbox]` → `switch` | uni 的 Input 对 `type` 有白名单 |
 | `br` → `<view class="u-br">` | 空块级元素顶出换行 |
@@ -129,13 +131,111 @@ H5 与小程序（mp-weixin）共用同一份源码，靠**条件编译 + 只用
 | `overflow-y:auto` → `<scroll-view scroll-y>` | 阅读器竖排连播（小程序里普通 view 不能滚） |
 | `IntersectionObserver` → `onReachBottom` + 分批渲染 | 排行页懒加载 |
 | `e.clientX` → `eventX()`（H5 取 `clientX`、小程序取 `detail.x`） | 点击热区、进度条 |
-| `@click.self` → `onMaskTap()`（比较 `target` 与 `currentTarget`） | 阅读器两个弹层 |
+| `@click.self` → **`@click.stop`（遮罩上关闭 + 面板自身 `@click.stop` 拦冒泡）** | 阅读器两个弹层（目录 / 设置） |
 | `<transition>` → CSS `@keyframes` | 消息面板 / toast / 弹层（小程序不支持 transition 组件） |
 | `window.alert/confirm` → `utils/ui.ts` | 日志页清理确认 |
 | `document` 点击关面板 → 保留 H5 分支 + `#ifndef H5` 透明遮罩 | 顶栏消息中心 |
 | `aspect-ratio` → padding-bottom 比例盒 / 写死高度 | 卡片、书架、缩略图 |
 | `inset: 0` → 显式四边偏移 | 阅读器根元素（`inset` 需 Chrome 87+） |
 | `button` 默认样式 → `App.vue` 的 `<style>`（`#ifdef MP-WEIXIN`） | 全站按钮 |
+
+### ⚠️ `<image>` 的盒子模型（踩过坑，必读）
+
+uni 的 `<image>` **不是 `<img>`**，而是包装元素 `<uni-image>`；真正画图的是它内部那个 `<div>` 的
+`background-image`。而 `uni-components/style/image.css` 给 `<uni-image>` 的**默认尺寸是 `320px × 240px`**
+—— 也就是说：**`<uni-image>` 没有固有尺寸，宽高必须由 CSS 显式给**（原生 `<img>` 能靠图片自身撑开，它不能）。
+
+把 comic-web 写给原生 `<img>` 的 CSS 原样搬过来会出两类错（阅读器 2026-09-22 就中了）：
+
+| 写法 | 结果 |
+|---|---|
+| `width: auto; height: auto` | `<uni-image>` 是 inline-block、子节点全是绝对定位 / 百分比 → 收缩成 **0×0，整屏无图** |
+| 只写 `max-width` / `max-height` | `max-*` 只「限制」不「撑开」→ 回落到默认 **320×240，图很小** |
+
+`mode` 的语义（uni 源码 `IMAGE_MODES` / `FIX_MODES`）：
+
+| mode | 实现 | 适用 |
+|---|---|---|
+| `aspectFill` | `background-size: cover`（按框裁剪填满） | 封面 / 缩略图这类**有固定方框**的图 |
+| `aspectFit` | `background-size: contain`（等比不裁剪） | 单张居中阅读（等价原生 `img` + `max-width/max-height`） |
+| `widthFix` | 按 `offsetWidth ÷ 原图宽高比` 算高度 | 竖排连播（宽度定、高度自适应） |
+
+> `lazy-load` 在 uni-h5 基本不生效（Image 在 `onMounted` 就直接加载），别指望它省流量。
+
+### ⚠️ 弹层遮罩关闭（踩过坑，必读）
+
+`@click.self` 是 **Web 专有修饰符**（小程序不支持），移植时容易改成「比较 `target` 与 `currentTarget`」——
+**这个替代方案在 uni 里是坏的**：uni 会重写事件对象，`currentTarget` 不可靠地指向遮罩节点，
+判定恒真 → 遮罩点了永远关不上（阅读器目录 / 设置两个抽屉 2026-09-22 就中了）。
+
+**正确写法**：遮罩上直接关，面板自己 `@click.stop` 拦住冒泡。
+
+```vue
+<view v-if="showMenu" class="menu-mask" @click.stop="showMenu = false">
+  <view class="chapter-menu" @click.stop> ... </view>
+</view>
+```
+
+`.stop` 小程序 / H5 都支持；遮罩上的 `.stop` 还顺带挡住点击冒泡到根节点（否则会触发根节点的翻页热区）。
+
+### ⚠️ 表格：`table` 换成 `view` 后必须用 flex 重新搭（踩过坑，必读）
+
+uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 换成 `view` **只做了一半** ——
+`view` 默认 `block`，而原版 CSS 靠 `border-collapse: collapse` + 表格布局排版，
+**这套规则对块级 `view` 完全不生效** → 每个单元格各占一行，整表塌成竖排
+（管理台日志页 / 授权页 2026-09-22 就中了）。
+
+修法：`.u-tr { display: flex }` + 每列显式 `flex: 0 0 <宽度>`，最后一列 `flex: 1 1 0` 吃掉剩余宽度；
+原来写在 `td` 上的 `colspan="8"`（展开行 / 空态行）在 `view` 上无效，改成单格 `flex: 1`。
+
+**两个必踩的坑**：
+
+| 坑 | 现象 | 修法 |
+|---|---|---|
+| flex 项默认 `min-width: auto` | 列被「最窄内容」撑宽 —— 表头文字短、数据文字长（如级别列的 ERROR 徽标）→ **表头与数据行列宽对不上、整列错位** | 单元格一律加 `min-width: 0` |
+| 补完 `min-width: 0` 后，超长文本会溢出压到相邻列上 | 原版真表格列宽随内容自动变宽，`view` + flex 没有这个能力 | 可能超长的列自己截断：`overflow: hidden; text-overflow: ellipsis; white-space: nowrap`，完整值放 `title` |
+
+窄屏放不下时由外层容器横向滚动（固定列不收缩），别指望像真表格那样自动压缩。
+
+## 移动端底栏导航（≤860px）
+
+桌面端保持 comic-web 原样（顶栏横向导航）；**窄屏把主导航搬到固定在底部的底栏**。
+
+| 区域 | 内容 |
+|---|---|
+| 顶栏左 | 用户头像圆点（窄屏隐藏昵称）—— **点击展开菜单**（接管原 `☰` 的职责） |
+| 顶栏中 | 搜索框（吃掉剩余宽度） |
+| 顶栏右 | 消息铃铛 |
+| 底栏 | 首页 · 最近更新 · 分类（三等分，带图标，选中态变主题橙） |
+
+- 顶栏重排靠 **flex `order`**、不改 DOM 顺序 → 桌面端布局完全不受影响。
+- 窄屏下 `logo` / `.nav-links` / `.logout` / `.menu-btn` 统一 `display: none`。
+- 菜单内容沿用原来的 `.mobile-menu`（首页/分类/最近更新/排行/我的收藏与历史/采集管理/授权管理/退出登录）。
+
+**改这里时别踩的坑**
+
+- **断点 860 有两份，必须同步**：CSS 的 `@media (max-width: 860px)` 与脚本里的 `MOBILE_MAX`（都在 `Layout.vue`）。
+  两者不一致 → 点用户头像会走错分支（该展开菜单却跳页）。
+- **判断宽度用 `viewportWidth()`**：H5 走 `window.innerWidth`，其他端回退 `uni.getSystemInfoSync().windowWidth`（同 `pages/reader` 的写法）。
+- **底栏 z-index = 120**：高于内容、低于消息面板（200）与 toast（999）。
+  阅读器是 `position: fixed` + z-index 200 的全屏层，**会盖住底栏** —— 与顶栏（z-index 100）同一处理方式，因此不需要额外排除逻辑。
+- **底部安全区**：底栏带 `padding-bottom: env(safe-area-inset-bottom)`；页脚补了 `padding-bottom: 84px`
+  （写成两条，`env()` 不被支持时回落第一条），否则最后一行会被底栏盖住。
+- **窄屏不要再放「退出」文字按钮**：它会跟搜索框抢宽度。改前实测 393px 下 `.logout` 被压到 **31.1px**、
+  两个汉字折成两行（高 36 → 42）。现在窄屏直接隐藏它，退出收进用户菜单。
+
+**底栏图标（`src/utils/icons.ts`）**
+
+自绘 SVG，**运行时编码成 base64 data URI** 交给 uni 的 `<image>`：
+
+- 不用裸 `<svg>` 标签 —— 项目约定「模板只用 uni 组件」，`<image>` 三端行为一致。
+- 不用 `.svg` 文件 —— `<image>` 对 svg **文件**的支持各端不一致；base64 data URI 最通用。
+- 不引图标库 —— 3 个图标不值得加依赖。
+- **颜色写死在 SVG 里**（`<image>` 不认 `currentColor`）→ 选中/未选中各生成一份，模板按 `route.path === t.path` 切 `:src`。
+- 不用 `btoa`（部分运行环境没有）→ 自带 ASCII 版 base64 编码器（SVG 内容全 ASCII），已与 `Buffer.toString('base64')` 逐字节比对通过。
+- ⚠️ `<image>` **必须显式给宽高**（uni 默认 320×240），这里 `.bn-icon { width: 22px; height: 22px }`。
+
+**未验证项**：App 端未实机跑过（需 HBuilderX 打包）；断点与图标在 App 端走同一套 CSS / 组件，理论上一致。
 
 ## 基础命令
 
@@ -157,6 +257,72 @@ npm run dev:app         # App（需 HBuilderX 配合打包）
 | vue 3 | 框架 | 与 comic-web 同版本线 |
 | **pinia** | 登录态 / 消息中心全局共享 | 与 comic-web 一致用 pinia@2 |
 | `@dcloudio/vite-plugin-uni` | 构建插件 | 其 peer 要求 **vite 5.2.8**（精确版本），已锁 |
+
+## 前端问题排查（playwright MCP 实跑取证）
+
+**触发时机**：页面出现**请求报错 / 接口返回不对 / 样式错位 / 交互失效**时，**不必等用户要求**，先在真浏览器里跑一遍再下结论。
+**禁止**只读源码就断言「应该是 XX 问题」—— 这类猜测在 uni 编译改写（元素变 `uni-view`、样式运行时 `insertRule` 注入）后经常不成立。
+
+**前提**：`npm run dev:h5` 已在 :5174 跑着；MCP 已在连接器管理页 Trust（改过 `mcp.json` 后需重新 Trust，否则工具会从索引里消失）。
+
+**取证三件套**
+
+| 目的 | 工具 | 关键参数 / 说明 |
+|---|---|---|
+| 看 JS 报错 / 警告 | `browser_console_messages` | 默认返回全部；先 `browser_navigate` 到目标页，再调它 |
+| 看请求清单 | `browser_network_requests` | 列 URL / 方法 / 状态码 / 耗时，可过滤 |
+| 看单条请求详情 | `browser_network_request` | 传 index，拿请求头、payload、响应体 |
+| 看 DOM 结构 / 找元素 | `browser_snapshot` | 无障碍树，返回可点击的 `ref` |
+| 直接算值 / 读全局 | `browser_evaluate` | 跑一段 JS，读 `localStorage`、算布局盒模型等 |
+
+**典型流程**
+
+1. `browser_navigate` 到 `http://localhost:5174/#/<目标路由>`（H5 是 hash 路由）。
+2. 需要登录态时先走登录流程；token 落在 `localStorage.comic_web_token`，可 `browser_evaluate` 读出来核对。
+3. 复现问题 → 读 `browser_console_messages` 拿报错 → 读 `browser_network_requests` 定位是哪条 `/api/*` 挂了 → `browser_network_request` 看响应体。
+4. 样式问题：`browser_snapshot` 或 `browser_evaluate` 读 `getComputedStyle` / `getBoundingClientRect`，别靠肉眼读 CSS 文件推断。
+
+**MCP 不可用时：自动检测 + 补装（不等用户要求）**
+
+**第一步永远是「检测 playwright MCP 是否存在」—— 不要只看某个固定配置文件。**
+同一个 MCP 可能由**用户级 / 项目级 / 其他 agent 的配置**提供，只翻 `~/.workbuddy/mcp.json` 会误判成「不存在」而**重复写入**。按这个顺序检测：
+
+1. `ToolSearch` 搜 `mcp__playwright__*`，看是否在工具索引里；
+2. 查**连接器列表**里有没有 `playwright`。
+
+**结果 A —— 确实不存在**（索引没有、连接器列表也没有）→ **写入标准配置并安装**
+
+把下面这条**合并**进 `mcpServers`（**只加这一条，不要覆盖其他条目**）：
+
+```json
+"playwright": {
+  "type": "stdio",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@playwright/mcp@latest",
+    "--browser=msedge",
+    "--output-dir=C:/Users/caimf/.workbuddy/playwright-mcp-out"
+  ],
+  "disabled": false
+}
+```
+
+写入位置：**用户级 `~/.workbuddy/mcp.json`**（默认落点；若本项目已有项目级配置且更合适，也可写那里，但**先确认该位置确实没有 playwright 条目**）。
+
+两个参数都是**必需**的：`--browser=msedge`（本机只有 Edge，不指定会去找 Chrome 而失败）；`--output-dir`（不加会把自动命名快照落到工作区根的 `.playwright-mcp/`，污染仓库且不在 `.gitignore` 里）。
+
+安装：**不需要单独 `npm i`** —— `npx -y` 首次运行会自动把 `@playwright/mcp` 拉到 npx 缓存；已用过该 MCP 的机器上通常已缓存，写配置即可。
+
+**结果 B —— 已存在，只是工具不在索引**（刚改过配置，主机把连接置回**待信任**）
+
+→ **配置本身没坏，别重写、别重复添加**。这是正常现象，直接进下一步。
+
+**两种结果的收尾都一样 —— 必须显式提示用户**
+
+WorkBuddy **不会自动启用**新 MCP：需要用户到**连接器管理页右上角「自定义连接器」入口，点 `playwright` 的 Trust**。**这条提示必须打出来，不能省略、不能只在心里想**；Trust 完成后本会话的 `mcp__playwright__*` 才会回到索引。
+
+**Trust 完成前**：不要静默退回「读代码猜」。可先用本机替代手段临时取证（直接 `curl` 打接口看响应、无头浏览器 CDP 脚本、让用户贴控制台截图），并**说明这是临时手段**、已在等 Trust。
 
 ## 约定
 
