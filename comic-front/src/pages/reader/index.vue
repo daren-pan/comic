@@ -295,15 +295,6 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
-/** 弹层遮罩点击关闭：原来用 `@click.self`（小程序不支持该修饰符），
- *  改成比较 `target` 与 `currentTarget`（两端都有的字段）——语义等价：
- *  只有点在遮罩本身、而不是面板内部时才关闭。 */
-function onMaskTap(e: unknown, close: () => void) {
-  const ev = e as { target?: unknown; currentTarget?: unknown }
-  if (ev.target && ev.currentTarget && ev.target !== ev.currentTarget) return
-  close()
-}
-
 // 进度记忆：翻页时写入历史
 watch(pageNo, () => {
   if (chapter.value) upsertHistory({ comicId, chapterId: chapter.value.id, pageNo: pageNo.value })
@@ -392,13 +383,9 @@ onBeforeUnmount(() => {
         </view>
       </view>
 
-      <!-- 设置面板 -->
-      <view
-        v-if="showSettings"
-        class="settings-mask"
-        @click.stop="onMaskTap($event, () => (showSettings = false))"
-      >
-        <view class="settings-panel">
+      <!-- 设置面板：遮罩点击关闭；面板自身 @click.stop 拦住冒泡，不关闭 -->
+      <view v-if="showSettings" class="settings-mask" @click.stop="showSettings = false">
+        <view class="settings-panel" @click.stop>
           <view class="u-h3">阅读设置</view>
 
           <view class="set-row">
@@ -423,13 +410,9 @@ onBeforeUnmount(() => {
         </view>
       </view>
 
-      <!-- 章节目录抽屉 -->
-      <view
-        v-if="showMenu"
-        class="menu-mask"
-        @click.stop="onMaskTap($event, () => (showMenu = false))"
-      >
-        <view class="chapter-menu">
+      <!-- 章节目录抽屉：遮罩点击关闭；面板自身 @click.stop 拦住冒泡，不关闭 -->
+      <view v-if="showMenu" class="menu-mask" @click.stop="showMenu = false">
+        <view class="chapter-menu" @click.stop>
           <view class="u-h3">章节目录</view>
           <button
             v-for="(c, i) in chapters"
@@ -479,8 +462,10 @@ onBeforeUnmount(() => {
               class="page-block"
               :data-page="p.pageNo"
             >
-              <!-- uni 的 <image> 没有 alt / draggable；懒加载是 lazy-load（scroll-view 内默认开） -->
-              <image mode="aspectFill"
+              <!-- ⚠️ uni 的 <image> 是 <uni-image> 包装元素（内部靠 div 的 background-image 画图），
+                   **没有固有尺寸**，宽高必须由 CSS 给；故竖排用 widthFix（宽度定、高度按原图比例自动算）。
+                   aspectFill 是 background-size:cover（按框裁剪），没有显式方框时会渲染不出来。 -->
+              <image mode="widthFix"
                 :src="p.imageUrl"
                 class="page-img u-img"
                 lazy-load
@@ -513,7 +498,8 @@ onBeforeUnmount(() => {
         </view>
         <template v-else>
           <view class="page-wrap">
-            <image mode="aspectFill"
+            <!-- aspectFit = 等比缩放不裁剪（对应原来原生 img + max-width/max-height 的语义） -->
+            <image mode="aspectFit"
               v-if="isNear(pageNo)"
               :src="pages[pageNo - 1]?.imageUrl"
               class="page-img u-img"
@@ -743,10 +729,12 @@ onBeforeUnmount(() => {
 
 /* ---- 横向模式：单张居中 ---- */
 .page-wrap { position: relative; max-width: 100vw; max-height: 100vh; }
+/* <uni-image> 无固有尺寸 → 必须给显式方框（等于原来的 max 尺寸）；
+   配 aspectFit = 在这个框内等比缩放、不裁剪，视觉效果与原实现一致 */
 .horizontal-stage .page-img {
   display: block;
-  max-width: min(92vw, calc((100vh - 40px) * 0.705));
-  max-height: calc(100vh - 40px);
+  width: min(92vw, calc((100vh - 40px) * 0.705));
+  height: calc(100vh - 40px);
   border-radius: 4px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
@@ -785,11 +773,12 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 .page-block { position: relative; width: 100%; display: flex; justify-content: center; }
+/* ⚠️ 必须给**宽度**：<uni-image> 没有固有尺寸，width:auto 会收缩成 0（整屏无图）。
+   配 widthFix：uni 按「offsetWidth ÷ 原图宽高比」算出高度。 */
 .vertical-stage .page-img {
   display: block;
-  max-width: min(96vw, 720px);
+  width: min(96vw, 720px);
   height: auto;
-  width: auto;
   border-radius: 2px;
 }
 .page-indicator {
