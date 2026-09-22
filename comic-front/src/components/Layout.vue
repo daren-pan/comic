@@ -15,6 +15,7 @@ import { backendAlive } from '../api'
 import { useUserStore } from '../stores/user'
 import { useMessageStore } from '../stores/message'
 import type { NoticeItem, NoticeKind } from '../stores/message'
+import { TAB_ICONS } from '../utils/icons'
 
 const route = useRoute()
 const router = useRouter()
@@ -90,6 +91,35 @@ function onSearch() {
 function onLogout() {
   userStore.logout() // clearAuth + 广播事件 → store 自动同步 → 顶栏复位
   router.push('/')
+}
+
+// ---- 移动端底栏 ----
+// 窄屏把主导航从顶栏搬到固定底栏；断点必须与 <style> 里的媒体查询保持一致
+const MOBILE_MAX = 860
+
+// 视口宽度：H5 用 window.innerWidth，其他端回退 uni 系统信息（同 reader 页的做法）
+function viewportWidth(): number {
+  // #ifdef H5
+  return window.innerWidth
+  // #endif
+  // eslint-disable-next-line no-unreachable
+  return uni.getSystemInfoSync().windowWidth
+}
+
+// 底栏三个入口（顺序：首页 / 最近更新 / 分类）
+const tabs = [
+  { path: '/', label: '首页', icon: TAB_ICONS.home },
+  { path: '/latest', label: '最近更新', icon: TAB_ICONS.latest },
+  { path: '/search', label: '分类', icon: TAB_ICONS.category },
+]
+
+// 点顶栏用户胶囊：窄屏展开菜单（底栏接管主导航后 ☰ 已移除），宽屏进「我的」
+function onUserClick() {
+  if (viewportWidth() <= MOBILE_MAX) {
+    showMenu.value = !showMenu.value
+    return
+  }
+  router.push('/me')
 }
 
 // 路由切换时收起移动端菜单与消息面板（登录态已由 store 自动同步，无需再手动刷新）
@@ -169,9 +199,9 @@ watch(() => route.path, () => {
         </view>
 
         <template v-if="logged">
-          <button class="user-chip u-button" @click="router.push('/me')" title="我的书架">
+          <button class="user-chip u-button" @click="onUserClick" title="我的书架">
             <text class="avatar u-span">{{ (user?.nickname || '我').slice(0, 1) }}</text>
-            {{ user?.nickname || user?.username }}
+            <text class="chip-name u-span">{{ user?.nickname || user?.username }}</text>
           </button>
           <button class="logout u-button" @click="onLogout">退出</button>
         </template>
@@ -205,6 +235,21 @@ watch(() => route.path, () => {
         <text v-else class="src-tag u-span">● 演示模式（本地 mock 数据）</text>
       </view>
       <view class="tip u-p">仅收录已授权 / 开放版权 / 公共领域内容 · 尊重版权，支持正版</view>
+    </view>
+  </view>
+
+  <!-- 移动端底栏导航：≤860px 显示，桌面端隐藏。
+       阅读器是 position:fixed + z-index 200 的全屏层，会盖住它（与顶栏同一处理方式，无需额外排除）。 -->
+  <view class="bottom-nav">
+    <view
+      v-for="t in tabs"
+      :key="t.path"
+      class="bn-item"
+      :class="{ on: route.path === t.path }"
+      @click="router.push(t.path)"
+    >
+      <image class="bn-icon" :src="route.path === t.path ? t.icon.on : t.icon.off" mode="aspectFit" />
+      <text class="bn-text u-span">{{ t.label }}</text>
     </view>
   </view>
 
@@ -295,7 +340,8 @@ watch(() => route.path, () => {
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.user-chip .u-span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 昵称过长时省略号截断（原选择器 .u-span:last-child 指向的是头像圆点，指错了对象） */
+.user-chip .chip-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .logout {
   border: none;
   background: none;
@@ -445,9 +491,48 @@ watch(() => route.path, () => {
   to { opacity: 1; transform: none; }
 }
 
+/* ---- 移动端底栏导航（默认隐藏，≤860px 显示） ---- */
+.bottom-nav { display: none; }
+
 @media (max-width: 860px) {
-  .nav-links, .search-box { display: none; }
-  .menu-btn { display: block; }
+  /* 顶栏精简为「用户 · 搜索 · 消息」：logo / 主导航 / 退出 / ☰ 全部让位给底栏 */
+  .logo, .nav-links, .logout, .menu-btn { display: none; }
+  .nav-inner { gap: 10px; }
+  .nav-right { flex: 1; gap: 8px; min-width: 0; }
+  /* 用 order 重排而非改 DOM 顺序 —— 桌面端布局因此完全不受影响 */
+  .user-chip, .login-link { order: 1; flex-shrink: 0; }
+  .search-box { order: 2; flex: 1 1 0; width: auto; min-width: 0; }
+  .msg-wrap { order: 3; }
+  .chip-name { display: none; } /* 窄屏只留头像圆点，省出搜索框的宽度 */
   .mobile-menu { display: flex; }
+
+  /* 底栏本体 */
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 120;
+    background: #fff;
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -2px 12px rgba(60, 40, 20, 0.06);
+    padding-bottom: env(safe-area-inset-bottom); /* iPhone 底部安全区 */
+  }
+  .bn-item {
+    flex: 1 1 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px;
+    padding: 7px 0 6px;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+  .bn-item.on { color: var(--primary); }
+  .bn-icon { width: 22px; height: 22px; display: block; }
+  .bn-text { font-size: 11px; line-height: 1; }
+
+  /* 给页脚留出底栏高度，避免最后一行被固定底栏盖住。
+     写两条：env() 不被支持时第二条整条作废，回落第一条。 */
+  .footer { padding-bottom: 84px; }
+  .footer { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 }
 </style>
