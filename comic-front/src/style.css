@@ -43,7 +43,10 @@ page {
 
 .container { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
 
-.page { padding: 20px 0 48px; }
+/* ⚠️ 左右内边距必须写出来（16px）：`.page` 与 `.container` 同为单类选择器、`.page` 在后面，
+   简写 padding 会把 `.container` 的 `0 16px` **整体覆盖**成 0 —— 窄屏下内容直接贴屏幕边缘
+   （原 comic-web 同此写法，属移植过来的既有问题；2026-09-22 修）。 */
+.page { padding: 20px 16px 48px; }
 
 /* 通用按钮 */
 .btn {
