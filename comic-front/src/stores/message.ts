@@ -56,6 +56,35 @@ export function noticeSummary(t: AdminTask): string {
   return `检查 ${r.checked ?? 0} | 成功 ${r.transferred ?? 0} | 失败 ${r.failed ?? 0}`
 }
 
+// ---- 展示用格式化（顶栏下拉面板与移动端消息页**共用同一份**）----
+// 原先这三个函数写在 Layout.vue 局部，独立消息页出现后必须共用 ——
+// 复制两份迟早走偏（改了标签文案只改一处）。
+/** 消息类型中文名 */
+export function kindLabel(k: NoticeKind): string {
+  return k === 'sync'
+    ? '采集'
+    : k === 'transfer'
+      ? '转存'
+      : k === 'inspect'
+        ? '巡检'
+        : k === 'heal'
+          ? '自愈'
+          : '系统'
+}
+/** 消息状态中文名 */
+export function statusLabel(n: NoticeItem): string {
+  if (n.status === 'running') return '运行中'
+  if (n.status === 'done') return '完成'
+  if (n.status === 'failed') return '失败'
+  return '通知'
+}
+/** 消息时间：`MM-DD HH:mm` */
+export function fmtMsgTime(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export const useMessageStore = defineStore('message', () => {
   const notices = ref<NoticeItem[]>([])
   const toast = ref<NoticeItem | null>(null)

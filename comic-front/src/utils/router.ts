@@ -49,6 +49,7 @@ const STATIC: Record<string, string> = {
   '/latest': 'pages/latest/index',
   '/rank': 'pages/rank/index',
   '/me': 'pages/me/index',
+  '/messages': 'pages/messages/index',
   '/login': 'pages/login/index',
   '/admin': 'pages/admin/index',
   '/admin/logs': 'pages/admin/logs',

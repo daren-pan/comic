@@ -13,8 +13,7 @@ import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from '../utils/router'
 import { backendAlive } from '../api'
 import { useUserStore } from '../stores/user'
-import { useMessageStore } from '../stores/message'
-import type { NoticeItem, NoticeKind } from '../stores/message'
+import { useMessageStore, kindLabel, statusLabel, fmtMsgTime } from '../stores/message'
 import { TAB_ICONS, TAB_ICONS_DARK } from '../utils/icons'
 import { useTheme } from '../utils/theme'
 
@@ -33,7 +32,11 @@ const backend = ref<boolean | null>(null)
 const userStore = useUserStore()
 const { isLoggedIn: logged, isAdmin, isSuperAdmin, user } = storeToRefs(userStore)
 
-// 消息中心：采集/巡检/自愈任务结果 + 系统消息（顶栏入口，点击展开面板）
+// 消息中心：采集/巡检/自愈任务结果 + 系统消息。
+// 入口是**两种形态**，靠 CSS 断点二选一（与菜单同一原则：断点只在 `@media` 一处、
+// **脚本里不做宽度判断**）：宽屏 = 顶栏下拉浮层（不离开当前页）；窄屏 = 独立消息页
+// （见 pages/messages/index.vue）。浮层在手机上宽 340px 贴右上角、又盖住页面内容，
+// 看着像弹窗 —— 整页才是移动端该有的形态。
 const msgStore = useMessageStore()
 const showMsg = ref(false)
 
@@ -44,34 +47,16 @@ function toggleMsg() {
     msgStore.markAllRead() // 展开即视为已读
   }
 }
+// 窄屏那个铃铛的落点（已读时机由页面自己管，见 pages/messages/index.vue）
+function goMessages() {
+  closeMenu() // 与移动端菜单互斥
+  router.push('/messages')
+}
 function closeMsg() {
   showMsg.value = false
 }
 function onDocClick() {
   closeMsg() // 点击面板外部关闭
-}
-
-function kindLabel(k: NoticeKind): string {
-  return k === 'sync'
-    ? '采集'
-    : k === 'transfer'
-      ? '转存'
-      : k === 'inspect'
-        ? '巡检'
-        : k === 'heal'
-          ? '自愈'
-          : '系统'
-}
-function statusLabel(n: NoticeItem): string {
-  if (n.status === 'running') return '运行中'
-  if (n.status === 'done') return '完成'
-  if (n.status === 'failed') return '失败'
-  return '通知'
-}
-function fmtMsgTime(iso: string): string {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 onMounted(async () => {
@@ -199,9 +184,15 @@ watch(() => route.path, () => {
             <button class="u-button" form-type="submit" aria-label="搜索">🔍</button>
           </form>
 
-          <!-- 消息中心：任务结果 + 系统消息（点击展开） -->
+          <!-- 消息中心：任务结果 + 系统消息。
+               两个铃铛**按断点二选一**（脚本里不做宽度判断，见 <style> 的 .wide-only / .narrow-only）：
+               宽屏那个开下拉浮层、窄屏那个跳独立消息页。 -->
           <view class="msg-wrap">
-            <button class="msg-btn u-button" :class="{ on: showMsg }" @click.stop="toggleMsg" title="消息">
+            <button class="msg-btn wide-only u-button" :class="{ on: showMsg }" @click.stop="toggleMsg" title="消息">
+              <text class="msg-icon u-span">🔔</text>
+              <text v-if="msgStore.unread" class="msg-badge u-span">{{ msgStore.unread > 99 ? '99+' : msgStore.unread }}</text>
+            </button>
+            <button class="msg-btn narrow-only u-button" @click.stop="goMessages" title="消息">
               <text class="msg-icon u-span">🔔</text>
               <text v-if="msgStore.unread" class="msg-badge u-span">{{ msgStore.unread > 99 ? '99+' : msgStore.unread }}</text>
             </button>
@@ -513,6 +504,10 @@ watch(() => route.path, () => {
 }
 .msg-btn:hover, .msg-btn.on, .theme-btn:hover, .theme-btn.on { border-color: var(--primary); background: var(--primary-soft); }
 .theme-btn { flex-shrink: 0; }
+/* 消息入口二选一 —— 断点只写在下方的 `@media (max-width: 860px)` 里，**脚本不判断宽度**，
+   所以不存在「JS 阈值与 CSS 阈值各写一份、改一处忘另一处」的漂移：
+   宽屏用 `.wide-only`（开下拉浮层），窄屏用 `.narrow-only`（跳独立消息页）。 */
+.msg-btn.narrow-only { display: none; }
 .theme-icon { font-size: 15px; line-height: 1; }
 .msg-icon { font-size: 16px; line-height: 1; }
 .msg-badge {
@@ -638,6 +633,12 @@ watch(() => route.path, () => {
   .search-box { order: 2; flex: 1 1 0; width: auto; min-width: 0; }
   .msg-wrap { order: 3; }
   .theme-btn { order: 4; }
+  /* 消息入口切到「跳独立页」那个铃铛（见上面 .msg-btn.narrow-only 的说明） */
+  .msg-btn.wide-only { display: none; }
+  .msg-btn.narrow-only { display: inline-flex; }
+  /* 兜底：窄屏铃铛走独立消息页，面板不会展开。但若在宽屏开着面板时把窗口拖窄，
+     面板会残留在浮层里 —— 这里按窄屏直接隐掉，避免「浮层 + 独立页」两套形态同时出现。 */
+  .msg-panel { display: none; }
 
   /* ---- 移动端菜单：全屏覆盖层（二级页面）。fixed 定位，不占文档流 ----
      抽屉从屏幕**左侧滑出**（而不是原地淡入/弹出）：进场 translateX(-100%) → 0，
