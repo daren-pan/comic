@@ -8,7 +8,10 @@ import { onLoad } from '@dcloudio/uni-app'
 import { setRoute } from '../../utils/router'
 import Layout from '../../components/Layout.vue'
 
-const pageSize = 20
+// 每页条数 = 桌面 6 列 × 3 行 = 18，**同时也是**移动端 3 列 × 6 行 = 18
+// —— 两种列数都正好填满，末行不留空格（2026-09-23 用户要求「固定 6 行三列，不要留空」）。
+// ⚠️ 别再随手改成 20：20 ÷ 3 = 6 行余 2，移动端末行就会空掉最后一格。
+const pageSize = 18
 
 const comics = ref<Comic[]>([])
 const total = ref(0)
@@ -83,7 +86,9 @@ onLoad((options) => setRoute('/latest', options ?? {}))
 <style scoped>
 .lead { color: var(--text-2); font-size: 14px; margin: -8px 0 18px; }
 
-.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+/* 6 列 × 3 行 = 18 = 每页条数；≤900px 收成 3 列 × 6 行 = 18 —— 两种列数都正好填满，末行不留空格。
+   ⚠️ 改列数时必须同步改 `pageSize`（两者相乘要等于每页条数），否则末行会空出来。 */
+.grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
 @media (max-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
 /* 手机（≤560px）保持 3 列，只收紧间距（原先降到 2 列；2026-09-22 用户要求） */
 @media (max-width: 560px) { .grid { gap: 10px; } }

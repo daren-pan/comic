@@ -27,9 +27,10 @@ const input = ref('')
 const comics = ref<Comic[]>([])
 const total = ref(0)
 const page = ref(1)
-// 每页条数 = 桌面列数 × 行数（5 列 × 4 行）→ 每页都是整行，末行不留空格
-// （2026-09-21 用户要求；此前 12 条 ÷ 5 列除不尽，末行空 3 格）
-const pageSize = 20
+// 每页条数 = 桌面 6 列 × 3 行 = 18，**同时也是**移动端 3 列 × 6 行 = 18
+// —— 两种列数都正好填满，末行不留空格（2026-09-23 与「最近更新」页统一）。
+// ⚠️ 别再随手改成 20：20 ÷ 3 = 6 行余 2，移动端末行就会空掉最后一格。
+const pageSize = 18
 const loading = ref(false)
 
 // ---- 其他来源（源站搜索）：站内搜不到时去各源站找 ----
@@ -304,7 +305,9 @@ onLoad((options) => setRoute('/search', options ?? {}))
 
 .result-hint { font-size: 13px; color: var(--text-2); margin: 0 0 12px; }
 
-.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+/* 6 列 × 3 行 = 18 = 每页条数；≤900px 收成 3 列 × 6 行 = 18 —— 两种列数都正好填满，末行不留空格。
+   ⚠️ 改列数时必须同步改 `pageSize`（两者相乘要等于每页条数），否则末行会空出来。 */
+.grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
 @media (max-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
 /* 手机（≤560px）保持 3 列，只收紧间距（原先降到 2 列；2026-09-22 用户要求） */
 @media (max-width: 560px) { .grid { gap: 10px; } }
