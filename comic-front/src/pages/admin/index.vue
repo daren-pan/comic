@@ -244,8 +244,15 @@ onLoad(async (options) => {
                 <text class="src-name u-span">{{ vm.info.name }}</text>
                 <text class="chip pri u-span" :class="vm.info.priority">{{ vm.info.priority === 'primary' ? '主源' : '备源' }}</text>
               </view>
-              <view class="switch u-label" :title="vm.info.enabled ? '点击关闭采集' : '点击开启采集'">
-                <input class="u-input" type="checkbox" :checked="vm.info.enabled" @change="toggleSource(vm)" />
+              <!-- 开关：**不能用原生 checkbox** —— uni 的 <input> 有 type 白名单（不含 checkbox，
+                   会被抹成 text），且 <label> 已被映射成 view、失去「点容器激活内部控件」的能力。
+                   所以这里不依赖任何原生控件：纯 view + 显式点击，选中态走类名（见 <style>）。 -->
+              <view
+                class="switch"
+                :class="{ on: vm.info.enabled }"
+                :title="vm.info.enabled ? '点击关闭采集' : '点击开启采集'"
+                @click="toggleSource(vm)"
+              >
                 <text class="slider u-span"></text>
               </view>
             </view>
@@ -360,11 +367,13 @@ onLoad(async (options) => {
 .row-inputs .u-input[type='number'] { min-width: 70px; }
 
 /* 开关 */
-.switch { position: relative; display: inline-block; width: 44px; height: 24px; }
-.switch .u-input { opacity: 0; width: 0; height: 0; }
+/* 开关：纯 view + 点击（见模板注释）。选中态靠 .switch.on 这个类名 ——
+   ⚠️ 别写回 `input:checked + .slider`：uni 的 <input> 不认 checkbox（type 被抹成 text），
+   伪类永远不匹配，表现为「滑块永远是灰的、点了也没反应」（2026-09-23 修）。 */
+.switch { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; }
 .slider { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: var(--track); border-radius: 999px; transition: 0.2s; cursor: pointer; }
 .slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: var(--card); border-radius: 50%; transition: 0.2s; }
-.switch .u-input:checked + .slider { background: var(--primary); }
-.switch .u-input:checked + .slider::before { transform: translateX(20px); }
+.switch.on .slider { background: var(--primary); }
+.switch.on .slider::before { transform: translateX(20px); }
 
 </style>
