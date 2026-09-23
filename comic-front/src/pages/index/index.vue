@@ -137,7 +137,7 @@ onLoad((options) => setRoute('/', options ?? {}))
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 .hint {
@@ -165,12 +165,10 @@ onLoad((options) => setRoute('/', options ?? {}))
 }
 .more:hover { color: var(--primary-dark); text-decoration: underline; }
 
-@media (max-width: 900px) {
-  .grid { grid-template-columns: repeat(3, 1fr); }
-}
 /* 手机（≤560px）**保持 3 列**（2026-09-22 用户要求「移动端每行三部、增加信息量」，
    原先这里降到 2 列）；只收紧间距 —— 每列约 110px，间距从 16 收到 10 能让封面宽一点。
-   卡片自身的字号/内边距由 ComicCard.vue 里的同名断点负责。 */
+   卡片自身的字号/内边距由 ComicCard.vue 里的同名断点负责。
+   ⚠️ 本端只保留移动形态（2026-09-23），故**没有**桌面列数、也没有 900px 那档断点。 */
 @media (max-width: 560px) {
   .grid { gap: 10px; }
   .banner .u-h1 { font-size: 24px; }

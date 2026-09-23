@@ -132,11 +132,13 @@ onLoad((options) => setRoute('/me', options ?? {}))
 .row-main .u-h4 { margin: 0; font-size: 15px; }
 .row-sub { margin: 2px 0 0; font-size: 13px; color: var(--primary); }
 .row-sub.dim { color: var(--text-2); }
-.row-actions { display: flex; gap: 8px; }
+/* 续读 / 删除按钮：窄屏竖排（原在 900px 断点里，随桌面端删除后提升为基础态） */
+.row-actions { display: flex; flex-direction: column; gap: 8px; }
 .btn.sm { padding: 5px 12px; font-size: 13px; }
 .btn.danger:hover { border-color: #e23; color: #e23; }
 
-.fav-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
+/* 3 列（与首页 / 最近更新 / 分类统一）。本端只保留移动形态（2026-09-23）。 */
+.fav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .fav-login {
   text-align: center;
   background: var(--card);
@@ -164,12 +166,11 @@ onLoad((options) => setRoute('/me', options ?? {}))
 .fav-item .u-p { margin: 6px 0 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
 .fav-item .u-span { font-size: 12px; color: var(--text-2); }
 
-@media (max-width: 900px) {
-  .fav-grid { grid-template-columns: repeat(4, 1fr); }
-  .row-actions { flex-direction: column; }
-}
+/* 收藏网格：3 列、只收紧间距（2026-09-22）。
+   ⚠️ 本端只保留移动形态（2026-09-23），故**没有**桌面 6 列、也没有 900px 那档断点；
+   原 900px 里的 `.row-actions { flex-direction: column }` 也一并提升为基础态 ——
+   那是窄屏规则，不该随桌面断点一起消失。 */
 @media (max-width: 560px) {
-  /* 收藏网格本来就是 3 列，与首页 / 最近更新 / 分类统一；只收紧间距（2026-09-22） */
-  .fav-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .fav-grid { gap: 10px; }
 }
 </style>
