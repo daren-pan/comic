@@ -82,7 +82,7 @@ echo "-> [1/2] 生成模块产物到 deploy/<模块>/dist/"
 build_wheel() {  # build_wheel <源模块目录> <deploy 子目录>
   local src="$1" out="$2"
   echo "   $src/  --wheel-->  deploy/$out/dist/"
-  mkdir -p "$DEPLOY/$out/dist"
+  rm -rf "$DEPLOY/$out/dist" && mkdir -p "$DEPLOY/$out/dist"
   # ⚠️ 这里**必须用相对路径**：
   #   1) 源目录用 `.`（先 cd 进去）—— 传裸名字如 `api-service` 会被 pip 当成**包名**去 PyPI 找，
   #      而 PyPI 上真有个叫 api-service 的第三方包，会静默下回来一个假产物；
@@ -99,6 +99,7 @@ cp "$ROOT/crawler-service/sql/mysql_schema.sql" "$DEPLOY/mysql/sql/mysql_schema.
 
 echo "   $WEB_SRC  --复制-->  deploy/web/dist/"
 if [ -d "$WEB_SRC" ]; then
+  rm -rf "$DEPLOY/web/dist"
   copy_tree "$WEB_SRC" "$DEPLOY/web/dist" .
 else
   echo "   !! 前端产物目录不存在：$WEB_SRC"
@@ -149,7 +150,7 @@ PIP_INDEX="${PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple}"
 echo "   [PyPI 源] $PIP_INDEX"
 
 build_img() {  # build_img <模块目录> <镜像名>
-  docker build --build-arg "PIP_INDEX=$PIP_INDEX" -t "$2" "$1"
+  docker build --no-cache --build-arg "PIP_INDEX=$PIP_INDEX" -t "$2" "$1"
 }
 
 build_img mysql   comic-mysql:1.0.0
