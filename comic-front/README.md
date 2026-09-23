@@ -30,7 +30,7 @@ comic-front/
     │   ├── router.ts · storage.ts · event.ts · guard.ts · ui.ts
     │   ├── theme.ts          # 主题（明亮 / 夜间）：状态 + 持久化 + 往根节点挂主题类
     │   ├── icons.ts          # 移动端底栏图标（自绘 SVG → base64 data URI，明亮/夜间各一套）
-    └── pages/                # 每个页面一个目录（uni 约定），共 11 页
+    └── pages/                # 每个页面一个目录（uni 约定），共 12 页
 ```
 
 ## 页面与路由（`src/pages.json`）
@@ -38,16 +38,17 @@ comic-front/
 | uni 页面路径 | 对应 web 路由 | 页面 | 说明 |
 |---|---|---|---|
 | `pages/index/index` | `/` | 首页 | Banner + 热门榜单 + 最新更新 + 分类精选 |
-| `pages/search/index` | `/search` | 分类浏览 / 搜索 | 关键词 + 分类 + 排序 + 分页；站内搜不到时**搜源站并导入** |
-| `pages/latest/index` | `/latest` | 最近更新 | 卡片网格（`sort=updated`），带相对时间角标 |
-| `pages/rank/index` | `/rank` | 排行 | 分类区块分批懒加载（首屏 4 个，触底追加）+ 块内热度前 10 |
+| `pages/search/index` | `/search` | 分类浏览 / 搜索 | 关键词 + `FilterBar`（标签下拉 + 排序）+ 分页（每页 18 条）；站内搜不到时**搜源站并导入** |
+| `pages/latest/index` | `/latest` | 最近更新 | 卡片网格（`sort=updated`，每页 18 条），带相对时间角标 |
+| `pages/rank/index` | `/rank` | 排行 | **一整条全库榜单**（默认热度降序）+ `FilterBar`；触底追加下一页 |
 | `pages/comic/index` | `/comic/:id` | 详情页 | 封面 / 简介 / 标签 / 来源标注 + 收藏 + 章节列表 + 续读 |
 | `pages/reader/index` | `/reader/:comicId/:chapterId` | 在线阅读器 | 双阅读模式、主题切换、章节切换、进度记忆 |
 | `pages/me/index` | `/me` | 我的 | 最近阅读（续读 / 删除）+ 我的收藏 |
+| `pages/messages/index` | `/messages` | 消息中心 | 采集 / 巡检 / 自愈结果 + 系统消息；**窄屏铃铛的落点**（宽屏仍是顶栏下拉浮层） |
 | `pages/login/index` | `/login` | 登录 / 注册 | JWT 登录；收藏需登录，历史**登录后归属账号、游客用浏览器匿名 id** |
-| `pages/admin/index` | `/admin` | 采集管理台 | 采集 / 巡检 / 封面自愈；**需管理员** |
-| `pages/admin/logs` | `/admin/logs` | 运行日志查询 | 按级别 / 源站 / 事件 / 作品 / 时间窗筛；**需管理员** |
-| `pages/admin/users` | `/admin/users` | 授权管理 | 普通管理员 ⇄ 普通用户；**仅超管** |
+| `pages/admin/index` | `/admin` | 采集管理台 | 采集 / 巡检 / 封面自愈；**需管理员**。窄屏卡片单列铺开 |
+| `pages/admin/logs` | `/admin/logs` | 运行日志查询 | 按级别 / 源站 / 事件 / 作品 / 时间窗筛；**需管理员**。窄屏表格→卡片 + 点行展开详情 |
+| `pages/admin/users` | `/admin/users` | 授权管理 | 普通管理员 ⇄ 普通用户；**仅超管**。窄屏表格→卡片 |
 
 > 管理台三页**不做 H5 专属**，移动端同样可访问（顶栏入口按角色显示）。
 
@@ -81,7 +82,7 @@ comic-front/
 4. **H5 地址栏是 uni 自己的路径**：`#/pages/rank/index`、`#/pages/comic/index?id=43`（**不是** `#/rank`）——
    站内跳转由 `toUniUrl()` 转换，但**书签 / 外链要按 uni 这套路径写**。
 
-**对 `comic-web` 的十二处有意调整**（前三条是逻辑、后九条是视觉/控件）
+**对 `comic-web` 的十五处有意调整**（第 1~3 条是逻辑，其余是视觉 / 控件 / 交互）
 
 | # | 位置 | 现状 | 原因 |
 |---|---|---|---|
@@ -97,6 +98,9 @@ comic-front/
 | 10 | 主题（明亮 / 夜间） | 新增，顶栏右侧一个 🌙/☀️ 按钮切换 | 用户要求；comic-web 只有明亮一套 |
 | 11 | 漫画明细页移动端 | 封面挪到卡片左上、明细+按钮在右上；章节列表改 **每行 4 个**网格 | 用户要求「适配移动端」；详见下文「漫画明细页」 |
 | 12 | 阅读器页面图宽度 | 横向 `92vw` → `100vw`、竖排 `96vw` → `100vw`（并隐掉 scroll-view 的 8px 滚动条） | 用户要求「左右黑边都去掉」；详见上文「阅读器页面图尺寸」 |
+| 13 | 分类页 / 排行页的筛选 | 分类页的 30 个标签 chip 平铺 → **下拉单选**；排行页的「每标签一块」→ **一整条全库榜单**；两页共用 `components/FilterBar.vue`（标签 + 排序），默认**热度降序** | 用户要求「新增标签条件和热度、收藏筛选，默认按热度降序；去掉全部标签展开，排行榜不必每个标签单独排序」；详见下文「筛选条」 |
+| 14 | 页脚（≤860px） | **整块隐去**（品牌行 + 「● 已连接采集服务」状态标签 + 「仅收录…」版权提示）；给底栏清障的 `padding-bottom: 84px` 从 `.footer` **搬到 `.page`** | 用户要求；窄屏下和固定底栏一起挤，一屏剩不下多少内容。⚠️ 清障高度不能跟着页脚一起消失，否则最后一排卡片被底栏压住 |
+| 15 | 管理台三页（≤860px） | 日志页 / 授权页的 flex 表格 → **纵向卡片**（日志页带伸缩展开：点行看全部字段）；采集页 `.grid`/`.maint-row` 的 `minmax(360px,1fr)` → `1fr` | 用户要求「采集和日志页面也要适配移动端，表格列太多可以换成伸缩展开的模式，点击之后可以查看每个日志的详情，**不允许出现横向滑动条**」；详见下文「窄屏不许横向滚动条」 |
 
 ### uni 内置组件样式归一化（`src/uni-compat.css`）
 
@@ -242,7 +246,45 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 | flex 项默认 `min-width: auto` | 列被「最窄内容」撑宽 —— 表头文字短、数据文字长（如级别列的 ERROR 徽标）→ **表头与数据行列宽对不上、整列错位** | 单元格一律加 `min-width: 0` |
 | 补完 `min-width: 0` 后，超长文本会溢出压到相邻列上 | 原版真表格列宽随内容自动变宽，`view` + flex 没有这个能力 | 可能超长的列自己截断：`overflow: hidden; text-overflow: ellipsis; white-space: nowrap`，完整值放 `title` |
 
-窄屏放不下时由外层容器横向滚动（固定列不收缩），别指望像真表格那样自动压缩。
+### ⚠️ 窄屏不许横向滚动条：表格一律降级成卡片（2026-09-23）
+
+桌面表格是**固定列宽 + 外层容器横滚**（上一条）。但**窄屏不允许横向滑动条** ——
+表格列一多（日志页 8 列固定宽合计 ≈ 944px），可视区只有 ~343px，横滚出来的是一条几乎没法用的细缝。
+所以 `@media (max-width: 860px)`（断点与 `Layout.vue` 一致）里**整块换成纵向卡片**：
+
+| 页面 | 折叠态（默认） | 展开态（点行） |
+|---|---|---|
+| `admin/logs` | **时间 · 级别徽标 · 事件** 一行 + 消息（多行，不再截断） | 详情区补齐**源站 / 作品 / 章节 / 页数** + 记录器 / 任务 / 原因 / 接口 / 消息 / 异常堆栈 |
+| `admin/users` | 每段「标签 + 值」竖排（用户名 / 昵称 / 角色 / 注册时间 / 操作） | 无（行内已有操作按钮，没有隐藏字段） |
+
+四条通用做法：
+
+1. **根上消除横滚**：`.table-wrap { overflow: visible; max-height: none }`，
+   `.user-table { overflow-x: visible }`。⚠️ 只改 `overflow-x: hidden` 是**掩耳盗铃** —— 内容仍超宽，
+   会改成**页面级**横滚，一样是横向滑动条。
+2. **隐藏表头**（`.u-thead { display: none }`）：卡片每段自带语义，表头无意义。
+3. **必须重置列宽**：桌面的 `flex: 0 0 148px` 是**主轴**方向的基准。卡片改纵向后主轴变成**高度** ——
+   不重置的话每段会被钉成 148px 高。（日志页卡片仍是横向主轴，但时间列钉死 148px 会把级别/事件挤出去，同样要重置。）
+4. **窄屏专用字段用 `.narrow-only` 二选一**，别用「按宽度分流」的脚本判断（见下文顶栏那条）：
+   日志页详情区里新增的 4 行（源站/作品/章节/页数）加 `.narrow-only`，宽屏 `display: none` ——
+   桌面表格已有这几列，详情区再来一遍是重复。
+   ⚠️ `display: none` 那条**必须写在 `@media` 之前**：两条选择器特异性相同，靠源码顺序决出胜负。
+
+**日志页的伸缩展开**：复用原有的 `toggle()` / `.detail-row`（`v-if="expandedId === row.id"`），
+模板只加了 4 行 `.kv.narrow-only`，其余全靠一处媒体查询。窄屏展开箭头用 `.row::after` 绝对定位
+（`▾` / `.row.open` 时 `▴`），不参与 flex 布局、宽屏 `content` 为 `none`。
+
+**采集管理台（`admin/index`）**：它是卡片不是表格，无需展开；窄屏只要把 `.grid` / `.maint-row` 的
+`minmax(360px, 1fr)` 降成 `1fr`。⚠️ **360px 是硬下限**：窄屏内容区不足 360px 时列宽仍按 360px 撑开 ——
+实测 393 视口溢出 7px（左右边距 16/9 不对称）、**360 视口直接出整页横向滚动条**（`scrollWidth 376 > clientWidth 352`）。
+
+**实测**（2026-09-23，`docScrollWidth === docClientWidth` 为「无横滚」判据）：
+
+| 页面 | 393×852 | 360×800 | 1280×900 |
+|---|---|---|---|
+| `admin/logs` | 无横滚；折叠 4 段；展开 9 项 kv + 堆栈 | 无横滚 | 8 列表格原样；`.narrow-only` 全 `display:none`；`::after` 为 `none` |
+| `admin/users` | 无横滚；表头隐藏；每格 flex + `.lbl` | — | 表头可见、行 `flex-direction: row`、`.lbl` `display:none`、`.c-user` basis 180px |
+| `admin/index` | 无横滚；单列 353px、边距 16/16 | 无横滚；卡片 320px、边距 16/16 | `.grid` 3 列 / `.maint-row` 2 列（与改动前一致） |
 
 ## 移动端底栏导航（≤860px）
 
@@ -252,7 +294,7 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 |---|---|
 | 顶栏左 | **☰ 菜单按钮**（`order: 1` 排到最左）—— 点击从左侧滑出二级菜单 |
 | 顶栏中 | 搜索框（吃掉剩余宽度） |
-| 顶栏右 | 消息铃铛 + **主题切换**（🌙/☀️） |
+| 顶栏右 | 消息铃铛（窄屏跳独立消息页 / 宽屏开下拉浮层）+ **主题切换**（🌙/☀️） |
 | 底栏 | 首页 · 最近更新 · 分类（三等分，带图标，选中态变主题橙） |
 | 菜单内 | **账号区**（未登录=整宽「登录」按钮 / 已登录=头像+昵称+「退出登录」）+ 全部导航（首页/分类/最近更新/排行/我的收藏与历史/采集管理/授权管理） |
 
@@ -265,6 +307,11 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 - **断点只有 CSS 一处**（`@media (max-width: 860px)`，`Layout.vue`）：**脚本里没有宽度判断**。
   菜单只由 ☰ 触发，不需要「按宽度分流」—— 旧实现里的 `MOBILE_MAX` / `viewportWidth()`（用来判断
   点「用户头像」该展开菜单还是跳页）已随「账号入口收进菜单」一并删除，**别再照抄回来**。
+- **确实需要「按宽度分流」时，用「两个元素 + CSS 二选一」，不要回到脚本判断宽度**。
+  现成例子：消息入口（`Layout.vue` 的 `.msg-btn.wide-only` / `.narrow-only`）—— 两个铃铛同形同角标，
+  宽屏那个开下拉浮层、窄屏那个跳 `pages/messages/index`，靠 `.msg-btn.narrow-only { display: none }`
+  + `@media` 里反过来隐掉 `.wide-only` 完成切换。这样断点仍然只有 CSS 一份，不存在
+  「JS 阈值改了、CSS 忘了改」的漂移。
 - **底栏 z-index = 120**：高于内容、低于消息面板（200）与 toast（999）。
   阅读器是 `position: fixed` + z-index 200 的全屏层，**会盖住底栏** —— 与顶栏（z-index 100）同一处理方式，因此不需要额外排除逻辑。
 - **底部安全区**：底栏带 `padding-bottom: env(safe-area-inset-bottom)`；页脚补了 `padding-bottom: 84px`
@@ -296,10 +343,15 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 |---|---|---|---|---|
 | 首页 热门 / 最近更新 | `index/index.vue` `.grid` | 4 | 3 | 3（gap 16→10） |
 | 首页 分类精选 | `.grid` | 4 | 3 | 3（gap 16→10） |
-| 最近更新 | `latest/index.vue` `.grid` | 5 | 3 | 3（gap 16→10） |
-| 分类 / 搜索 | `search/index.vue` `.grid` | 5 | 3 | 3（gap 16→10） |
+| 最近更新 | `latest/index.vue` `.grid` | 6 | 3 | 3（gap 16→10） |
+| 分类 / 搜索 | `search/index.vue` `.grid` | 6 | 3 | 3（gap 16→10） |
 | 我的收藏 | `me/index.vue` `.fav-grid` | 6 | 4 | 3（gap 14→10） |
 
+- ⚠️ **每页条数必须 = 列数 × 行数**（2026-09-23 用户报「第一页最后一行最后一格空掉」）：
+  分页页面的 `pageSize` 要同时被**桌面列数**和**移动列数**整除，否则末行会留下空格。
+  `latest` / `search` 两页取 **`pageSize = 18`** = 桌面 6 列 × 3 行 = 移动 3 列 × 6 行，
+  两种列数都正好填满（18 = LCM(3,6)）。**别随手改回 20**：20 ÷ 3 = 6 行余 2，移动端末行就空一格。
+  （末页是余数页，留不齐属正常，例如分类页第 3 页 16 条 → 末行 4 个。）
 - 手机列宽只有 **~110px**（390px 视口，含 16px 页面内边距 + 10px 间距），所以卡片的字号/内边距
   由 **`components/ComicCard.vue` 里的同名 ≤560 断点**统一收紧（标题 13px、作者/最新话 11px、
   角标 10px），作者名补了 `ellipsis`（原先没截断，窄卡片下会撑破行）。**改列数时记得一起看它。**
@@ -310,6 +362,29 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
   `.page` 与 `.container` 同为单类选择器且 `.page` 在后面，简写 `padding` 会把 `.container` 的 `0 16px`
   整体覆盖成 0，窄屏下网格直接贴屏幕边缘（原 comic-web 同此写法，属移植过来的既有问题，已修）。
 
+## 筛选条（标签 + 排序）
+
+`components/FilterBar.vue` —— **分类浏览（`/search`）与热度排行（`/rank`）共用**的筛选条，
+只有这一份：改条件 / 加排序项只改这里，不会两页走样。
+
+- 对外接口：props `{ category, sort, categories }`、emits `update:category` / `update:sort`。
+  **调用方不能对它写 `v-model`**（自定义组件红线），一律 `:category` + `@update:category`。
+- **标签用下拉（`Picker`）不用 chip 平铺**：库内 30 个标签平铺会占掉整屏、把结果推到下面。
+  选项文案带计数（`恋爱（42）`）—— 但 **「全部」不显示数字**：后端给它的 count 是**各标签计数之和**
+  （同一部作品挂 3 个标签就计 3 次），与真实作品数不符（实测 119 vs 实际 52），
+  显示出来会和排行页的「共 N 部」打架。选项在这里**统一生成**，两页都不再各自拼标签文案。
+- 排序三档（`ComicSort`）：`views` 最热 / `favorites` 收藏最多 / `updated` 最新更新。
+  **两页默认都是 `views`（热度降序）**。
+- 窄屏（393px）下 `.filter-bar` 靠 `flex-wrap` 折成两行（标签一行、排序一行），不需要额外的媒体查询。
+
+**排行页形态**：`/rank` 是**一整条全库榜单**（不再是「每个标签一个区块」），`PAGE_SIZE = 20`，
+`onReachBottom` 追加下一页；名次是累计下标（`i + 1`，跨页连续）。切标签 / 切排序都走 `load(true)`
+（清空重拉），并用 `reqId` 令牌丢弃过期响应，避免旧请求盖掉新榜。
+
+**后端排序口径**（`crawler-service/.../mysql/comic_store.py` 的 `list_comics`）：
+`views` → `heat DESC`；`favorites` → `favorite_count DESC, heat DESC, sync_time DESC`；其余 → `sync_time DESC`。
+排序键都带 `c.sync_time DESC, c.id DESC` 兜底，保证**同分时顺序稳定**（否则翻页会重复 / 漏条）。
+
 ## 首页区块（每块 3 部 + 「全部」链接）
 
 首页**三类区块一律只放排名最前的 3 部**（`index/index.vue` 的 `TOP_N = 3`）：🔥 热门榜单、⚡ 最新更新、
@@ -317,7 +392,7 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 
 | 区块 | 取数 | 「全部 ›」→ |
 |---|---|---|
-| 🔥 热门榜单 | `getComics({ sort: 'views', pageSize: 3 })` | `goAll('/rank')` → 排行页（按分类分块，块内热度前 10） |
+| 🔥 热门榜单 | `getComics({ sort: 'views', pageSize: 3 })` | `goAll('/rank')` → 排行页（全库热度榜 + 标签/排序筛选） |
 | ⚡ 最新更新 | `getComics({ sort: 'updated', pageSize: 3 })` | `goAll('/latest')` → 最近更新页 |
 | `X · 精选` | `getComics({ category: X, pageSize: 3 })` | `goCategory(X)` → `/search?category=X`（分类页 `applyQuery()` 读 URL 直达） |
 
@@ -372,6 +447,29 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 - 卡片下方依次是 `.desc`（描述）与「章节列表」—— 描述块在窄屏一并收小（padding 10/12、13px）。
 - ⚠️ `.chapters` 的列数是**用真实章节数据量过的**：390px 下 4 列 = 4×82px + 3×8px = 352px，
   正好落在 `.page` 的 16px 内边距里，无横向溢出。
+
+## 消息中心（顶栏浮层 / 独立页）
+
+数据源只有一处：`stores/message.ts`（Pinia + 本地持久化，key `comic_msg_notices`，上限 50 条）。
+采集 / 巡检 / 自愈任务在后台轮询到 done/failed 时写入，另有 `addSystem()` 预留系统推送。
+两个渲染出口共用同一份数据与同一组格式化函数（`kindLabel` / `statusLabel` / `fmtMsgTime` 从 store 导出）：
+
+| 出口 | 触发 | 形态 |
+|---|---|---|
+| 顶栏下拉浮层 | 宽屏（>860px）点铃铛 | `Layout.vue` 内联渲染，绝对定位贴右上角，宽 340px、`max-height: 440px`，点空白/点外部关闭 |
+| `pages/messages/index` | 窄屏（≤860px）点铃铛 | 整页：顶部「← 返回 + 全部已读 + 清空」+ 消息卡片列表 |
+
+**已读时机两者不同，是有意为之**
+
+- 浮层：**展开即已读**（`toggleMsg` 里 `markAllRead()`）—— 瞥一眼就走的交互，没有停留过程。
+- 独立页：**离开时才已读**（`onHide` + `onUnload` 各挂一次）。若进页就标，顶部「全部已读」按钮
+  （`v-if="msgStore.unread"`）永远不会出现、未读高亮也看不到 —— 而「哪条是新的」正是未读标记的全部价值。
+  两个钩子都要挂：`onHide` 覆盖「从抽屉菜单 / 底栏 push 到别的页」（本页只隐藏、不销毁），
+  `onUnload` 覆盖「返回 / redirectTo」（本页被销毁），漏一个就会角标残留。
+
+- ⚠️ 独立页**必须自带返回入口**：`navigationStyle: custom` 没有原生返回箭头（`login` / `admin/logs` / `reader` 同理）。
+- ⚠️ 窄屏与宽屏是两个**同形铃铛**按 CSS 断点二选一（`.msg-btn.wide-only` / `.narrow-only`），
+  脚本里不做宽度判断 —— 理由见上面「移动端底栏导航」里的同名条目。
 
 ## 基础命令
 
