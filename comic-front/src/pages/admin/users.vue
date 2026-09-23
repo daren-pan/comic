@@ -149,15 +149,24 @@ onLoad(async (options) => {
         </view>
         <view class="u-tbody">
           <view class="u-tr" v-for="u in items" :key="u.id">
+            <!-- `.lbl` 是窄屏专用字段标签（宽屏 display:none）——桌面靠表头，卡片靠它 -->
             <view class="c-user u-td" :title="u.username">
-              {{ u.username }}
+              <text class="lbl u-span">用户名</text>
+              <text class="val u-span">{{ u.username }}</text>
               <text v-if="u.id === myId" class="me u-span">我</text>
             </view>
-            <view class="c-nick dim u-td" :title="u.nickname">{{ u.nickname }}</view>
+            <view class="c-nick dim u-td" :title="u.nickname">
+              <text class="lbl u-span">昵称</text>
+              <text class="val u-span">{{ u.nickname }}</text>
+            </view>
             <view class="c-role u-td">
+              <text class="lbl u-span">角色</text>
               <text class="chip u-span" :class="u.role">{{ ROLE_LABEL[u.role] || u.role }}</text>
             </view>
-            <view class="c-created dim u-td">{{ u.createdAt }}</view>
+            <view class="c-created dim u-td">
+              <text class="lbl u-span">注册时间</text>
+              <text class="val u-span">{{ u.createdAt }}</text>
+            </view>
             <view class="act u-td">
               <button
                 v-if="canEdit(u)"
@@ -244,6 +253,9 @@ onLoad(async (options) => {
 .user-table .c-role    { flex: 0 0 120px; }
 .user-table .c-created { flex: 0 0 160px; }
 .user-table .act       { flex: 0 0 130px; text-align: right; }
+/* 窄屏专用字段标签：宽屏隐藏 —— 桌面表格有表头，不需要每格再写一遍标签。
+   ⚠️ 必须在下面的 @media 之前：两条选择器特异性相同，靠源码顺序决出胜负。 */
+.user-table .lbl { display: none; }
 .dim { color: var(--text-2); }
 
 .me {
@@ -270,5 +282,45 @@ onLoad(async (options) => {
   justify-content: center;
   margin-top: 14px;
   font-size: 13px;
+}
+
+/* ---- 窄屏（≤860px）：表格 → 卡片，杜绝横向滚动条 ----
+   5 列固定宽合计 ≈ 710px（180 + 昵称≥120 + 120 + 160 + 130），窄屏可视只有 ~343px。
+   与日志页同款处理：隐藏表头、行变纵向卡片、每段「标签 + 值」。
+   本页行内直接带操作按钮、没有「点开才看得到」的字段，故不需要展开。
+   断点与 `Layout.vue` 一致（只有 CSS 一处，脚本里没有宽度判断）。 */
+@media (max-width: 860px) {
+  .user-table { overflow-x: visible; }
+  .user-table .u-thead { display: none; }
+
+  .user-table .u-tr {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
+    padding: 10px 12px;
+  }
+  .user-table .u-th,
+  .user-table .u-td { padding: 0; border-top: 0; }
+  /* ⚠️ 重置列宽：桌面 `flex: 0 0 180px` 是**主轴**方向的基准，卡片改纵向后主轴变成高度 ——
+     不重置的话每段会被钉成 180px 高。 */
+  .user-table .c-user,
+  .user-table .c-nick,
+  .user-table .c-role,
+  .user-table .c-created,
+  .user-table .act { flex: none; min-width: 0; }
+
+  /* 每段「标签 + 值」：标签定宽、值吃掉剩余宽度 */
+  .user-table .u-td { display: flex; align-items: center; gap: 8px; }
+  .user-table .lbl { display: block; flex: 0 0 60px; font-size: 12px; color: var(--text-2); }
+  .user-table .u-td .val { flex: 1 1 0; min-width: 0; }
+
+  /* 卡片里不再单行截断（宽度够，换行比省略号好读） */
+  .user-table .c-user,
+  .user-table .c-nick { white-space: normal; }
+  /* 操作按钮独占最后一行（`.act` 也是 `.u-td`，已被上面的 flex 规则接管） */
+  .user-table .act { padding-top: 4px; }
+
+  .pager { flex-wrap: wrap; }
 }
 </style>

@@ -266,6 +266,12 @@ onLoad(async (options) => {
               <view v-if="expandedId === row.id" class="detail-row u-tr">
                 <view class="u-td">
                   <view class="detail">
+                    <!-- 窄屏折叠态看不到这几列（表格列在窄屏整体隐藏，见 <style> 的媒体查询），
+                         展开后在这里补齐；桌面表格已展示这几列 → `.narrow-only` 在宽屏隐藏，不重复。 -->
+                    <view class="kv narrow-only"><text class="u-b">源站</text><text class="u-span">{{ row.source || '—' }}</text></view>
+                    <view class="kv narrow-only"><text class="u-b">作品</text><text class="u-span">{{ row.comicTitle || (row.comicId ? `#${row.comicId}` : '—') }}</text></view>
+                    <view class="kv narrow-only"><text class="u-b">章节</text><text class="u-span">{{ row.chapterTitle || (row.chapterId ? `#${row.chapterId}` : '—') }}</text></view>
+                    <view class="kv narrow-only"><text class="u-b">页数</text><text class="u-span">{{ row.pages ?? '—' }}</text></view>
                     <view class="kv"><text class="u-b">记录器</text><text class="u-span">{{ row.logger }}</text></view>
                     <view class="kv" v-if="row.taskId"><text class="u-b">任务</text><text class="u-span">{{ row.taskType }} · {{ row.taskId }}</text></view>
                     <view class="kv" v-if="row.reason"><text class="u-b">原因</text><text class="u-span">{{ row.reason }}</text></view>
@@ -414,6 +420,9 @@ onLoad(async (options) => {
 .kv { display: flex; gap: 8px; font-size: 13px; }
 .kv .u-b { color: var(--text-2); font-weight: 600; flex: 0 0 52px; }
 .kv.full { grid-column: 1 / -1; }
+/* 窄屏专用字段（源站/作品/章节/页数）：宽屏隐藏 —— 桌面表格已有这几列，详情区再来一遍是重复。
+   ⚠️ 这条必须在下面的 @media 之前：两条选择器特异性相同，靠源码顺序决出胜负。 */
+.detail .kv.narrow-only { display: none; }
 .kv .u-span { word-break: break-all; }
 .trace {
   grid-column: 1 / -1;
@@ -443,4 +452,57 @@ onLoad(async (options) => {
 .pager .size { display: flex; align-items: center; gap: 6px; }
 /* Picker 组件自带盒子样式（见 components/Picker.vue），这里只约束宽度 */
 .pager .u-select { min-width: 72px; }
+
+/* ---- 窄屏（≤860px）：表格 → 卡片 + 伸缩展开，杜绝横向滚动条 ----
+   桌面 8 列固定宽合计 ≈ 944px，而窄屏可视只有 ~343px —— 原先靠 `.table-wrap` 横滚兜着，
+   用户要求移动端**不允许横向滑动条**，故窄屏整块换成纵向卡片：
+   折叠态只留「时间 · 级别 · 事件 + 消息」四段，点行展开看全部字段
+   （源站/作品/章节/页数在详情区补齐，见模板里的 `.kv.narrow-only`）。
+   断点与 `Layout.vue` 保持一致（只有 CSS 一处，脚本里没有宽度判断）。 */
+@media (max-width: 860px) {
+  /* ① 从根上消除横滚：去掉滚动容器与高度上限，改由页面纵向滚动 */
+  .table-wrap { overflow: visible; max-height: none; }
+
+  /* ② 表头无意义 —— 卡片每段自带语义 */
+  .u-thead { display: none; }
+
+  /* ③ 行 → 可换行卡片；右侧留出展开箭头的位置 */
+  .row {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 10px 30px 10px 12px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+  /* 展开态指示：绝对定位，不参与 flex 布局（`.row` 已 position:relative） */
+  .row::after {
+    content: '▾';
+    position: absolute;
+    top: 9px;
+    right: 11px;
+    font-size: 11px;
+    color: var(--text-2);
+  }
+  .row.open::after { content: '▴'; }
+
+  .u-th, .u-td { padding: 0; border-bottom: 0; }
+  /* ⚠️ 必须重置列宽：桌面的 `flex: 0 0 148px` 是**主轴**方向的基准，卡片主轴仍是横向，
+     不重置的话时间列会钉死 148px、把级别与事件挤出去。 */
+  .c-time, .c-level { flex: none; }
+  .c-event { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* 折叠态隐藏这 4 列（展开后在详情区看，避免卡片又长又挤） */
+  .c-src, .c-title, .c-chapter, .c-pages { display: none; }
+  /* 消息独占一行，且不再单行截断（桌面靠 nowrap + 容器横滚，窄屏得能读全文） */
+  .msg { flex: 1 0 100%; min-width: 0; white-space: normal; word-break: break-word; }
+
+  /* ④ 展开区：单列铺开，别再按 240px 起多列 */
+  .detail { grid-template-columns: 1fr; gap: 6px; }
+  .detail-row .u-td { padding: 10px 12px; }
+  .detail .kv.narrow-only { display: flex; }
+
+  /* ⑤ 空态行 / 分页：空态补回内边距；分页允许换行（否则 3 个控件 + 文案会顶宽） */
+  .u-tbody > .u-tr > .empty { padding: 10px 12px; }
+  .pager { flex-wrap: wrap; }
+}
 </style>

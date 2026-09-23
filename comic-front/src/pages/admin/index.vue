@@ -376,4 +376,14 @@ onLoad(async (options) => {
 .switch.on .slider { background: var(--primary); }
 .switch.on .slider::before { transform: translateX(20px); }
 
+/* ---- 窄屏（≤860px）：卡片区单列铺开 ----
+   上面两块卡片区都用了 `minmax(360px, 1fr)`，360px 是**硬下限**：窄屏内容区不足 360px 时
+   列宽仍按 360px 撑开 —— 实测 393 视口溢出 7px（左右边距 16/9 不对称），360 视口直接出
+   **整页横向滚动条**（scrollWidth 376 > clientWidth 352）。窄屏降到 1fr 即可消除。
+   本页是卡片、没有「列太多的表格」，故不做伸缩展开。断点与 `Layout.vue` 一致。 */
+@media (max-width: 860px) {
+  .grid,
+  .maint-row { grid-template-columns: 1fr; }
+}
+
 </style>
