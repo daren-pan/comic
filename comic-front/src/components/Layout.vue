@@ -267,7 +267,9 @@ watch(() => route.path, () => {
         <button class="mm-close u-button" @click="closeMenu" aria-label="关闭菜单">×</button>
       </view>
 
-      <!-- 账号区：窄屏唯一的账号入口（顶栏的「登录 / 用户胶囊」在窄屏已隐藏） -->
+      <!-- 账号区：窄屏唯一的账号入口（顶栏的「登录 / 用户胶囊」在窄屏已隐藏）。
+           登录态 = 头像 + 昵称（占满剩余宽度）+ 右侧窄胶囊「退出登录」，同一行；
+           未登录时没有用户块，那个「登录」按钮靠 .wide 单独保持整条宽度。 -->
       <view class="mm-account">
         <template v-if="logged">
           <view class="mm-user">
@@ -276,7 +278,7 @@ watch(() => route.path, () => {
           </view>
           <button class="mm-login-btn u-button" @click="onLogout(); closeMenu()">退出登录</button>
         </template>
-        <button v-else class="mm-login-btn u-button" @click="goFromMenu('/login')">登录</button>
+        <button v-else class="mm-login-btn wide u-button" @click="goFromMenu('/login')">登录</button>
       </view>
 
       <view class="mm-list">
@@ -447,8 +449,10 @@ watch(() => route.path, () => {
 .mm-brand { font-weight: 800; font-size: 18px; color: var(--text); }
 .mm-brand-en { font-style: normal; font-size: 11px; color: var(--primary); margin-left: 4px; letter-spacing: 1px; }
 .mm-close { border: none; background: none; font-size: 22px; line-height: 1; color: var(--text-2); cursor: pointer; padding: 0 6px; }
-.mm-account { padding: 14px 2px; border-bottom: 1px solid var(--border); }
-.mm-user { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+/* 账号区一行：头像 + 昵称（吃掉剩余宽度）+ 右侧「退出登录」窄胶囊。
+   .mm-user 的 min-width:0 必须留着，否则长昵称会把按钮挤出抽屉（flex 项默认 min-width:auto）。 */
+.mm-account { display: flex; align-items: center; gap: 10px; padding: 14px 2px; border-bottom: 1px solid var(--border); }
+.mm-user { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
 .mm-avatar {
   width: 36px; height: 36px;
   border-radius: 50%;
@@ -460,15 +464,18 @@ watch(() => route.path, () => {
 }
 .mm-name { font-weight: 700; font-size: 15px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mm-login-btn {
-  width: 100%;
+  flex: 0 0 auto;
   border: none;
   border-radius: 8px;
   background: var(--primary);
   color: #fff;
-  font-size: 14px; font-weight: 600;
+  font-size: 13px; font-weight: 600;
   cursor: pointer;
-  padding: 9px 0;
+  padding: 7px 12px;
+  white-space: nowrap;
 }
+/* 未登录时账号区只有一个按钮，让它照旧占满整条 */
+.mm-login-btn.wide { flex: 1 1 auto; font-size: 14px; padding: 9px 0; }
 .mm-login-btn:hover { background: var(--primary-dark); }
 .mm-list { display: flex; flex-direction: column; padding: 8px 0 0; }
 .mm-list .u-a { padding: 11px 8px; border-radius: 8px; font-weight: 600; color: var(--text-2); }
