@@ -701,9 +701,14 @@ watch(() => route.path, () => {
   .bn-icon { width: 22px; height: 22px; display: block; }
   .bn-text { font-size: 11px; line-height: 1; }
 
-  /* 给页脚留出底栏高度，避免最后一行被固定底栏盖住。
-     写两条：env() 不被支持时第二条整条作废，回落第一条。 */
-  .footer { padding-bottom: 84px; }
-  .footer { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  /* 页脚在窄屏**整块去掉**（品牌行 + 采集服务状态标签 + 版权提示都不留，2026-09-23 用户要求）。
+     ⚠️ 清障高度必须**搬**到内容容器上，不能跟着页脚一起消失 —— 原先「给页脚留出底栏高度、
+     避免最后一行被固定底栏盖住」靠的就是 .footer 的 padding-bottom；页脚没了，最后一排
+     漫画卡就会被固定底栏压住。`.page` 只在本组件模板上用（见 style.css 的 .page / .container 注释），
+     且 `.page[data-v-*]` 比全局 `.page` 多一个属性选择器，能稳定盖过它的 48px。
+     84px = 原值照搬：底栏本体约 50px + 34px 余量。 */
+  .footer { display: none; }
+  .page { padding-bottom: 84px; }
+  .page { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 }
 </style>
