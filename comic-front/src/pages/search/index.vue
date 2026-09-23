@@ -10,6 +10,7 @@ import {
 } from '../../api'
 import type { CategoryCount, Comic, SourceSearchGroup, SourceSearchItem } from '../../types'
 import ComicCard from '../../components/ComicCard.vue'
+import FilterBar from '../../components/FilterBar.vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { setRoute, useRoute, useRouter } from '../../utils/router'
 import Layout from '../../components/Layout.vue'
@@ -19,7 +20,8 @@ const router = useRouter()
 
 const categories = ref<CategoryCount[]>([])
 const category = ref('全部')
-const sort = ref<ComicSort>('updated')
+// 默认按热度降序（2026-09-22 用户要求）：进分类页先看「现在最热的」，而不是刚更新的
+const sort = ref<ComicSort>('views')
 const keyword = ref('')
 const input = ref('')
 const comics = ref<Comic[]>([])
@@ -169,21 +171,13 @@ onLoad((options) => setRoute('/search', options ?? {}))
           <button class="u-button" form-type="submit">搜索</button>
         </form>
 
-        <view class="cats">
-          <button
-            v-for="c in categories"
-            :key="c.name"
-            class="chip-btn u-button"
-            :class="{ on: category === c.name }"
-            @click="onCategory(c.name)"
-          >{{ c.name }}<text class="u-span">{{ c.count }}</text></button>
-        </view>
-
-        <view class="sorts">
-          <text class="label u-span">排序</text>
-          <button class="u-button" :class="{ on: sort === 'updated' }" @click="onSort('updated')">最新更新</button>
-          <button class="u-button" :class="{ on: sort === 'views' }" @click="onSort('views')">最热</button>
-        </view>
+        <FilterBar
+          :category="category"
+          :sort="sort"
+          :categories="categories"
+          @update:category="onCategory"
+          @update:sort="onSort"
+        />
       </view>
 
       <view v-if="keyword" class="result-hint u-p">
@@ -307,35 +301,6 @@ onLoad((options) => setRoute('/search', options ?? {}))
   cursor: pointer;
 }
 .big-search .u-button:hover { background: var(--primary-dark); }
-
-.cats { display: flex; gap: 8px; flex-wrap: wrap; }
-.chip-btn {
-  border: 1px solid var(--border);
-  background: var(--card);
-  padding: 5px 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s;
-  color: var(--text);
-}
-.chip-btn .u-span { color: #b5aca2; font-size: 12px; margin-left: 3px; }
-.chip-btn:hover { border-color: var(--primary); color: var(--primary); }
-.chip-btn.on { background: var(--primary); border-color: var(--primary); color: #fff; }
-.chip-btn.on .u-span { color: rgba(255, 255, 255, 0.75); }
-
-.sorts { display: flex; align-items: center; gap: 8px; }
-.sorts .label { font-size: 13px; color: var(--text-2); }
-.sorts .u-button {
-  border: 1px solid var(--border);
-  background: var(--card);
-  padding: 4px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  cursor: pointer;
-  color: var(--text-2);
-}
-.sorts .u-button.on { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); font-weight: 600; }
 
 .result-hint { font-size: 13px; color: var(--text-2); margin: 0 0 12px; }
 

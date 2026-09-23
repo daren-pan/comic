@@ -129,7 +129,7 @@ class Storage(ABC):
         page_size: int = 12,
         source: str | None = None,
     ) -> tuple[list[dict], int]:
-        """作品列表，支持分类/关键词/排序(updated|views)/分页，返回 (items, total)。
+        """作品列表，支持分类/关键词/排序(updated|views|favorites)/分页，返回 (items, total)。
 
         `source`：只取该数据源的作品；None = 全部源（供封面自愈等「按源限定」的批处理使用）。
         """

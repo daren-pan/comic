@@ -441,6 +441,9 @@ class MySQLStorage(Storage):
         if sort == "views":
             # 热度相同的作品再按最近更新时间倒序 —— 同分时"更新的排前面"
             sql += " ORDER BY heat DESC, c.sync_time DESC, c.id DESC"
+        elif sort == "favorites":
+            # 收藏数优先，同数再按热度、再按更新时间 —— 保证排序稳定可分页
+            sql += " ORDER BY favorite_count DESC, heat DESC, c.sync_time DESC, c.id DESC"
         else:
             sql += " ORDER BY c.sync_time DESC"
         with self._conn() as conn:

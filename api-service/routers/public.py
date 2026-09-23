@@ -87,6 +87,7 @@ def sources_search(q: str, source: str | None = None, limit: int = 20):
 
 @router.get("/api/comics")
 def comics(category: str | None = None, keyword: str | None = None, sort: str = "updated", page: int = 1, page_size: int = 12):
+    """作品列表。`sort`：updated=最新更新（默认）/ views=热度倒序 / favorites=收藏数倒序。"""
     page = max(1, page)
     page_size = min(max(1, page_size), 50)
     rows, total = db.list_comics(category=category, keyword=keyword, sort=sort, page=page, page_size=page_size)

@@ -1,62 +1,96 @@
 <script setup lang="ts">
-// 热度排行 —— 按分类分区块，各分类内按热度（后端 heat 字段）倒序取前 N 部。
+// 热度排行 —— **一整条全库榜单**：按热度（后端 heat 字段）从高到低排，可切标签与排序口径。
 // 热度口径：1000 起底 + 浏览次数×1 + 收藏数×2（见 crawler-service/mysql_storage.py）。
 //
-// 分类很多（库内 70+ 个标签），为避免一次性发出几十个请求，这里做**分批懒加载**：
-// 首屏只渲染/请求前 BATCH 个分类，用户**滚动到底部**再追加一批。
+// 2026-09-22 改版（用户要求）：原先「每个标签单独一个区块」——30 个标签就是 30 个区块、
+// 30 次请求，用户还得逐块看。现在改成**一条全库榜单 + 一条筛选条**（标签下拉 + 排序），
+// 翻页沿用 `onReachBottom`（小程序没有 IntersectionObserver，见下）。
 //
 // ⚠️ 触发机制说明（2026-09-22 多端适配）：comic-web 用 `IntersectionObserver` 做「区块进视口才拉」，
 // 但**小程序没有这个 API**（且 `uni.createIntersectionObserver` 只能按选择器观察，拿不到
 // 函数式 ref 的元素）。改用 uni 的页面级生命周期 `onReachBottom` —— 三端一致、可用性等价
-// （差别只是「滚到底」而非「进视口」触发，请求次数与首屏开销都不变）。
-import { computed, onMounted, ref } from 'vue'
-import { getCategories, getComics } from '../../api'
+// （差别只是「滚到底」而非「进视口」触发）。
+import { onMounted, ref } from 'vue'
+import { getCategories, getComics, type ComicSort } from '../../api'
 import type { CategoryCount, Comic } from '../../types'
 import { onLoad, onReachBottom } from '@dcloudio/uni-app'
 import { setRoute, useRouter } from '../../utils/router'
 import Layout from '../../components/Layout.vue'
+import FilterBar from '../../components/FilterBar.vue'
 
-/** 每个分类榜单展示的作品数 */
-const TOP_N = 10
-/** 少于该作品数的分类不单独设榜（1~2 部排不出名次） */
-const MIN_COUNT = 3
-/** 首批渲染的分类数，也是每次触底追加的数量 */
-const BATCH = 4
+/** 每批拉取条数（= 一页），触底再拉下一批追加到榜尾 */
+const PAGE_SIZE = 20
 
 const router = useRouter()
-const cats = ref<CategoryCount[]>([])
-const lists = ref<Record<string, Comic[]>>({})
-const pending = ref<Record<string, boolean>>({})
+const categories = ref<CategoryCount[]>([])
+const category = ref('全部')
+// 默认按热度降序（2026-09-22 用户要求）—— 排行榜的本分就是按热度排
+const sort = ref<ComicSort>('views')
+const comics = ref<Comic[]>([])
+const total = ref(0)
+const page = ref(1)
+const loading = ref(false)
+/** 首次加载是否已完成（用于区分「加载中」与「暂无数据」） */
 const ready = ref(false)
-/** 已渲染的分类数（懒加载水位线：触底就 +BATCH） */
-const visibleCount = ref(BATCH)
 
-/** 当前实际渲染的分类区块 */
-const catsToShow = computed(() => cats.value.slice(0, visibleCount.value))
+// 竞态保护：切标签/排序会连发请求，只认最后一次的结果，避免旧响应盖掉新榜
+let reqId = 0
 
-async function loadCategory(name: string) {
-  if (lists.value[name] || pending.value[name]) return
-  pending.value[name] = true
+async function load(reset = false) {
+  const id = ++reqId
+  if (reset) {
+    page.value = 1
+    comics.value = []
+    total.value = 0
+  }
+  loading.value = true
   try {
-    const res = await getComics({ category: name, sort: 'views', pageSize: TOP_N })
-    lists.value[name] = res.items
+    const res = await getComics({
+      category: category.value === '全部' ? undefined : category.value,
+      sort: sort.value,
+      page: page.value,
+      pageSize: PAGE_SIZE,
+    })
+    if (id !== reqId) return   // 已有更新的请求发出 → 丢弃本次结果
+    comics.value = reset ? res.items : comics.value.concat(res.items)
+    total.value = res.total
   } catch {
-    lists.value[name] = []
+    if (id !== reqId) return
+    if (reset) {
+      comics.value = []
+      total.value = 0
+    } else {
+      page.value = Math.max(1, page.value - 1)   // 追加失败 → 页码回退，下次触底重试
+    }
   } finally {
-    pending.value[name] = false
+    if (id === reqId) {
+      loading.value = false
+      ready.value = true
+    }
   }
 }
 
-/** 把「已渲染但还没拉过」的分类补齐（首屏与每次触底追加后都走它） */
-function ensureLoaded() {
-  for (const cat of catsToShow.value) loadCategory(cat.name)
+/** 触底 → 追加下一批 */
+function loadMore() {
+  if (loading.value || comics.value.length >= total.value) return
+  page.value += 1
+  load()
 }
 
-/** 触底 → 追加一批分类 */
-function loadMore() {
-  if (visibleCount.value >= cats.value.length) return
-  visibleCount.value += BATCH
-  ensureLoaded()
+function onCategory(v: string) {
+  if (v === category.value) return
+  category.value = v
+  load(true)
+}
+
+function onSort(s: ComicSort) {
+  if (s === sort.value) return
+  sort.value = s
+  load(true)
+}
+
+function goSearch() {
+  router.push({ path: '/search', query: category.value === '全部' ? {} : { category: category.value } })
 }
 
 function rankClass(i: number): string {
@@ -71,17 +105,11 @@ function fmtHeat(v: number): string {
 
 onMounted(async () => {
   try {
-    const all = await getCategories()
-    cats.value = all
-      .filter((c) => c.name !== '全部' && c.count >= MIN_COUNT)
-      .sort((a, b) => b.count - a.count)
+    categories.value = await getCategories()
   } catch {
-    cats.value = []
-  } finally {
-    ready.value = true
-    // 首批：分类数据到位后立刻拉；其余等触底
-    ensureLoaded()
+    categories.value = []
   }
+  await load(true)
 })
 
 // uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）
@@ -94,42 +122,46 @@ onReachBottom(loadMore)
 <template>
   <Layout>
     <view>
-      <view class="section-title">🏆 热度排行</view>
+      <view class="head">
+        <view class="section-title">🏆 热度排行</view>
+        <view class="head-more u-a" @click="goSearch">在分类浏览中查看 ›</view>
+      </view>
       <view class="lead u-p">
-        按分类分区块，每个分类内按热度从高到低取前 {{ TOP_N }} 部（热度 = 起底 1000 + 浏览 ×1 + 收藏 ×2，同分按最近更新）；
-        仅收录作品数 ≥ {{ MIN_COUNT }} 的分类，作品多的分类排在前面。
+        全库按热度从高到低排序（热度 = 起底 1000 + 浏览 ×1 + 收藏 ×2，同分按最近更新）；
+        可用标签筛选、切换排序口径。
       </view>
 
+      <FilterBar
+        :category="category"
+        :sort="sort"
+        :categories="categories"
+        @update:category="onCategory"
+        @update:sort="onSort"
+      />
+
       <view v-if="!ready" class="empty">加载中…</view>
-      <view v-else-if="cats.length === 0" class="empty">暂无排行数据</view>
+      <view v-else-if="comics.length === 0" class="empty">暂无排行数据</view>
 
       <template v-else>
-        <view
-          v-for="cat in catsToShow"
-          :key="cat.name"
-          class="block"
-        >
-          <view class="block-head u-h3">
-            <text class="block-name u-span">{{ cat.name }}</text>
-            <text class="block-count u-span">{{ cat.count }} 部</text>
-            <view class="block-more u-a" @click="router.push({ path: '/search', query: { category: cat.name } })">查看全部 ›</view>
-          </view>
-
-          <view v-if="!lists[cat.name]" class="block-loading">加载中…</view>
-          <view v-else class="rank">
-            <view v-for="(c, i) in lists[cat.name]" :key="c.id" class="item">
-              <text class="no u-span" :class="rankClass(i)">{{ i + 1 }}</text>
-              <view class="thumb u-a" @click="router.push(`/comic/${c.id}`)">
-                <image mode="aspectFill" class="u-img" :src="c.cover" :alt="c.title" loading="lazy" />
-              </view>
-              <view class="info">
-                <view class="name u-a" @click="router.push(`/comic/${c.id}`)">{{ c.title }}</view>
-                <view class="meta u-p">{{ c.author }}</view>
-                <view class="latest u-p">{{ c.latestChapterTitle || '暂无章节' }}</view>
-              </view>
-              <text class="heat u-span">🔥 {{ fmtHeat(c.heat) }}</text>
+        <view class="rank">
+          <view v-for="(c, i) in comics" :key="c.id" class="item">
+            <text class="no u-span" :class="rankClass(i)">{{ i + 1 }}</text>
+            <view class="thumb u-a" @click="router.push(`/comic/${c.id}`)">
+              <image mode="aspectFill" class="u-img" :src="c.cover" :alt="c.title" loading="lazy" />
             </view>
+            <view class="info">
+              <view class="name u-a" @click="router.push(`/comic/${c.id}`)">{{ c.title }}</view>
+              <view class="meta u-p">{{ c.author }}</view>
+              <view class="latest u-p">{{ c.latestChapterTitle || '暂无章节' }}</view>
+            </view>
+            <text class="heat u-span">🔥 {{ fmtHeat(c.heat) }}</text>
           </view>
+        </view>
+
+        <view class="more-hint u-p">
+          <text v-if="loading">加载中…</text>
+          <text v-else-if="comics.length >= total">已到底 · 共 {{ total }} 部</text>
+          <text v-else>上滑加载更多（{{ comics.length }} / {{ total }}）</text>
         </view>
       </template>
     </view>
@@ -137,17 +169,13 @@ onReachBottom(loadMore)
 </template>
 
 <style scoped>
-.lead { color: var(--text-2); font-size: 14px; margin: -8px 0 18px; }
+.head { display: flex; align-items: baseline; gap: 12px; }
+.head-more { margin-left: auto; font-size: 12px; color: var(--primary); }
+.head-more:hover { text-decoration: underline; }
 
-.block { margin-bottom: 26px; }
-.block-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; font-size: 16px; }
-.block-name { font-weight: 800; }
-.block-count { font-size: 12px; color: var(--text-2); font-weight: 500; }
-.block-more { margin-left: auto; font-size: 12px; color: var(--primary); text-decoration: none; }
-.block-more:hover { text-decoration: underline; }
-.block-loading { color: var(--text-2); font-size: 13px; padding: 14px 2px; }
+.lead { color: var(--text-2); font-size: 14px; margin: -8px 0 16px; }
 
-.rank { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 14px; }
+.rank { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 14px; }
 @media (max-width: 760px) { .rank { grid-template-columns: 1fr; } }
 
 .item {
@@ -164,7 +192,7 @@ onReachBottom(loadMore)
 
 .no {
   flex: 0 0 auto;
-  width: 22px;
+  width: 26px;
   text-align: center;
   font-size: 13px;
   font-weight: 800;
@@ -186,4 +214,6 @@ onReachBottom(loadMore)
 .latest { margin: 4px 0 0; font-size: 12px; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .heat { flex: 0 0 auto; font-size: 12px; color: #b5aca2; font-variant-numeric: tabular-nums; }
+
+.more-hint { margin: 16px 0 4px; text-align: center; font-size: 13px; color: var(--text-2); }
 </style>

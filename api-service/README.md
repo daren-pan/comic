@@ -40,7 +40,7 @@ api-service/
 |---|---|
 | `GET /api/health` | 服务状态 + 库内统计（comics/chapters/pages/views） |
 | `GET /api/categories` | 分类与作品数（含「全部」） |
-| `GET /api/comics?category=&keyword=&sort=updated\|views&page=&page_size=` | 作品列表：分类 / 关键词 / 排序 / 分页（`sort=views` = 按热度倒序，同分再按最近更新倒序） |
+| `GET /api/comics?category=&keyword=&sort=updated\|views\|favorites&page=&page_size=` | 作品列表：分类 / 关键词 / 排序 / 分页（`sort=views` = 按热度倒序，同分再按最近更新倒序；`sort=favorites` = 按收藏数倒序，同数再按热度、更新时间） |
 | `GET /api/comics/{id}` | 作品详情（**浏览次数 +1 落库**后返回，`heat` 含本次访问） |
 | `GET /api/comics/{id}/chapters` | 章节列表（`chapter_no` 升序；**不含页数**，原因见 crawler-service README） |
 | `GET /api/chapters/{id}/pages` | 分页图片列表；库内还没有页清单时**现场登记一次**（首次打开这一话才产生） |
