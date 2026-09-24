@@ -1,13 +1,13 @@
 # 上线部署（后端）
 
-> 适用：把 `api-service` + `crawler-service` 部署到一台**服务器**上对外提供服务。
-> 前端不用在这里处理 —— `comic-web` 构建出的 `dist/` 会被后端**同源托管**。
+> 适用：把 `api-service` + `crawler-service` + 两个前端部署到一台**服务器**上对外提供服务。
+> 后端是**纯 API**（`/api/*` + `/docs`）；两个前端各自一个镜像、各自带 nginx，端口分开（默认 85 / 86）。
 
 ## 0. 先选一种方式
 
 | 方式 | 怎么做 | 适合 | 章节 |
 |---|---|---|---|
-| **A. Docker Compose**（推荐） | `deploy/` 下已备好整套编排（mysql + app + nginx，采集可选），一条 `up -d --build`。数据库是**本项目独占**的实例 | 长期跑、以后会换机器 | §1 |
+| **A. Docker Compose**（推荐） | `deploy/` 下已备好整套编排（mysql + app + 两个前端入口，采集可选），一条 `up -d`。数据库是**本项目独占**的实例 | 长期跑、以后会换机器 | §1 |
 | **B. 直接在仓库里跑** | 服务器上 `git clone` → 装依赖 → 起 uvicorn（`core/config.py` 原生支持这种布局） | 和开发同一台机器 / 图省事 | §2 |
 | **C. 打包成单个目录再传** | `scripts/package.sh` 产出 `build/deploy`（挑好的子集，不含 `.git`/测试/文档） | 目标机器没有仓库、只想传一个目录 | §3 |
 
@@ -19,17 +19,32 @@
 
 ```
 deploy/
-├── web/        Dockerfile + dist/（前端构建产物）        → comic-web:1.0.0      只装 dist
-├── crawler/    Dockerfile + dist/comic_crawler-*.whl    → comic-crawler:1.0.0  采集层（可单独当 CLI 镜像）
-├── api/        Dockerfile + dist/comic_api-*.whl        → comic-api:1.0.0      接口层（FROM 采集层）
-├── nginx/      Dockerfile + nginx.conf                  → comic-nginx:1.0.0    反代（配置烘进镜像）
-├── mysql/      Dockerfile + sql/（建库脚本产物）        → comic-mysql:1.0.0   本项目独占的库（FROM mysql:8.0）
-├── build.sh / build.bat                                 生成产物 + 按序构建这 5 个镜像
-├── up.sh                                                **一键**：前端 build + 上面这些 + up -d + 自检
-├── up-front.sh                                          同上，但前端换成 comic-front（uni-app H5）
-├── docker-compose.yml                                   编排：comic-mysql + comic-app + comic-nginx
-└── .env.example                                         配置模板（`deploy/.env` 已 gitignore）
+├── web/        Dockerfile + nginx.conf + dist/（网页端产物）  → comic-web:1.0.0    自带 nginx，宿主 85
+├── front/      Dockerfile + nginx.conf + dist/（移动端产物）  → comic-front:1.0.0  自带 nginx，宿主 86
+├── crawler/    Dockerfile + dist/comic_crawler-*.whl          → comic-crawler:1.0.0  采集层（可单独当 CLI 镜像）
+├── api/        Dockerfile + dist/comic_api-*.whl              → comic-api:1.0.0      接口层（依赖采集层 wheel，**纯 API**）
+├── mysql/      Dockerfile + sql/（建库脚本产物）              → comic-mysql:1.0.0    本项目独占的库（FROM mysql:8.0）
+├── build.sh / build.bat                                       生成产物 + 按序构建这些镜像
+├── up.sh                                                      **一键**：前端 build（默认两个入口，可 --web/--front 选）+ 上面这些 + up -d + 自检
+├── docker-compose.yml                                         编排：comic-mysql + comic-app + comic-web / comic-front
+└── .env.example                                               配置模板（`deploy/.env` 已 gitignore）
 ```
+
+**两个前端入口各自一个镜像、各自带 nginx**（静态产物 + 反代在同一个容器里）：
+
+| 入口 | 镜像 | 产物来源 | 宿主端口 |
+|---|---|---|---|
+| 网页端 | `comic-web:1.0.0` | `comic-web/dist`（Vue3 SPA，已冻结、只作参考实现） | `WEB_PORT`（默认 85） |
+| 移动端 | `comic-front:1.0.0` | `comic-front/dist/build/h5`（uni-app H5，**当前主用**） | `FRONT_PORT`（默认 86） |
+
+- **两个可以同时跑**，互不影响；只想开一个就把服务名写在 `up -d` 后面
+  （`docker compose -f deploy/docker-compose.yml up -d comic-front`），依赖链会自动带上 `comic-app` 与 `comic-mysql`。
+- **共用同一份 nginx 站点配置**：`deploy/web/nginx.conf` 与 `deploy/front/nginx.conf` 必须**逐字节一致**
+  （Docker 构建上下文不能跨目录 `COPY`，只能各放一份）。`build.sh` / `build.bat` 构建前会校验，不一致直接报错。
+- 分流规则：`location ~ ^/(api/|docs|redoc|openapi\.json)` 反代到 `comic-app:8000`，其余本地静态文件。
+  两个前端都是 **hash 路由 + 相对 base**，不需要 history 回退，末尾 `try_files` 纯容错。
+- **后端是纯 API**：`main.py` 的静态挂载有 `if DIST_DIR.is_dir()` 守卫，容器里没有前端目录就自然退化，
+  后端代码一行没改。
 
 **数据库：本项目独占一个实例**（`comic-mysql` 容器，**MySQL 8.0**），不与别的系统共用 —— 库、账号、
 权限、备份策略都独立（曾与别的系统共用过实例，出现过"别人的表建进我们库"这类问题，独立实例最省心）。
@@ -52,6 +67,7 @@ deploy/
 |---|---|---|
 | `crawler` / `api` | **wheel**（`*.whl`） | 各自的 `pyproject.toml`（= 那个模块的 pom.xml）经 `pip wheel` 构建 |
 | `web` | `dist/` 静态文件 | `cd comic-web && npm run build` 后复制进来（前端不是 Python 包）；来源可用 `WEB_SRC=<目录>` 覆盖 |
+| `front` | `dist/` 静态文件 | `cd comic-front && npm run build:h5` 后复制进来；来源可用 `FRONT_SRC=<目录>` 覆盖 |
 
 wheel 里只有包本身与依赖声明：**测试、文档、样例夹具自动被排除**（例如 crawler 的
 `sources/*/README.md`、`guazi/fixtures/*.html` 都不在包里），依赖清单也只写一份（`pyproject.toml`）。
@@ -59,27 +75,28 @@ wheel 里只有包本身与依赖声明：**测试、文档、样例夹具自动
 ```bash
 # 一条命令干完下面几步（含代码更新、前置检查与自检）：
 ./deploy/up.sh                  # 一键：git pull + 前端 build + 镜像 build + 起服务 + 自检
+#   ./deploy/up.sh --web         只起网页端（comic-web，宿主 85）
+#   ./deploy/up.sh --front       只起移动端（comic-front，宿主 86）
 #   ./deploy/up.sh --skip-web    前端没改 → 跳过 npm build（快很多）
 #   ./deploy/up.sh --skip-pull   不更新代码 → 直接按当前工作区构建
 #   ./deploy/up.sh --collect     额外起定时采集 comic-scheduler
 #   ./deploy/up.sh --migrate     ★ 服务器上**已有旧库**时加上它（跑幂等迁移脚本，见 §5）
 
 cp deploy/.env.example deploy/.env      # 至少改 MYSQL_ROOT_PASSWORD 与 COMIC_JWT_SECRET
-cd comic-web && npm run build           # 前端产物（build.sh 会把它复制进 deploy/web/dist）
-./deploy/build.sh                       # 构建 wheel/dists + 按序构建 5 个镜像（Windows: deploy\build.bat）
+./deploy/build.sh                       # 构建 wheel/dist + 按序构建镜像（Windows: deploy\build.bat）
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-> **前端要部署 comic-front（uni-app）而不是 comic-web 时**，把上面所有 `up.sh` 换成
-> **`up-front.sh`**（参数完全一致）：流程逐字相同，只把前端构建换成
-> `cd comic-front && npm run build:h5`（产物 `comic-front/dist/build/h5`），并用 `WEB_SRC` 交给 `build.sh`。
-> 两者**共用同一个站点位置**（`deploy/web/dist/` → 烘进 comic-api → 在 `/` 同源托管），
-> 所以是「替换」不是「并存」：跑过 `up-front.sh` 后站点就是 comic-front，再跑 `up.sh` 会切回 comic-web。
-> 管理台路由也随之从 `/#/admin` 变成 `/#/pages/admin/index`。
+> 前端选择：**不带参数 = 两个入口都起**；带 `--web` / `--front` 就是只起选中的那个
+> （两个都给也等价于不带参数）。
+>
+> **只重建某一个前端**：`./deploy/build.sh --web` / `--front`（不带参数 = 两个都构建）。
+> `up.sh` 会把所选前端交给 `build.sh` 的 `--web` / `--front`，并用 `WEB_SRC` / `FRONT_SRC` 指产物目录。
+> `build.sh` 复制前会清空目标目录，所以不会出现两套 hash 产物混在一起。
 
-> `up.sh` 就是把这几步串起来的**幂等**一键脚本：**`git pull` 更新代码** → 前置检查 → 前端 build →
-> `build.sh` → `up -d` → 自检（mysql healthy → 容器内 `/api/health` → 数据目录可写 →
-> 对外入口 HTTP 码）。重复跑只是更新代码 + 重新构建 + `up -d`，**不会清数据**。
+> `up.sh` 就是把这几步串起来的**幂等**一键脚本：**`git pull` 更新代码** → 前置检查 → 所选前端 build →
+> `build.sh` → `up -d <所选入口>` → 自检（mysql healthy → 容器内 `/api/health` → 数据目录可写 →
+> 各入口 HTTP 码 + 前端身份）。重复跑只是更新代码 + 重新构建 + `up -d`，**不会清数据**。
 >
 > ⚠️ 开头的 `git pull` 只做**快进**（`--ff-only`），并把「更新了哪几条提交」打出来；
 > 不是 git 工作区（方式 C 的发布包）/ 断网 / 本地有冲突时不中止，**按当前工作区继续构建**，
@@ -96,29 +113,37 @@ docker compose -f deploy/docker-compose.yml up -d
 > 也可用 `PYTHON=/path/to/python` 显式指定）。
 > 它会临时拉 `setuptools` 做构建隔离，首次构建需要网络。
 
-**为什么镜像要按顺序建**：`api` 的 Dockerfile 会 `FROM comic-crawler:1.0.0` 并
-`COPY --from=comic-web:1.0.0`，所以必须先有那两个镜像。顺序是 `web → crawler → api → nginx`，
-`build.sh` 已经固定好；只在个别层改动时，也可以单独 `docker compose build comic-app`。
+**两个模块之间没有镜像依赖**：`api` 不再 `FROM comic-crawler:1.0.0`，而是在 `api-service/pyproject.toml`
+的 `dependencies` 里声明 `comic-crawler>=1.0.0`（**方向单向：api → crawler**），构建时 pip 按这条声明解析安装；
+采集层的 **wheel 产物**经 BuildKit 命名上下文 `crawler` 喂进 api 的构建上下文（`build.sh` 的
+`--build-context crawler=./crawler`、compose 的 `additional_contexts`）。所以**不必先有 crawler 镜像**，
+只要它的 wheel 已生成（步骤 1 已保证）；顺序 `mysql → web → crawler → api → front` 仍固定在 `build.sh` 里，
+只是不再是硬约束。两个前端镜像**反向不依赖后端**（nginx.conf 里的 `upstream comic-app:8000` 构建期不解析、
+运行期才需要），顺序里放哪都行。只在个别层改动时，也可以单独 `docker compose build comic-app`。
 
 要点：
 
 - **构造上下文就是模块文件夹本身**（`context: ./api`）—— 里面只有产物和 Dockerfile，
   不需要 `.dockerignore`，也不会把 `.git` / `.venv` / `node_modules` 送进构建；
-- **wheel 装进 site-packages，相对路径推导随之失效** —— 所以镜像里显式给了三个环境变量：
-  `COMIC_IMAGE_ROOT=/data/image_store`（图库根）、`COMIC_DIST_DIR=/app/comic-web/dist`（前端产物）、
-  `COMIC_STATE_FILE=/data/source_state.json`（开关状态）。**这是 wheel 方案的固有代价**，
-  也是为什么 `paths.py` 那套"从包位置向上推"在容器里不再作数；
-- **接口层镜像从采集层继承**：Python 版本、依赖、非 root 用户（uid 10001）、`/data` 数据目录都在采集层里定义一次；
+- **wheel 装进 site-packages，相对路径推导随之失效** —— 所以镜像里显式给了环境变量：
+  `COMIC_IMAGE_ROOT=/data/image_store`（图库根）、`COMIC_STATE_FILE=/data/source_state.json`（开关状态）。
+  **这是 wheel 方案的固有代价**，也是为什么 `paths.py` 那套"从包位置向上推"在容器里不再作数
+  （前端产物不再烘进后端镜像，`COMIC_DIST_DIR` 已随之删除）；
+- **接口层与采集层只靠依赖声明相连**：Python 版本、基础镜像、非 root 用户（uid 10001）、`/data`
+  数据目录在**各自的 Dockerfile** 里定义（两边都写一遍，换来的是两个模块可以独立构建）；
+  `comic_crawler` 在容器里来自 pip 装的依赖（site-packages），`core/config.py` 那套相对路径候选
+  在 wheel 态自然全部落空、直接可导入；
 - **数据分两处**：`mysql_data` 卷 → 数据库（`down` 不删卷）；**图库与源开关状态在宿主目录**
   （bind 到容器 `/data`，默认 `../crawler-service/data`，可用 `COMIC_DATA_HOST` 改）——
   与本地直跑是**同一份**，见 §12。备份 = `mysqldump` + 那个数据目录；
-- **容器名固定**为 `comic-app` / `comic-nginx`（+ `comic-scheduler`），宿主端口由 `.env` 的 `HTTP_PORT` 控制（默认 80，被占用就改）；
+- **容器名固定**为 `comic-app` / `comic-web` / `comic-front`（+ `comic-scheduler`），两个前端入口的宿主端口由 `.env` 的 `WEB_PORT`（默认 85）/ `FRONT_PORT`（默认 86）控制；
 - **app 单进程**（不加 `--workers`），原因见 §8；
 - **管理台 / 日志 / 授权页要管理员角色**（`/api/admin/*` 全挂鉴权）：管理台与日志要 `require_admin`
   （超管 + 普通管理员），**授权页要 `require_superadmin`（仅超管）** —— 分开是硬要求，
   否则被授权的普通管理员反手就能把超管降级。未登录 401、权限不足 403。
   全新库**首个注册用户自动成为超管**；老库升级跑 `up.sh --migrate`（`add_user_role.py` 会把**最早的特权用户**
-  提升为超管，否则升级后没人能授权）。给他人授权用管理台「授权」页（`/#/admin/users`）；
+  提升为超管，否则升级后没人能授权）。给他人授权用管理台「授权」页
+  （comic-web 是 `/#/admin/users`，comic-front 是 `/#/pages/admin/users`）；
 - **定时采集是可选服务**，默认不启动：`docker compose -f deploy/docker-compose.yml --profile collect up -d`。
   ⚠️ 调度器读的是**代码里的** `SOURCES[].enabled`，**不读**管理台那个开关文件 ——
   在管理台关掉的源，调度器仍会采集；不想采就手动触发或改代码默认值；
@@ -332,9 +357,10 @@ python -m comic_crawler.cli serve
 | `comic_crawler` 导入来源 | ✅ `<out>/src/comic_crawler` |
 | 运行时数据根 | ✅ `<out>/data/`（图库 `data/image_store` + 状态 `data/source_state.json`） |
 
-**Compose 方式（§1）也实测过**：`docker compose up -d` 起 `comic-mysql` + `comic-app` + `comic-nginx`
-（数据库是**本项目独占**的 8.0 实例，app 走编排内网连 `comic-mysql:3306`），首页与 `/assets` 分包均 200，
-`nginx -t` 通过。apk 无关的镜像构建走 `PIP_INDEX`（见 `deploy/build.sh` 注释）可换国内源。
+**Compose 方式（§1）也实测过**：`docker compose up -d` 起 `comic-mysql` + `comic-app` + `comic-web` +
+`comic-front`（数据库是**本项目独占**的 8.0 实例，app 走编排内网连 `comic-mysql:3306`；两个前端各自带
+nginx 反代到 `comic-app:8000`），首页与 `/assets` 分包均 200，`nginx -t` 通过。
+apk 无关的镜像构建走 `PIP_INDEX`（见 `deploy/build.sh` 注释）可换国内源。
 
 > 唯一没验证的是"真实跑一遍 `scripts/package.sh`"—— 它有 `rm -rf build/deploy`，需要人工确认后执行（现已改为零删除，但历史上需确认）。
 

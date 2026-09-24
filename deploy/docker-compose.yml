@@ -1,29 +1,35 @@
 # 漫画聚合平台 —— 生产编排（Linux）
 #
 # 目录结构（每个模块一个文件夹，产物与 Dockerfile 放在一起）：
-#   deploy/web/      前端产物 dist/            -> comic-web:1.0.0
+#   deploy/web/      网页端产物 dist/          -> comic-web:1.0.0     （自带 nginx，宿主 85）
+#   deploy/front/    移动端产物 dist/          -> comic-front:1.0.0   （自带 nginx，宿主 86）
 #   deploy/crawler/  采集层 wheel              -> comic-crawler:1.0.0（可单独当 CLI 镜像用）
-#   deploy/api/      接口层 wheel（FROM 采集层）-> comic-api:1.0.0
-#   deploy/nginx/    反代 nginx.conf           -> comic-nginx:1.0.0
-#   deploy/mysql/    自带数据库 Dockerfile      -> comic-mysql:1.0.0（本项目独占的库）
+#   deploy/api/      接口层 wheel（依赖采集层 wheel）-> comic-api:1.0.0（**纯 API**，不含前端）
+#   deploy/mysql/    自带数据库 Dockerfile      -> comic-mysql:1.0.0 （本项目独占的库）
+#
+# 前端两个入口**各自带 nginx**（不再有独立的反代容器）：静态产物 + 反代在同一个容器里，
+# 所以「只开移动端」时不会出现「反代活着但产物不在」的悬空状态，按需启动最省事。
 #
 # 快速开始：
 #   cp deploy/.env.example deploy/.env     # 然后编辑：MYSQL_ROOT_PASSWORD + COMIC_JWT_SECRET
-#   cd comic-web && npm run build          # 前端产物（deploy/build.sh 会把它复制进 deploy/web/）
-#   ./deploy/build.sh                      # 生成产物 + 按序构建 5 个镜像（Windows: deploy\build.bat）
-#   docker compose -f deploy/docker-compose.yml up -d
+#   ./deploy/up.sh                         # 一键：前端 build + 镜像 build + 起服务 + 自检（两个入口都起）
+#   （或分步：cd comic-web && npm run build; ./deploy/build.sh; docker compose up -d）
 #
-# 服务名与容器名一致、且都带 comic- 前缀（comic-mysql / comic-app / comic-nginx / comic-scheduler），
-# 所以 `docker compose exec comic-app ...` 与 `docker exec comic-app ...` 指的是同一个容器；
-# 宿主端口由 .env 的 HTTP_PORT 控制（默认 80）—— 被别的程序占了就改它。
+# 服务名与容器名一致、且都带 comic- 前缀（comic-mysql / comic-app / comic-web / comic-front /
+# comic-scheduler），所以 `docker compose exec comic-app ...` 与 `docker exec comic-app ...`
+# 指的是同一个容器；两个前端入口的宿主端口由 .env 的 WEB_PORT / FRONT_PORT 控制（默认 85 / 86）。
+#
+# 只开其中一个入口：把服务名写在 up 后面即可（依赖链会自动带上 mysql 与 app）
+#   docker compose -f deploy/docker-compose.yml up -d comic-front
 #
 # 常用命令：
 #   docker compose -f deploy/docker-compose.yml logs -f comic-app        # 看后端日志
-#   docker compose -f deploy/docker-compose.yml ps                 # 状态
+#   docker compose -f deploy/docker-compose.yml logs -f comic-web        # 看网页端 nginx 访问日志
+#   docker compose -f deploy/docker-compose.yml ps                       # 状态
 #   docker compose -f deploy/docker-compose.yml exec comic-app bash      # 进容器（跑迁移脚本等）
-#   docker compose -f deploy/docker-compose.yml exec comic-nginx nginx -t # 校验反代配置（运行期才可解析 app）
-#   docker compose -f deploy/docker-compose.yml --profile collect up -d   # 额外启动定时采集
-#   docker compose -f deploy/docker-compose.yml down               # 停（卷保留，数据不丢）
+#   docker compose -f deploy/docker-compose.yml exec comic-web nginx -t  # 校验 nginx 配置（运行期才可解析 comic-app）
+#   docker compose -f deploy/docker-compose.yml --profile collect up -d  # 额外启动定时采集
+#   docker compose -f deploy/docker-compose.yml down                     # 停（卷保留，数据不丢）
 name: comic
 
 # 公共片段：app 与 scheduler 用同一镜像、同一份数据卷与数据库配置
@@ -81,20 +87,25 @@ services:
       start_period: 30s
     networks: [backend]
 
-  # ---------------- 应用（API + 同源托管前端）----------------
+  # ---------------- 应用（**纯 API**：只提供 /api/*，不再托管前端）----------------
   comic-app:
-    # 镜像由 deploy/build.sh 按依赖顺序构建（web → crawler → api）；这里同时写上
-    # image + build，是为了"单独重建某一层"时也能用 `docker compose build comic-app`。
-    # 但**全量重建请用 deploy/build.sh** —— api 依赖另外两个镜像，冒烟式乱序构建会拿到旧层。
+    # 镜像由 deploy/build.sh 按顺序构建（先出产物、再建镜像）；这里同时写上 image + build，
+    # 是为了"单独重建这一层"时也能用 `docker compose build comic-app`。
+    # 全量重建仍建议用 deploy/build.sh（会先把两个 wheel 产物重新生成一遍）。
     image: comic-api:1.0.0
     container_name: comic-app
     build:
       context: ./api
+      # 采集层的 **wheel 产物**经 BuildKit 命名上下文喂进 api 的构建（见 deploy/api/Dockerfile
+      # 的 `COPY --from=crawler dist/`）—— 两个模块之间没有镜像依赖，只有 pyproject.toml 里
+      # dependencies 的一句 `comic-crawler>=1.0.0`。路径按本 compose 文件所在目录解析。
+      additional_contexts:
+        crawler: ./crawler
     restart: unless-stopped
     # 密钥**不通过 env_file 注入**：compose 会自动读取同目录的 `deploy/.env`（已 gitignore）做
     # 变量插值，`x-app-env` 里的 `${...:?}` 守卫保证缺了就报错、不会静默用上演示默认值。
     # 用 env_file 的副作用是把 .env 里的**所有**键塞进容器 —— 包括本容器根本不需要的
-    # `MYSQL_ROOT_PASSWORD` / `MYSQL_HOST_PORT` / `HTTP_PORT`（多一份口令副本，且语义含糊）。
+    # `MYSQL_ROOT_PASSWORD` / `MYSQL_HOST_PORT` / `WEB_PORT` / `FRONT_PORT`（多一份口令副本，语义含糊）。
     environment: *app-env
     volumes:
       # 整个 /data bind 到宿主的**运行时数据目录**（默认 ../crawler-service/data，与本地直跑
@@ -105,22 +116,38 @@ services:
     depends_on:
       comic-mysql:
         condition: service_healthy
+    # frontend 网络给两个前端入口的 nginx 反代用（upstream comic-app:8000 在构建期不解析、
+    # 运行期才需要，所以这里必须在同一网络上）。
     networks: [backend, frontend]
-    # 默认只在编排网络内暴露（经 nginx 访问）。想在本机直连调试再打开这行：
+    # 默认只在编排网络内暴露（经前端 nginx 访问）。想在本机直连调试再打开这行：
     # ports: ["127.0.0.1:8000:8000"]
 
-  # ---------------- 反向代理（nginx）----------------
-  comic-nginx:
-    image: comic-nginx:1.0.0
-    container_name: comic-nginx
+  # ---------------- 网页端入口（comic-web 产物 + 自带 nginx）----------------
+  # 只跑网页端：docker compose -f deploy/docker-compose.yml up -d comic-web
+  comic-web:
+    image: comic-web:1.0.0
+    container_name: comic-web
     build:
-      context: ./nginx
+      context: ./web
     restart: unless-stopped
-    ports: ["${HTTP_PORT:-80}:80"]   # 宿主端口可配：80 被别的程序占了就设 HTTP_PORT=8080；HTTPS 再加 "443:443"
-    # 站点配置已烘进镜像（见 deploy/nginx/Dockerfile）—— 改配置就重建这一层，可版本化/回滚。
+    ports: ["${WEB_PORT:-85}:80"]
+    # 站点配置与产物都烘进镜像（见 deploy/web/Dockerfile）—— 改哪样就重建这一层，可版本化/回滚。
     # 启用 HTTPS 时再加证书挂载：
     # volumes:
     #   - /etc/letsencrypt:/etc/nginx/certs:ro
+    depends_on: [comic-app]
+    networks: [frontend]
+
+  # ---------------- 移动端入口（comic-front 的 H5 产物 + 自带 nginx）----------------
+  # 只跑移动端：docker compose -f deploy/docker-compose.yml up -d comic-front
+  # ⚠️ 与 comic-web 是**同构的两个服务**，只有产物与端口不同；两个可以同时跑，互不影响。
+  comic-front:
+    image: comic-front:1.0.0
+    container_name: comic-front
+    build:
+      context: ./front
+    restart: unless-stopped
+    ports: ["${FRONT_PORT:-86}:80"]
     depends_on: [comic-app]
     networks: [frontend]
 
@@ -156,7 +183,7 @@ volumes:
 
 networks:
   backend:       # comic-app / comic-scheduler ↔ comic-mysql
-  frontend:      # comic-nginx ↔ comic-app
+  frontend:      # comic-web / comic-front ↔ comic-app（两个入口 nginx 反代到后端）
 
 # ---------------------------------------------------------------
 # 数据库：本项目**独占一个 MySQL 实例**（comic-mysql 容器），不与别的系统共用。

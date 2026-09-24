@@ -2,7 +2,8 @@
 #
 # 产物：python -m pip wheel --no-deps -w dist .
 #       → dist/comic_api-<版本>-py3-none-any.whl
-# 镜像里 `pip install` 这个 whl 即可（见 deploy/api/Dockerfile）。
+# 镜像里 `pip install` 这个 whl 即可（见 deploy/api/Dockerfile）—— pip 会按下面的 dependencies
+# 自动解析出 comic-crawler（采集层产物）。**两个模块之间只有这一处依赖声明**，镜像层不再继承。
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
@@ -10,7 +11,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "comic-api"
 version = "1.0.0"
-description = "漫画聚合平台 · 接口服务（FastAPI，同源托管前端）"
+description = "漫画聚合平台 · 接口服务（FastAPI，纯 API）"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.111",
@@ -19,6 +20,9 @@ dependencies = [
     "cryptography>=42",   # MySQL 8.0 的 caching_sha2_password 认证（PyMySQL 需要）
     "bcrypt>=4.0",
     "PyJWT>=2.8",
+    # 采集层：接口层在**进程内**直接调用 comic_crawler（见 core/config.py 的导入引导），是硬依赖。
+    # 声明在这里 → 由 pip 解析安装；镜像不再靠 `FROM comic-crawler:1.0.0` 白拿（方向单向：api → crawler）。
+    "comic-crawler>=1.0.0",
 ]
 
 # api-service 是"应用目录"而不是可导入包：main.py / core/ / routers/ / services/ / schemas.py /
@@ -26,7 +30,7 @@ dependencies = [
 # `python -m uvicorn main:app` 直接可跑（容器是专用环境，不存在命名冲突）。
 #
 # 副作用要记住：core/config.py 里那套"从自身位置推路径"会指向 site-packages，
-# 因此镜像里显式给了 COMIC_DIST_DIR 与 COMIC_STATE_FILE —— 见 deploy/api/Dockerfile。
+# 因此镜像里显式给了 COMIC_IMAGE_ROOT 与 COMIC_STATE_FILE —— 见 deploy/api/Dockerfile。
 [tool.setuptools]
 py-modules = ["main", "schemas", "serializers"]
 

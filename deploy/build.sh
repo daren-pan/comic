@@ -3,25 +3,36 @@
 #  构建部署产物与镜像（分层：每个模块一个文件夹 + 一个 Dockerfile）
 #
 #  步骤 1  生成各模块产物到 deploy/<模块>/dist/
-#             crawler-service/  --wheel-->  deploy/crawler/dist/comic_crawler-<版本>.whl
-#             api-service/      --wheel-->  deploy/api/dist/comic_api-<版本>.whl
-#             <前端产物目录>    --复制---->  deploy/web/dist/        （默认 comic-web/dist）
+#             crawler-service/   --wheel-->  deploy/crawler/dist/comic_crawler-<版本>.whl
+#             api-service/       --wheel-->  deploy/api/dist/comic_api-<版本>.whl
+#             <网页端产物目录>   --复制---->  deploy/web/dist/    （默认 comic-web/dist）
+#             <移动端产物目录>   --复制---->  deploy/front/dist/  （默认 comic-front/dist/build/h5）
 #  步骤 2  按依赖顺序构建镜像
-#             mysql → web → crawler → api → nginx
+#             mysql → web → crawler → api → front
 #
 #  其中 mysql 镜像是本项目**独占**的数据库（MySQL 8.0，见 docker-compose.yml）——数据卷首次
 #  启动时会自动执行烘在镜像里的建库脚本，10 张表直接建好。
-#          （顺序不能乱：api 的 Dockerfile 会 FROM comic-crawler:1.0.0 并 COPY --from=comic-web:1.0.0）
+#          （api 构建时要读采集层的 wheel 产物，所以 crawler 的**产物**必须先出 —— 步骤 1 已保证。
+#           两个模块之间**没有镜像依赖**：api 只是在 pyproject.toml 的 dependencies 里声明
+#           comic-crawler，构建时由 pip 解析安装。）
 #
-#  用法：./deploy/build.sh        （Windows: deploy\build.bat）
+#  两个前端镜像（comic-web / comic-front）**各自带 nginx**：静态产物 + 反代在同一个容器里，
+#  所以没有"反代活着但产物不在"的悬空状态。两个可以同时构建、同时运行，互不影响。
+#  它们共用同一份 nginx 站点配置 —— deploy/web/nginx.conf 与 deploy/front/nginx.conf 必须
+#  逐字节一致（Docker 构建上下文不能跨目录 COPY，只能各放一份），本脚本会先校验再构建。
+#
+#  用法：./deploy/build.sh                 # 两个前端都构建（默认）
+#        ./deploy/build.sh --web           # 只构建网页端（comic-web:1.0.0）
+#        ./deploy/build.sh --front         # 只构建移动端（comic-front:1.0.0）
+#        ./deploy/build.sh --web --front   # 等价于不带参数
+#        ./deploy/build.sh -h              （Windows: deploy\build.bat）
 #        —— 一般**不用单独跑它**：一键脚本 `deploy/up.sh` 已经把
 #           「前端 npm build → 本脚本 → compose up -d → 自检」串好了。
 #        单独构建后启动：docker compose -f deploy/docker-compose.yml up -d
 #
-#  前端来源：默认取 comic-web/dist；可用环境变量 **WEB_SRC=<目录>** 换成别的前端产物 ——
-#        `deploy/up-front.sh` 就是用它把 comic-front 的 H5 产物（dist/build/h5）喂进来的。
-#        注意本脚本的复制是「合并覆盖」语义（见下面的 copy_tree），换来源前应先把
-#        deploy/web/dist 清空，免得两个前端的 hash 产物混在一个目录里。
+#  前端来源：网页端默认取 comic-web/dist，可用环境变量 **WEB_SRC=<目录>** 覆盖；
+#        移动端默认取 comic-front/dist/build/h5，可用 **FRONT_SRC=<目录>** 覆盖。
+#        两个产物目录在复制前都会先清空（避免不同 hash 的旧产物混在一起）。
 #
 #  PyPI 源：镜像构建时装依赖走哪个源 —— 依次取 环境变量 PIP_INDEX → deploy/.env 的 PIP_INDEX
 #        → 默认 https://mirrors.aliyun.com/pypi/simple（国内直连 pypi.org 很慢；
@@ -33,16 +44,38 @@
 # ============================================================
 set -euo pipefail
 
+# ---------- 参数：选要构建哪个前端（都不给 = 两个都建）----------
+BUILD_WEB=0
+BUILD_FRONT=0
+for a in "$@"; do
+  case "$a" in
+    --web)   BUILD_WEB=1 ;;
+    --front) BUILD_FRONT=1 ;;
+    -h|--help)  # 打印文件头那段说明（按内容定位，不写死行号，免得改了头部就漏出正文）
+                awk 'NR==1{next} {sub(/^# ?/,"")} NR>2 && /^=+$/ {print; exit} {print}' "$0"; exit 0 ;;
+    *) echo "!! 未知参数：$a（-h 看用法）" >&2; exit 1 ;;
+  esac
+done
+if [ "$BUILD_WEB" = "0" ] && [ "$BUILD_FRONT" = "0" ]; then
+  BUILD_WEB=1
+  BUILD_FRONT=1
+fi
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY="$ROOT/deploy"
 
-# 前端产物来源（见文件头）：默认 comic-web/dist，可用 WEB_SRC 换成别的前端产物目录。
-WEB_SRC="${WEB_SRC:-$ROOT/comic-web/dist}"
-case "$WEB_SRC" in
-  /*) ;;                                      # POSIX 绝对路径
-  [A-Za-z]:*) ;;                              # Windows 盘符（C:/ 或 C:\）
-  *) WEB_SRC="$ROOT/$WEB_SRC" ;;              # 相对路径按仓库根解析
-esac
+# 把相对路径按仓库根解析（绝对路径原样保留）
+abs() {  # abs <路径>
+  case "$1" in
+    /*) printf '%s' "$1" ;;                    # POSIX 绝对路径
+    [A-Za-z]:*) printf '%s' "$1" ;;            # Windows 盘符（C:/ 或 C:\）
+    *) printf '%s' "$ROOT/$1" ;;               # 相对路径按仓库根解析
+  esac
+}
+
+# 前端产物来源（见文件头）
+WEB_SRC="$(abs "${WEB_SRC:-$ROOT/comic-web/dist}")"
+FRONT_SRC="$(abs "${FRONT_SRC:-$ROOT/comic-front/dist/build/h5}")"
 
 # ---------- 选定 Python 解释器 ----------
 # 优先级：PYTHON -> PATH 里的 python3/python -> 项目自带的 crawler-service/.venv。
@@ -76,7 +109,21 @@ copy_tree() {  # copy_tree <源根> <目标目录> <相对路径...>；目标已
   ( cd "$src" && tar -cf - --exclude='__pycache__' --exclude='*.pyc' "$@" ) | ( cd "$dest" && tar -xf - )
 }
 
+# ---------- 前置：两份 nginx.conf 必须逐字节一致 ----------
+# 两个前端镜像各自带一份相同的站点配置（Docker 构建上下文不能跨目录 COPY），
+# 所以改一处必须同步另一处 —— 这里先拦住，免得只有一边生效、排查半天。
+echo "-> [0/2] 校验两个前端镜像共用的 nginx 配置"
+if ! "$PY" -c 'import filecmp,sys; sys.exit(0 if filecmp.cmp(sys.argv[1],sys.argv[2],shallow=False) else 1)' \
+       "$DEPLOY/web/nginx.conf" "$DEPLOY/front/nginx.conf"; then
+  echo "   !! deploy/web/nginx.conf 与 deploy/front/nginx.conf 内容不一致"
+  echo "      两个前端镜像共用同一份站点配置，必须逐字节相同。同步："
+  echo "        cp deploy/web/nginx.conf deploy/front/nginx.conf"
+  exit 1
+fi
+echo "   deploy/web/nginx.conf == deploy/front/nginx.conf ✅"
+
 # ---------- 步骤 1：产物 ----------
+echo
 echo "-> [1/2] 生成模块产物到 deploy/<模块>/dist/"
 
 build_wheel() {  # build_wheel <源模块目录> <deploy 子目录>
@@ -97,14 +144,24 @@ echo "   sql/mysql_schema.sql  --复制-->  deploy/mysql/sql/"
 mkdir -p "$DEPLOY/mysql/sql"
 cp "$ROOT/crawler-service/sql/mysql_schema.sql" "$DEPLOY/mysql/sql/mysql_schema.sql"
 
-echo "   $WEB_SRC  --复制-->  deploy/web/dist/"
-if [ -d "$WEB_SRC" ]; then
-  rm -rf "$DEPLOY/web/dist"
-  copy_tree "$WEB_SRC" "$DEPLOY/web/dist" .
-else
-  echo "   !! 前端产物目录不存在：$WEB_SRC"
-  echo "      先构建前端：cd comic-web && npm run build   或   cd comic-front && npm run build:h5"
-  exit 1
+# 复制前端产物（先清空目标目录：纯覆盖不会清除旧 hash 文件，两套产物会混在一起）
+copy_front() {  # copy_front <源目录> <deploy 子目录> <人话名字>
+  local src="$1" out="$2" label="$3"
+  echo "   $src  --复制-->  deploy/$out/dist/"
+  if [ ! -d "$src" ]; then
+    echo "   !! $label 产物目录不存在：$src"
+    echo "      先构建前端：$4"
+    exit 1
+  fi
+  rm -rf "$DEPLOY/$out/dist"
+  copy_tree "$src" "$DEPLOY/$out/dist" .
+}
+
+if [ "$BUILD_WEB" = "1" ]; then
+  copy_front "$WEB_SRC"   web   "网页端" "cd comic-web && npm run build"
+fi
+if [ "$BUILD_FRONT" = "1" ]; then
+  copy_front "$FRONT_SRC" front "移动端" "cd comic-front && npm run build:h5"
 fi
 
 # ---------- 产物检查 ----------
@@ -122,24 +179,36 @@ for m in crawler api; do
     echo "   deploy/$m/dist/$(ls -1 "$DEPLOY/$m/dist" | head -1)"
   fi
 done
-echo "   deploy/web/dist/（$(find "$DEPLOY/web/dist" -type f | wc -l | tr -d ' ') 个文件）"
 
 # 前端是文件复制，做一次遗留检查（只报告，不删除）
-leftovers="$(
-  comm -13 \
-    <( cd "$WEB_SRC" && find . -type f | sort ) \
-    <( cd "$DEPLOY/web/dist" && find . -type f | sort ) \
-    | sed 's|^\./|        deploy/web/dist/|'
-)"
-if [ -n "$leftovers" ]; then
-  echo "   !! 以下文件在产物目录里存在、但源目录已没有（纯覆盖不会清除，属预期行为）："
-  echo "$leftovers"
-  echo "      → 确认无用后手动删除"
+check_leftovers() {  # check_leftovers <源目录> <产物目录> <显示前缀>
+  local src="$1" dist="$2" prefix="$3"
+  local leftovers
+  leftovers="$(
+    comm -13 \
+      <( cd "$src"  && find . -type f | sort ) \
+      <( cd "$dist" && find . -type f | sort ) \
+      | sed "s|^\./|        $prefix/|"
+  )"
+  if [ -n "$leftovers" ]; then
+    echo "   !! 以下文件在产物目录里存在、但源目录已没有（纯覆盖不会清除，属预期行为）："
+    echo "$leftovers"
+    echo "      → 确认无用后手动删除"
+  fi
+}
+
+if [ "$BUILD_WEB" = "1" ]; then
+  echo "   deploy/web/dist/（$(find "$DEPLOY/web/dist" -type f | wc -l | tr -d ' ') 个文件）"
+  check_leftovers "$WEB_SRC" "$DEPLOY/web/dist" "deploy/web/dist"
+fi
+if [ "$BUILD_FRONT" = "1" ]; then
+  echo "   deploy/front/dist/（$(find "$DEPLOY/front/dist" -type f | wc -l | tr -d ' ') 个文件）"
+  check_leftovers "$FRONT_SRC" "$DEPLOY/front/dist" "deploy/front/dist"
 fi
 
 # ---------- 步骤 2：按序构建镜像 ----------
 echo
-echo "-> [2/2] 构建镜像（顺序：mysql → web → crawler → api → nginx）"
+echo "-> [2/2] 构建镜像（顺序：mysql → web → crawler → api → front）"
 # 用**相对路径**而不是绝对路径：Git Bash 的 pwd 给出 /d/... 这种 POSIX 形式，
 # 直接传给 docker.exe（Windows 程序）会报 "unable to prepare context: path ... not found"。
 cd "$DEPLOY"
@@ -149,19 +218,23 @@ PIP_INDEX="${PIP_INDEX:-$(grep -E '^PIP_INDEX=' "$DEPLOY/.env" 2>/dev/null | tai
 PIP_INDEX="${PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple}"
 echo "   [PyPI 源] $PIP_INDEX"
 
-build_img() {  # build_img <模块目录> <镜像名>
-  docker build --no-cache --build-arg "PIP_INDEX=$PIP_INDEX" -t "$2" "$1"
+build_img() {  # build_img <模块目录> <镜像名> [额外的 docker build 参数...]
+  local dir="$1" tag="$2"; shift 2
+  docker build --no-cache --build-arg "PIP_INDEX=$PIP_INDEX" "$@" -t "$tag" "$dir"
 }
 
 build_img mysql   comic-mysql:1.0.0
-build_img web     comic-web:1.0.0
+[ "$BUILD_WEB" = "1" ]   && build_img web     comic-web:1.0.0
 build_img crawler comic-crawler:1.0.0
-build_img api     comic-api:1.0.0
-build_img nginx   comic-nginx:1.0.0
+# api 要读采集层的 wheel 产物 → 用 BuildKit 命名上下文把 deploy/crawler/ 挂成 `crawler`
+# （Dockerfile 里 `COPY --from=crawler dist/`）。**不是镜像依赖**，所以顺序不是硬约束，
+# 只要 crawler 的 wheel 已生成即可（步骤 1 已保证）。这里的相对路径按当前目录（= deploy/）解析。
+build_img api     comic-api:1.0.0 --build-context "crawler=./crawler"
+[ "$BUILD_FRONT" = "1" ] && build_img front   comic-front:1.0.0
 
 echo
 echo "OK  镜像已就绪"
-docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep -E "comic-(mysql|web|crawler|api|nginx)" || true
+docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep -E "comic-(mysql|web|crawler|api|front)" || true
 echo
 echo "启动：docker compose -f deploy/docker-compose.yml up -d"
 echo "查看：docker compose -f deploy/docker-compose.yml ps"
