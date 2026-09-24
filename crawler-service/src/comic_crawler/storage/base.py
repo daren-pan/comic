@@ -75,6 +75,27 @@ class Storage(ABC):
     def stats(self) -> dict[str, int]:
         """库内作品/章节计数。"""
 
+    def count_comics_by_source(self) -> dict[str, int]:
+        """按源统计作品数 → `{source: count}`（管理台「数据源」列表用）。
+
+        为什么要有它：`api-service/services/sources.meta()` 原先调
+        `list_comics(page_size=10000)` 把整批行拉回来再在内存里计数 —— 代价随作品数
+        **线性增长**，且超过 1 万条会被静默截断（见 AGENTS.md「硬性约定·性能」）。
+
+        **默认实现**：分页遍历 `list_comics` 在内存计数（仅作兜底，代价同上）。
+        `MySQLStorage` 覆写为一条 `GROUP BY source`，与 `count_pages_by_status` 同型。
+        """
+        counts: dict[str, int] = {}
+        page, batch = 1, 500
+        while True:
+            rows, total = self.list_comics(page=page, page_size=batch)
+            for row in rows:
+                src = row.get("source") or "unknown"
+                counts[src] = counts.get(src, 0) + 1
+            if not rows or page * batch >= total:
+                return counts
+            page += 1
+
     @abstractmethod
     def list_uncached_pages(
         self, limit: int | None = None, since=None, until=None, source=None

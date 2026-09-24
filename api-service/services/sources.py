@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import Counter
 
 from core import config
 from core.db import db
@@ -21,7 +20,7 @@ _state: dict[str, bool] = {}
 def _load() -> dict[str, bool]:
     state: dict[str, bool] = {}
     try:
-        from comic_crawler.sources import SOURCES
+        from comic_crawler.facade import SOURCES
 
         for s in SOURCES:
             state[s.name] = s.enabled
@@ -63,11 +62,15 @@ def toggle(name: str) -> bool:
 
 
 def meta() -> list[dict]:
-    """给管理台的数据源列表：开关态 + 库内作品数 + 上次同步时间。"""
-    from comic_crawler.sources import SOURCES
+    """给管理台的数据源列表：开关态 + 库内作品数 + 上次同步时间。
 
-    rows, _ = db.list_comics(page=1, page_size=10000)
-    count = Counter(r["source"] for r in rows)
+    作品数走 `count_comics_by_source()`（存储侧一条 `GROUP BY source`）——
+    此前是 `list_comics(page_size=10000)` 拉整批行再在内存计数，代价随作品数线性增长、
+    且过万即静默截断（见 AGENTS.md「硬性约定·性能」）。
+    """
+    from comic_crawler.facade import SOURCES
+
+    count = db.count_comics_by_source()
     return [
         {
             "name": s.name,
