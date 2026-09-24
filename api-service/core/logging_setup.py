@@ -61,10 +61,10 @@ INFO_LOGGERS: tuple[str, ...] = ("comic_crawler", "comic.admin", "services")
 def install_db_handler():
     """把日志落库的 Handler 挂到 root（`log_record` 表，见 crawler 的 log_handler 模块）。
 
-    延迟导入：只有真正要装的时候才 import `comic_crawler`（那会顺带 import pymysql），
+    延迟导入：只有真正要装的时候才 import 采集层契约面（那会顺带拉起 pymysql 等），
     单测/脚本里只想用过滤器与级别配置时不受影响。
     """
-    from comic_crawler.storage.mysql.log_handler import install
+    from comic_crawler.facade import install_log_handler as install
 
     return install()
 

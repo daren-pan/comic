@@ -25,8 +25,11 @@ for _pkg_parent in (CRAWLER_SRC, APP_DIR, APP_DIR / "src"):
         sys.path.insert(0, str(_pkg_parent))
 
 # 前端构建产物（同源托管）：默认按相对位置找 —— 发布包内 dist → 开发态 comic-web/dist。
-# wheel 部署时程序被装进 site-packages，相对位置失去意义 → 用 COMIC_DIST_DIR 显式指定
-# （只接受绝对路径，否则忽略并回落默认，与 COMIC_IMAGE_ROOT / COMIC_STATE_FILE 同一原则）。
+# 只服务「仓库直跑」与「发布包」两种形态：容器里**不再托管前端**（网页端/移动端各自一个带 nginx
+# 的镜像，见 deploy/），wheel 态程序装进 site-packages、相对位置失去意义，也就不需要它 ——
+# 所以 deploy/api/Dockerfile 不再设 COMIC_DIST_DIR，main.py 那层挂载靠 `is_dir()` 守卫自然跳过。
+# 仍保留这个环境变量：需要把 dist 指到别处时显式覆盖（只接受绝对路径，否则忽略并回落默认，
+# 与 COMIC_IMAGE_ROOT / COMIC_STATE_FILE 同一原则）。
 _DIST_ENV = os.environ.get("COMIC_DIST_DIR", "").strip()
 DIST_DIR = (
     Path(_DIST_ENV)
@@ -35,12 +38,12 @@ DIST_DIR = (
 )
 
 # 管理台「数据源开关」状态的持久化文件（重启不丢）。
-# 默认值**复用采集层的 `paths.SOURCE_STATE_FILE`**（= `<data>/source_state.json`，与图库同一个
+# 默认值**复用采集层契约面导出的 `SOURCE_STATE_FILE`**（= `<data>/source_state.json`，与图库同一个
 # 运行时数据目录）—— 刻意不再用 `api-service/source_state.json`：那位置在容器里会被镜像重建冲掉，
 # 而且会和容器内的状态文件并存成两份（本项目真发生过两边开关不一致：一边 mangadex 开、一边关）。
 # 容器部署时整个 /data 已 bind 到同一个宿主目录，故两侧默认值天然一致；要另指才用 COMIC_STATE_FILE。
 # 与 COMIC_IMAGE_ROOT 同一原则：**只接受绝对路径**，否则忽略并回落默认值。
-from comic_crawler.paths import SOURCE_STATE_FILE as _DEFAULT_STATE_FILE  # noqa: E402
+from comic_crawler.facade import SOURCE_STATE_FILE as _DEFAULT_STATE_FILE  # noqa: E402
 
 _STATE_ENV = os.environ.get("COMIC_STATE_FILE", "").strip()
 SOURCE_STATE_FILE = (

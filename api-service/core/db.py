@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from . import config  # noqa: F401  —— 先导入以完成 sys.path 引导，供下方 comic_crawler 使用
-from comic_crawler.storage.mysql import MySQLStorage, MySQLUserStore
+from comic_crawler.facade import MySQLStorage, MySQLUserStore
 
 db = MySQLStorage()
 users = MySQLUserStore()

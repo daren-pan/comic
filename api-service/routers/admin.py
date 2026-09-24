@@ -31,7 +31,7 @@ from schemas import (
 from services import logs, ondemand, sources, tasks
 from services.images import admin_image_store
 
-from comic_crawler.storage.mysql import MySQLStorage
+from comic_crawler.facade import MySQLStorage
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -50,8 +50,7 @@ def admin_toggle_source(name: str):
 def admin_sync(body: AdminSyncBody):
     if not sources.is_enabled(body.source):
         raise HTTPException(status_code=400, detail=f"源 {body.source} 已关闭采集")
-    from comic_crawler.sources import create_adapter
-    from comic_crawler.scheduling import full_sync, incremental_sync
+    from comic_crawler.facade import create_adapter, full_sync, incremental_sync
 
     def job():
         storage = MySQLStorage()
@@ -75,8 +74,7 @@ def admin_heal_covers(body: AdminHealBody):
     这里 `force=True` 跳过「文件在即健康」的早返回，对命中作品重新下载覆盖。
     `keyword` **必填**：逗号 / 空格 / 换行分隔，每项是作品 ID 或名称（可混填，一次多部）。
     """
-    from comic_crawler.sources import create_adapter
-    from comic_crawler.scheduling import heal_covers
+    from comic_crawler.facade import create_adapter, heal_covers
 
     # 拆成若干 token：纯数字 = 作品 ID，其余 = 名称子串（OR 命中，见 Storage.find_comics）
     tokens = [t for t in re.split(r"[,，、;；\s]+", body.keyword or "") if t]
@@ -113,8 +111,7 @@ def admin_inspect(body: AdminInspectBody):
     `inspect_sync`）不含第 3 步**（那是本接口在 job 里额外调的），避免每小时多打源站请求。
     只修「文件在但内容错」的封面用「按作品封面自愈」（`/api/admin/heal-covers`，`force=True`）。
     """
-    from comic_crawler.sources import create_adapter
-    from comic_crawler.scheduling import heal_covers, inspect_sync
+    from comic_crawler.facade import create_adapter, heal_covers, inspect_sync
 
     def job():
         storage = MySQLStorage()

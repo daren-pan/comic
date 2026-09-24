@@ -36,7 +36,7 @@ _SEARCH_LOCK = threading.Lock()
 
 def _adapter(source: str):
     """按源名取适配器实例（crawler 侧的工厂函数）。"""
-    from comic_crawler.sources import create_adapter
+    from comic_crawler.facade import create_adapter
 
     return create_adapter(source)
 
@@ -49,7 +49,7 @@ def searchable_sources() -> list[str]:
     - 该源在管理台处于**启用**状态（`services.sources.is_enabled`）—— 关掉一个源
       意味着"别再碰它"，搜索也不该再去问它。
     """
-    from comic_crawler.sources import SOURCES
+    from comic_crawler.facade import SOURCES
 
     from services import sources as source_state
 
@@ -134,7 +134,7 @@ def import_one(
     first_chapters: int | None = None,
 ) -> dict:
     """按需导入一部作品（同步执行；管理台把它丢进后台线程）。"""
-    from comic_crawler.scheduling import import_comic
+    from comic_crawler.facade import import_comic
 
     return import_comic(
         _adapter(source),
@@ -147,7 +147,7 @@ def import_one(
 
 
 def _chapter_brief(source: str, comic: dict, chapter: dict):
-    from comic_crawler.models import ChapterBrief
+    from comic_crawler.facade import ChapterBrief
 
     return ChapterBrief(
         source=source,
@@ -160,7 +160,7 @@ def _chapter_brief(source: str, comic: dict, chapter: dict):
 
 def _detail_stub(source: str, comic: dict):
     """给 `fetch_chapter_pages` 用的最小详情壳（现有适配器只用 chapter 参数）。"""
-    from comic_crawler.models import ComicDetail
+    from comic_crawler.facade import ComicDetail
 
     return ComicDetail(
         source=source,
@@ -227,8 +227,7 @@ def fetch_page_online(chapter_id: int, page_no: int, row: dict | None = None) ->
     `row`：可选的 `get_page_context()` 结果。读图端点**已经**为"本地命中"查过一次上下文，
     把它传进来即可省掉重复查询（见 `routers/public.py` 的三级兜底）；不传则在这里自查。
     """
-    from comic_crawler.images.transfer import fetch_page_bytes
-    from comic_crawler.sources import create_adapter
+    from comic_crawler.facade import create_adapter, fetch_page_bytes
 
     if row is None:
         row = db.get_page_context(chapter_id, page_no)

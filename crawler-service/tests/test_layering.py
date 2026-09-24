@@ -54,8 +54,10 @@ _LAYER_PREFIXES: list[tuple[int, tuple[str, ...]]] = [
     )),
 ]
 
-# 入口与包根：允许依赖任意层
-_EXEMPT = {f"{PKG_NAME}.cli", PKG_NAME}
+# 入口与包根：允许依赖任意层。
+# `facade` 是给 api-service 的**对外契约面**（见其模块 docstring）—— 它的职责就是
+# 把各层能力收成一个显式清单，因此和 `cli` 一样必须能依赖任意层。
+_EXEMPT = {f"{PKG_NAME}.cli", PKG_NAME, f"{PKG_NAME}.facade"}
 
 
 def _module_name(path: Path) -> tuple[str, bool]:

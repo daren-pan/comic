@@ -13,7 +13,7 @@ import time
 from datetime import datetime
 
 from core import config  # noqa: F401  —— 先完成 sys.path 引导（使 comic_crawler 可导入）
-from comic_crawler import logctx
+from comic_crawler.facade import logctx
 
 _logger = logging.getLogger("comic.admin")
 

@@ -1,7 +1,8 @@
 # comic-crawler 采集服务
 
 漫画聚合平台的采集层：**调度 → 抓取 → 解析 → 判重入库（同源精确）→ 图片懒转存 → 失效巡检 → 同步日志**。
-只依赖 `CrawlerAdapter` / `Storage` 两套契约；api-service 会在**进程内**直接调用本包（改完本包必须重启后端）。
+只依赖 `CrawlerAdapter` / `Storage` 两套契约；api-service 会在**进程内**直接调用本包（改完本包必须重启后端），
+但**只允许经 `facade.py` 这一个契约面**进入 —— 见下方「对外契约面」。
 
 ## 模块架构
 
@@ -12,6 +13,7 @@ crawler-service/
 ├── src/comic_crawler/
 │   ├── models · config · http · fingerprint · paths · taxonomy · logctx   # L0 通用内核
 │   ├── cli.py                          # 命令行入口（run / transfer-images / inspect / serve / list / show）
+│   ├── facade.py                       # **对外契约面**：api-service 唯一允许 import 的模块（见下节）
 │   ├── sources/                        # 源站层：契约在外，各源在里
 │   │   ├── base.py · registry.py       #   L1 契约：CrawlerAdapter 抽象 + @register 注册表
 │   │   └── <源名>/                     #   L2 实现：每源一个自包含子包（4 件套）
@@ -31,6 +33,16 @@ crawler-service/
 ├── data/                               # 运行时数据（gitignore）：image_store/ 图库 + source_state.json 源开关
 └── tests/                              # 单元测试（含分层守卫）
 ```
+
+### 对外契约面（`facade.py`）
+
+**api-service 只允许 `from comic_crawler.facade import ...`**，不得 import 本包的任何子模块
+（由 `api-service/tests/test_crawler_boundary.py` 断言守卫）。
+
+- `facade.__all__` 就是契约清单（领域模型 / 源站工厂 / 存储实现 / 编排函数 / 图片读写 / 日志上下文）；
+- **本包内部随便重构** —— 换模块名、拆文件、改类名 —— 只要契约面的**符号名与签名不变**，api 零改动；
+- 因此**改这里的签名 = 破坏性变更**，要当对外接口对待；
+- `facade` 与 `cli` 一样在 `tests/test_layering.py` 里豁免分层断言（它的职责就是聚合各层能力）。
 
 ### 源站接入契约（`sources/base.py`）
 

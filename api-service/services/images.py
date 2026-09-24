@@ -42,7 +42,7 @@ def resolve_image_root() -> Path:
 
     1. **不做 `is_dir()` 判断**：图库根尚未创建（首次部署、首次转存之前）也必须返回它，
        写入端 `LocalImageStore` 会 `mkdir` 出来，读取端按约定去同一处找。
-    2. **不做 import 失败的兜底**：`comic_crawler` 是 api-service 的硬依赖，import 失败
+    2. **不做 import 失败的兜底**：`comic_crawler`（经其对外契约面 `facade`）是 api-service 的硬依赖，import 失败
        必须在**进程启动时立即暴露**，绝不能静默退到另一个目录。历史事故（DB 有
        `oss_url`、文件也落了盘、接口却只返回 SVG 占位图）根因就是"两端各自解析、
        结果不一致"；若在这里 `except → APP_DIR/image_store`，读端就会悄悄退回
@@ -50,7 +50,7 @@ def resolve_image_root() -> Path:
 
     env `COMIC_IMAGE_ROOT` 的优先级由 `default_store_root()` 统一处理，此处不重复实现。
     """
-    from comic_crawler.images.store import default_store_root
+    from comic_crawler.facade import default_store_root
 
     return default_store_root().resolve()
 
@@ -94,7 +94,7 @@ def admin_image_store():
 
     `IMAGE_ROOT` 恒为绝对路径（`resolve_image_root()` 零兜底），故无需再判断 None。
     """
-    from comic_crawler.images.store import LocalImageStore
+    from comic_crawler.facade import LocalImageStore
 
     return LocalImageStore(root=IMAGE_ROOT)
 
