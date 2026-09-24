@@ -96,10 +96,13 @@ services:
     container_name: comic-app
     build:
       context: ./api
-      # 采集层的 **wheel 产物**经 BuildKit 命名上下文喂进 api 的构建（见 deploy/api/Dockerfile
-      # 的 `COPY --from=crawler dist/`）—— 两个模块之间没有镜像依赖，只有 pyproject.toml 里
-      # dependencies 的一句 `comic-crawler>=1.0.0`。路径按本 compose 文件所在目录解析。
+      # 上游两层的 **wheel 产物**经 BuildKit 命名上下文喂进 api 的构建（见 deploy/api/Dockerfile
+      # 的 `COPY --from=core` / `COPY --from=crawler`）—— 模块之间没有镜像依赖，只有
+      # api-service/pyproject.toml 里 dependencies 的 `comic-core>=1.0.0` 与 `comic-crawler>=1.0.0`。
+      # ⚠️ 两个都不能漏：少了 core，pip 装 comic-crawler 时解析 Requires-Dist 会去 PyPI 找
+      #    comic-core 并直接报错。路径按本 compose 文件所在目录解析。
       additional_contexts:
+        core: ./core
         crawler: ./crawler
     restart: unless-stopped
     # 密钥**不通过 env_file 注入**：compose 会自动读取同目录的 `deploy/.env`（已 gitignore）做
@@ -161,6 +164,10 @@ services:
     container_name: comic-scheduler
     build:
       context: ./crawler
+      # 采集层依赖公共内核的 wheel，同样要挂 `core` 命名上下文 —— 见 deploy/crawler/Dockerfile
+      # 的 `COPY --from=core dist/`。漏了它 pip 会去 PyPI 找 comic-core 并直接报错。
+      additional_contexts:
+        core: ./core
     restart: unless-stopped
     environment: *app-env
     volumes:

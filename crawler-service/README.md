@@ -11,35 +11,35 @@
 ```
 crawler-service/
 ├── src/comic_crawler/
-│   ├── models · config · http · fingerprint · paths · taxonomy · logctx   # L0 通用内核
 │   ├── cli.py                          # 命令行入口（run / transfer-images / inspect / serve / list / show）
 │   ├── facade.py                       # **对外契约面**：api-service 唯一允许 import 的模块（见下节）
 │   ├── sources/                        # 源站层：契约在外，各源在里
 │   │   ├── base.py · registry.py       #   L1 契约：CrawlerAdapter 抽象 + @register 注册表
+│   │   ├── state.py                    #   源开关状态（source_state.json）的**唯一读写归属**
 │   │   └── <源名>/                     #   L2 实现：每源一个自包含子包（4 件套）
-│   ├── storage/                        # 存储层：契约在外，实现在里
-│   │   ├── base.py                     #   L1 契约：Storage + UserStore 抽象
-│   │   └── mysql/                      #   L2 实现（本项目唯一后端）
-│   │       ├── _util.py · _pool.py     #     连接参数与热度算法 · 共享连接池
-│   │       ├── comic_store.py          #     漫画 / 章节 / 页 / 同步日志 + 只读查询
-│   │       ├── user_store.py           #     用户 / 收藏 / 阅读历史
-│   │       └── log_store.py · log_handler.py   # log_record 的读写 · logging Handler
 │   ├── images/                         # 图片层
-│   │   ├── store.py                    #   L1 契约：ImageStore 抽象 + 本地实现 + default_store_root()
 │   │   └── transfer.py                 #   懒转存 · 读时穿透取图 · 封面落盘
-│   └── scheduling/                     # 编排层：何时跑 / 跑一次做什么
-│       ├── sync.py · ondemand.py · heal.py · scheduler.py
-├── sql/mysql_schema.sql                # 表结构（纯 DDL，不含 CREATE DATABASE）
+│   ├── scheduling/                     # 编排层：何时跑 / 跑一次做什么
+│   │   ├── sync.py · ondemand.py · heal.py · scheduler.py
+│   └── http.py                         # HTTP 抓取封装
 ├── data/                               # 运行时数据（gitignore）：image_store/ 图库 + source_state.json 源开关
 └── tests/                              # 单元测试（含分层守卫）
 ```
+
+> **L0 通用内核已抽到 [`comic-core/`](../comic-core/README.md)（2026-09-24）**：
+> `models` · `config` · `paths` · `taxonomy` · `logctx` · `images/store`（图库读写）·
+> `storage/`（存储契约 + MySQL 实现）整批搬走，由本包与 api-service **共用**（单向依赖：crawler → core）。
+> 本包因此只剩上图这些 —— 凡是「采集特有的编排」，凡是「两个服务都要用的基础设施」，边界就在这里。
+> ⚠️ `comic-core/paths.py` 推导的 **data 根仍寄居在本目录**（`crawler-service/data`），
+> 这是刻意为之：容器把 `/data` bind 的正是它，动了就破坏「本地直跑与 Docker 读写同一批文件」。
+> SQL 建表脚本也随之迁到 `comic-core/sql/mysql_schema.sql`。
 
 ### 对外契约面（`facade.py`）
 
 **api-service 只允许 `from comic_crawler.facade import ...`**，不得 import 本包的任何子模块
 （由 `api-service/tests/test_crawler_boundary.py` 断言守卫）。
 
-- `facade.__all__` 就是契约清单（领域模型 / 源站工厂 / 存储实现 / 编排函数 / 图片读写 / 日志上下文）；
+- `facade.__all__` 就是契约清单（领域模型 / 源站工厂 / 存储实现 / 编排函数 / 图片读写 / 源开关状态 / 日志上下文）；
 - **本包内部随便重构** —— 换模块名、拆文件、改类名 —— 只要契约面的**符号名与签名不变**，api 零改动；
 - 因此**改这里的签名 = 破坏性变更**，要当对外接口对待；
 - `facade` 与 `cli` 一样在 `tests/test_layering.py` 里豁免分层断言（它的职责就是聚合各层能力）。
@@ -100,24 +100,34 @@ crawler-service/
 ## 基础命令
 
 ```bash
-# 环境（zhconv 用于标签繁转简，纯 Python 无需编译工具链）
+# 环境：项目自带的 venv（依赖公共内核的 pymysql / cryptography / zhconv 也装在这里）
 python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
+
+# ⚠️ 本包与 comic-core 是**两个**本地包，跑之前两个 src 都要在 PYTHONPATH 上：
+export PYTHONPATH=src:../comic-core/src        # Windows(PowerShell): $env:PYTHONPATH="src;../comic-core/src"
 
 # 数据库容器（本项目独占实例，宿主 127.0.0.1:3309；连接参数读 deploy/.env，无需手工导出）
 docker compose -f ../deploy/docker-compose.yml up -d comic-mysql
 
 # 采集 / 转存 / 巡检 / 定时调度
-PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --limit 3
-PYTHONPATH=src python -m comic_crawler.cli transfer-images
-PYTHONPATH=src python -m comic_crawler.cli inspect
-PYTHONPATH=src python -m comic_crawler.cli serve
+python -m comic_crawler.cli run --source zaimanhua --limit 3
+python -m comic_crawler.cli transfer-images
+python -m comic_crawler.cli inspect
+python -m comic_crawler.cli serve
 
 # 单测（纯逻辑：不连库、不写临时文件）
-PYTHONPATH=src python -m unittest discover -s tests -t tests
+python -m unittest discover -s tests -t tests
 ```
+
+> **为什么要两个 `src`**：`comic_core` 已抽到 `comic-core/`（见上），本包只声明依赖、不重复实现。
+> 直跑采集 CLI 时没有 api 那套 `core.bootstrap` 引导，所以得自己给全。
+> 若嫌麻烦，改用 editable 装一次即可：`.venv/Scripts/pip install -e ../comic-core -e .`，
+> 之后直接 `python -m comic_crawler.cli ...`（不再需要 `PYTHONPATH`）。
+> 容器里两个包都由 pip 装进 site-packages（见 `deploy/crawler/Dockerfile`），同样不用设。
 
 > 用容器起库**不需要手工建表**（数据卷首次初始化会执行 `sql/mysql_schema.sql`）；
 > 只有连外部 MySQL 才手工建 —— 注意 schema 是纯 DDL，里面**没有 `CREATE DATABASE`**。
+> ⚠️ 该脚本已随存储域迁到 **`comic-core/sql/mysql_schema.sql`**。
 
 ## 约定
 
@@ -128,6 +138,8 @@ PYTHONPATH=src python -m unittest discover -s tests -t tests
 - **时间列一律 `DATETIME`**（naive 本机时间）；容器**必须配时区**（`COMIC_TZ`，默认 `Asia/Shanghai`），否则存进去的比北京时间早 8 小时。
 - 每张表都有自增代理主键 `id`；**业务唯一性用 `UNIQUE KEY` 单独表达** —— 幂等写入依赖的是这些唯一键，不是主键。
 - `log_record` 是「**真下载**」的**流水**而非状态快照（封面文件已在本地时不写日志）；任务级统计另见 `sync_log`。
+- **源开关状态归采集层**：`data/source_state.json` 的路径与读写都在 `sources/state.py`（env `COMIC_STATE_FILE` 覆盖，**仅绝对路径生效**），
+  经门面 `load_source_state` / `save_source_state` 暴露；api 侧只调门面，不感知该文件。
 
 **采集与章节**
 - **增量 = 时间窗口**：`since` 不填则取该源上次同步时间（`sync_log.finished_at`）为水位，窗口 `[水位, now]`；**手动 `since` 优先于水位**；全量默认无窗口。

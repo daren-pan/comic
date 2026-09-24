@@ -23,8 +23,8 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from comic_crawler.storage.mysql.comic_store import MySQLStorage
-from comic_crawler.taxonomy import SYNONYMS_PATH, canonical_tag, is_known, normalize_tag
+from comic_core.storage.mysql.comic_store import MySQLStorage
+from comic_core.taxonomy import SYNONYMS_PATH, canonical_tag, is_known, normalize_tag
 
 
 class _FakeCursor:

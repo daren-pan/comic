@@ -3,6 +3,7 @@
 #  构建部署产物与镜像（分层：每个模块一个文件夹 + 一个 Dockerfile）
 #
 #  步骤 1  生成各模块产物到 deploy/<模块>/dist/
+#             comic-core/        --wheel-->  deploy/core/dist/comic_core-<版本>.whl
 #             crawler-service/   --wheel-->  deploy/crawler/dist/comic_crawler-<版本>.whl
 #             api-service/       --wheel-->  deploy/api/dist/comic_api-<版本>.whl
 #             <网页端产物目录>   --复制---->  deploy/web/dist/    （默认 comic-web/dist）
@@ -15,6 +16,13 @@
 #          （api 构建时要读采集层的 wheel 产物，所以 crawler 的**产物**必须先出 —— 步骤 1 已保证。
 #           两个模块之间**没有镜像依赖**：api 只是在 pyproject.toml 的 dependencies 里声明
 #           comic-crawler，构建时由 pip 解析安装。）
+#
+#  ⚠️ comic-core 是**纯库、没有镜像** —— 它是 deploy/ 下唯一一个「只出 wheel、不建镜像」的模块，
+#     所以 deploy/core/ 里只有 dist/（和一个说明用的 README.md），没有 Dockerfile。
+#     它的 wheel 以 BuildKit **命名构建上下文 `core`** 喂给 crawler 与 api 两层
+#     （见下面 build_img 调用处的 `--build-context core=./core`）——
+#     少了它，pip 装 comic-crawler / comic-api 时会去 PyPI 找 comic-core 并直接报错。
+#     wheel 的拓扑顺序固定为 **comic-core → crawler → api**（后两个的 METADATA 里声明了 comic-core）。
 #
 #  两个前端镜像（comic-web / comic-front）**各自带 nginx**：静态产物 + 反代在同一个容器里，
 #  所以没有"反代活着但产物不在"的悬空状态。两个可以同时构建、同时运行，互不影响。
@@ -112,9 +120,13 @@ copy_tree() {  # copy_tree <源根> <目标目录> <相对路径...>；目标已
 # ---------- 前置：两份 nginx.conf 必须逐字节一致 ----------
 # 两个前端镜像各自带一份相同的站点配置（Docker 构建上下文不能跨目录 COPY），
 # 所以改一处必须同步另一处 —— 这里先拦住，免得只有一边生效、排查半天。
+# ⚠️ 比较时必须**先 cd 进 deploy/ 再用相对文件名**：$DEPLOY 在 Git Bash 里是 `/d/...` 形式，
+#    直接交给 Windows 版 python.exe 会报 `FileNotFoundError: '/d/.../nginx.conf'`
+#    （MSYS 只转换独立的参数，不转换嵌在 -c 字符串里的路径）—— 这与下面 docker/pip 一律用
+#    相对路径是同一个原因。本机在 Git Bash 里跑 build.sh / up.sh 会因此整脚本起不来。
 echo "-> [0/2] 校验两个前端镜像共用的 nginx 配置"
-if ! "$PY" -c 'import filecmp,sys; sys.exit(0 if filecmp.cmp(sys.argv[1],sys.argv[2],shallow=False) else 1)' \
-       "$DEPLOY/web/nginx.conf" "$DEPLOY/front/nginx.conf"; then
+if ! ( cd "$DEPLOY" && "$PY" -c 'import filecmp,sys; sys.exit(0 if filecmp.cmp(sys.argv[1],sys.argv[2],shallow=False) else 1)' \
+         web/nginx.conf front/nginx.conf ); then
   echo "   !! deploy/web/nginx.conf 与 deploy/front/nginx.conf 内容不一致"
   echo "      两个前端镜像共用同一份站点配置，必须逐字节相同。同步："
   echo "        cp deploy/web/nginx.conf deploy/front/nginx.conf"
@@ -137,12 +149,14 @@ build_wheel() {  # build_wheel <源模块目录> <deploy 子目录>
   #      `/d/...` 形式，直接给 pip.exe 会报 `Invalid requirement: Expected package name ...`。
   ( cd "$ROOT/$src" && "$PY" -m pip wheel --disable-pip-version-check --no-deps --wheel-dir "../deploy/$out/dist" . >/dev/null )
 }
+# 拓扑顺序：comic-core 在最前 —— 后两个 wheel 的 METADATA 里声明了它
+build_wheel comic-core      core
 build_wheel crawler-service crawler
 build_wheel api-service     api
 
-echo "   sql/mysql_schema.sql  --复制-->  deploy/mysql/sql/"
+echo "   comic-core/sql/mysql_schema.sql  --复制-->  deploy/mysql/sql/"
 mkdir -p "$DEPLOY/mysql/sql"
-cp "$ROOT/crawler-service/sql/mysql_schema.sql" "$DEPLOY/mysql/sql/mysql_schema.sql"
+cp "$ROOT/comic-core/sql/mysql_schema.sql" "$DEPLOY/mysql/sql/mysql_schema.sql"
 
 # 复制前端产物（先清空目标目录：纯覆盖不会清除旧 hash 文件，两套产物会混在一起）
 copy_front() {  # copy_front <源目录> <deploy 子目录> <人话名字>
@@ -167,7 +181,7 @@ fi
 # ---------- 产物检查 ----------
 echo
 echo "-> 产物检查"
-for m in crawler api; do
+for m in core crawler api; do
   n=$(ls -1 "$DEPLOY/$m/dist"/*.whl 2>/dev/null | wc -l | tr -d ' ')
   if [ "$n" -eq 0 ]; then
     echo "   !! deploy/$m/dist/ 下没有 whl —— 构建失败了？"
@@ -224,13 +238,18 @@ build_img() {  # build_img <模块目录> <镜像名> [额外的 docker build �
 }
 
 build_img mysql   comic-mysql:1.0.0
-[ "$BUILD_WEB" = "1" ]   && build_img web     comic-web:1.0.0
-build_img crawler comic-crawler:1.0.0
-# api 要读采集层的 wheel 产物 → 用 BuildKit 命名上下文把 deploy/crawler/ 挂成 `crawler`
-# （Dockerfile 里 `COPY --from=crawler dist/`）。**不是镜像依赖**，所以顺序不是硬约束，
-# 只要 crawler 的 wheel 已生成即可（步骤 1 已保证）。这里的相对路径按当前目录（= deploy/）解析。
-build_img api     comic-api:1.0.0 --build-context "crawler=./crawler"
-[ "$BUILD_FRONT" = "1" ] && build_img front   comic-front:1.0.0
+# ⚠️ 这里必须写成 if/fi，不能用 `[ ... ] && build_img ...`：
+#    脚本开了 set -e，条件为假时整个 AND 列表返回非 0，会让脚本在建镜像阶段直接退出
+#    （症状：只跑 --front 时建完 mysql 就没了；只跑 --web 时建完 api 就没了）。
+if [ "$BUILD_WEB" = "1" ]; then build_img web comic-web:1.0.0; fi
+build_img crawler comic-crawler:1.0.0 --build-context "core=./core"
+# api 要读**两个**上游 wheel 产物 → 挂两个命名上下文：
+#   · core    —— 公共内核（deploy/core/dist/），Dockerfile 里 `COPY --from=core dist/`
+#   · crawler —— 采集层（deploy/crawler/dist/），Dockerfile 里 `COPY --from=crawler dist/`
+# **都不是镜像依赖**，所以顺序不是硬约束，只要两个 wheel 已生成即可（步骤 1 已保证）。
+# 这里的相对路径按当前目录（= deploy/）解析。
+build_img api     comic-api:1.0.0 --build-context "crawler=./crawler" --build-context "core=./core"
+if [ "$BUILD_FRONT" = "1" ]; then build_img front comic-front:1.0.0; fi
 
 echo
 echo "OK  镜像已就绪"

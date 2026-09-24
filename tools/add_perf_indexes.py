@@ -10,7 +10,7 @@
    `cached_status = '未转存'` 筛（`list_uncached_pages`），而 `page` 是全库最大的表，
    等于每轮转存都全表扫。索引带上 `id` 是为了配合键集分页（`after_id=p.id`）。
 
-DDL 已同步进 `crawler-service/sql/mysql_schema.sql`（新库建表即带上）；
+DDL 已同步进 `comic-core/sql/mysql_schema.sql`（新库建表即带上）；
 本脚本用于**已有库**补齐。两个索引都**只读加速、不动任何数据**。
 
 **幂等**：可重复运行 —— 已存在的索引会跳过。
@@ -19,7 +19,7 @@ DDL 已同步进 `crawler-service/sql/mysql_schema.sql`（新库建表即带上�
     ALTER TABLE page  DROP INDEX idx_page_cached;
 
 用法（在 comic 仓库根目录）：
-    cd crawler-service && PYTHONPATH=src python ../tools/add_perf_indexes.py
+    cd crawler-service && .venv/Scripts/python.exe ../tools/add_perf_indexes.py
 连接参数用环境变量 `COMIC_MYSQL_*` 覆盖（默认兜底读仓库根 `deploy/.env`：宿主 `127.0.0.1:3309`）。
 """
 
@@ -28,9 +28,9 @@ from __future__ import annotations
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "crawler-service", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "comic-core", "src"))
 
-from comic_crawler.storage.mysql import MySQLStorage  # noqa: E402
+from comic_core.storage.mysql import MySQLStorage  # noqa: E402
 
 # (表, 索引名, 列定义, 为什么需要)
 INDEXES: list[tuple[str, str, str, str]] = [

@@ -12,8 +12,8 @@ import threading
 import time
 from datetime import datetime
 
-from core import config  # noqa: F401  —— 先完成 sys.path 引导（使 comic_crawler 可导入）
-from comic_crawler.facade import logctx
+from core import bootstrap  # noqa: F401  —— 先完成 sys.path 引导（使 comic_core 可导入）
+from comic_core import logctx
 
 _logger = logging.getLogger("comic.admin")
 
@@ -43,7 +43,7 @@ def run_task(task_id: str, task_type: str, fn) -> None:
 
     def _runner():
         # 把「当前任务」绑到本线程的日志上下文：之后这个线程里打的日志都会自动带上
-        # task_id / task_type，落到 log_record 表供管理台「按任务查」（见 comic_crawler.logctx）
+        # task_id / task_type，落到 log_record 表供管理台「按任务查」（见 comic_core.logctx）
         logctx.bind_task(task_id, task_type)
         try:
             result = fn()

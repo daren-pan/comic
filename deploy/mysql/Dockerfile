@@ -1,5 +1,5 @@
 # mysql 模块 —— 本项目独占的数据库镜像（基于官方 mysql:8.0，见 docs/deploy.md）
-# 产物：deploy/build.sh 把 crawler-service/sql/mysql_schema.sql 复制到本目录 sql/
+# 产物：deploy/build.sh 把 comic-core/sql/mysql_schema.sql 复制到本目录 sql/
 # 数据卷首次初始化时会自动执行 sql/ 里的脚本 → 10 张表直接建好，无需手工跑 SQL
 #
 # 版本选择：8.0（而非 5.7）—— 5.7 已于 2023-10 EOL，不再有安全更新。

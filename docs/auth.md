@@ -61,7 +61,7 @@ $2b$12$  NSIuNmCBrNdd9hdU1r3Rmu  msPzM7.jLMEXRkB8MetJzhtNK67jjK2
 ## 2. 用户唯一性：`username NOT NULL UNIQUE`
 
 ### 2.1 为什么同名不存在
-user 表建表语句（`crawler-service/sql/mysql_schema.sql`）：
+user 表建表语句（`comic-core/sql/mysql_schema.sql`）：
 
 ```sql
 CREATE TABLE IF NOT EXISTS user (
@@ -235,7 +235,7 @@ def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer
 
 | 功能 | 位置 |
 |---|---|
-| user 表（username UNIQUE） | `crawler-service/sql/mysql_schema.sql`（`CREATE TABLE IF NOT EXISTS user`） |
+| user 表（username UNIQUE） | `comic-core/sql/mysql_schema.sql`（`CREATE TABLE IF NOT EXISTS user`） |
 | `hash_password` / `verify_password` | `api-service/core/security.py` |
 | `make_token` / `decode_token` | `api-service/core/security.py` |
 | `get_current_user`（Bearer 依赖） | `api-service/core/security.py` |
@@ -266,7 +266,7 @@ def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer
 | `admin` | 普通管理员 | 管理台 + 日志；**进不了授权页**（授不了权） | 由超管在授权页授予（不能在授权页授予 `superadmin`） |
 | `user`（默认） | 普通用户 | 只能浏览 / 收藏 / 历史；访问 `/api/admin/*` 一律 **403** | 默认 |
 
-角色落在 `user.role`（`VARCHAR(32) NOT NULL DEFAULT 'user'`，DDL 见 `crawler-service/sql/mysql_schema.sql`）。
+角色落在 `user.role`（`VARCHAR(32) NOT NULL DEFAULT 'user'`，DDL 见 `comic-core/sql/mysql_schema.sql`）。
 
 > **为什么"能看管理台"和"能授权"必须分两档**（2026-09-18 实测到的漏洞）：
 > 原先只有 `admin` 一档、且授权页也只要 `admin` 就能进 —— 于是**被授权的普通管理员反手就能把

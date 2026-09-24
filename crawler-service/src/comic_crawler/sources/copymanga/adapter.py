@@ -57,7 +57,7 @@ from typing import Any
 
 import httpx
 
-from ...models import (
+from comic_core.models import (
     ChapterBrief,
     ComicBrief,
     ComicDetail,

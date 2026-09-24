@@ -6,7 +6,10 @@
 能力：列出数据源 / 开关采集 / 手动触发采集 / 手动触发**失效巡检**（转存未转存页 + 全表校验
 已转存对象、缺失则恢复 + 全库封面自愈）/ 手动触发**按作品**封面自愈（填漫画名称或 ID，
 强制回源重下覆盖）/ 按需导入单部作品 / 查询运行日志（`log_record` 表，支持条件筛选与分页）。
-采集 / 巡检 / 导入耗时，统一交给 `services.tasks` 后台线程执行，返回 `taskId` 供前端轮询。
+
+本层只做「校验入参 → 派发任务 → 返回 `taskId`」；任务的**实际动作**（采集编排、封面自愈、
+巡检、按需导入）在 `services.admin_jobs`。耗时动作统一交给 `services.tasks` 后台线程执行，
+前端轮询 `taskId` 取结果。
 
 ⚠️ **独立的「触发转存」入口已删除（2026-09-21）**：巡检第 1 步本就是 `lazy_transfer`
 （转存未转存页），单独按钮是它的子集、无独立价值；原挂在转存上的「全库封面自愈」
@@ -14,12 +17,8 @@
 """
 from __future__ import annotations
 
-import re
-from dataclasses import asdict
-
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.db import db  # noqa: F401  —— 先导入以完成 sys.path 引导
 from core.responses import ok
 from core.security import require_admin
 from schemas import (
@@ -28,10 +27,7 @@ from schemas import (
     AdminInspectBody,
     AdminSyncBody,
 )
-from services import logs, ondemand, sources, tasks
-from services.images import admin_image_store
-
-from comic_crawler.facade import MySQLStorage
+from services import admin_jobs, logs, sources, tasks
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -48,21 +44,14 @@ def admin_toggle_source(name: str):
 
 @router.post("/api/admin/sync")
 def admin_sync(body: AdminSyncBody):
+    """手动触发采集（后台线程执行，返回 `taskId` 供前端轮询）。动作见 `admin_jobs.sync_job`。"""
     if not sources.is_enabled(body.source):
         raise HTTPException(status_code=400, detail=f"源 {body.source} 已关闭采集")
-    from comic_crawler.facade import create_adapter, full_sync, incremental_sync
-
-    def job():
-        storage = MySQLStorage()
-        adapter = create_adapter(body.source)
-        if body.mode == "full":
-            stats = full_sync(adapter, storage, limit=body.limit, since=body.since)
-        else:
-            stats = incremental_sync(adapter, storage, limit=body.limit, since=body.since)
-        return {"stats": asdict(stats), "summary": stats.summary(), "db": storage.stats()}
-
     task_id = tasks.new_task_id("sync")
-    tasks.run_task(task_id, "sync", job)
+    tasks.run_task(
+        task_id, "sync",
+        lambda: admin_jobs.sync_job(body.source, body.mode, body.limit, body.since),
+    )
     return ok({"taskId": task_id})
 
 
@@ -73,27 +62,16 @@ def admin_heal_covers(body: AdminHealBody):
     用于修复「封面文件在、但内容是错的」—— 普通自愈只看文件在不在，永远修不到错图；
     这里 `force=True` 跳过「文件在即健康」的早返回，对命中作品重新下载覆盖。
     `keyword` **必填**：逗号 / 空格 / 换行分隔，每项是作品 ID 或名称（可混填，一次多部）。
+    解析与动作见 `services.admin_jobs.parse_heal_keyword` / `heal_covers_job`。
     """
-    from comic_crawler.facade import create_adapter, heal_covers
-
-    # 拆成若干 token：纯数字 = 作品 ID，其余 = 名称子串（OR 命中，见 Storage.find_comics）
-    tokens = [t for t in re.split(r"[,，、;；\s]+", body.keyword or "") if t]
-    if not tokens:
+    comic_ids, title_like = admin_jobs.parse_heal_keyword(body.keyword)
+    if not comic_ids and not title_like:
         raise HTTPException(status_code=400, detail="请填写漫画名称或 ID（可多个，用逗号/空格/换行分隔）")
-    comic_ids = [int(t) for t in tokens if t.isdigit()]
-    title_like = [t for t in tokens if not t.isdigit()]
-
-    def job():
-        storage = MySQLStorage()
-        store = admin_image_store()
-        return heal_covers(
-            storage, store, adapter_provider=create_adapter,
-            source=body.source, force=True,
-            comic_ids=comic_ids or None, title_like=title_like or None,
-        )
-
     task_id = tasks.new_task_id("heal")
-    tasks.run_task(task_id, "heal", job)
+    tasks.run_task(
+        task_id, "heal",
+        lambda: admin_jobs.heal_covers_job(body.source, comic_ids, title_like),
+    )
     return ok({"taskId": task_id})
 
 
@@ -101,35 +79,13 @@ def admin_heal_covers(body: AdminHealBody):
 def admin_inspect(body: AdminInspectBody):
     """失效巡检（**全库维护的唯一入口**）：转存未转存页 + **全表**校验已转存对象 + 全库封面自愈。
 
-    三步：
-    1. 窗口内未转存页 → 转存（`inspect_sync` 内部调 `lazy_transfer`）；
-    2. 已转存页 → **全表**校验图库对象是否还在，缺失则恢复（按 id 键集分页，不会截断）；
-    3. 封面自愈（`heal_covers`）—— 外链未落盘 / 本地文件缺失的封面按状态修复。
-
-    ⚠️ 第 3 步原挂在已删除的「触发转存」上（2026-09-21 并到这里）：这样「巡检」一个按钮
-    就覆盖了原来「转存 + 校验 + 封面自愈」的全部能力。**注意定时巡检（`scheduler` 里的
-    `inspect_sync`）不含第 3 步**（那是本接口在 job 里额外调的），避免每小时多打源站请求。
-    只修「文件在但内容错」的封面用「按作品封面自愈」（`/api/admin/heal-covers`，`force=True`）。
+    三步做什么、为什么定时巡检不含第 3 步，见 `services.admin_jobs.inspect_job`。
     """
-    from comic_crawler.facade import create_adapter, heal_covers, inspect_sync
-
-    def job():
-        storage = MySQLStorage()
-        store = admin_image_store()
-        stats = inspect_sync(
-            storage,
-            image_store=store,
-            adapter_provider=create_adapter,
-            source=body.source,
-            since=body.since,
-            until=body.until,
-        )
-        # 第 3 步：全库封面自愈（透传 source —— 让自愈与本次巡检同源）
-        cover = heal_covers(storage, store, adapter_provider=create_adapter, source=body.source)
-        return {**stats, "coverHeal": cover, "pagesByStatus": storage.count_pages_by_status()}
-
     task_id = tasks.new_task_id("inspect")
-    tasks.run_task(task_id, "inspect", job)
+    tasks.run_task(
+        task_id, "inspect",
+        lambda: admin_jobs.inspect_job(body.source, body.since, body.until),
+    )
     return ok({"taskId": task_id})
 
 
@@ -145,21 +101,13 @@ def admin_import(body: AdminImportBody):
     失败原因（源站搜不到 / 付费锁定 / 源不支持搜索）会写进任务 message，
     前端消息中心直接显示，不需要额外错误通道。
     """
-
-    def job():
-        storage = MySQLStorage()
-        result = ondemand.import_one(
-            body.source,
-            keyword=body.keyword,
-            ref=body.ref,
-            source_comic_id=body.source_comic_id,
-            first_chapters=body.first_chapters,
-        )
-        # 导入不登记页清单（1~2 秒完成）；页清单与页数都留到用户打开某一话时按需产生。
-        return {**result, "pagesByStatus": storage.count_pages_by_status()}
-
     task_id = tasks.new_task_id("import")
-    tasks.run_task(task_id, "import", job)
+    tasks.run_task(
+        task_id, "import",
+        lambda: admin_jobs.import_job(
+            body.source, body.keyword, body.ref, body.source_comic_id, body.first_chapters
+        ),
+    )
     return ok({"taskId": task_id})
 
 

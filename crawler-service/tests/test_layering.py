@@ -4,15 +4,20 @@
 
 | 层 | 模块 | 允许导入 |
 |---|---|---|
-| L0 通用内核 | `models` `config` `http` `fingerprint` `paths` | 仅标准库/三方 |
-| L1 契约 | `sources.base` `sources.registry` `storage.base` | L0 |
-| L2 实现 | `sources.<源名>` `storage.mysql.*` `images.*` | L0·L1·同层 |
+| L0 通用内核 | `config` `http` `fingerprint` | 仅标准库/三方/`comic_core` |
+| L1 契约 | `sources.base` `sources.registry` | L0 |
+| L2 实现 | `sources.<源名>` `images.*` | L0·L1·同层 |
 | L3 编排 | `scheduling.*` | L0·L1·L2·同层 |
 
 `cli.py` 是入口，允许依赖任意层（不参与断言）。
 
+⚠️ **存储域不在本守卫范围**：领域模型 / 路径常量 / 标签归一 / 日志上下文 / 存储契约与
+MySQL 实现 / 图库读写都已下沉到公共内核 `comic_core`（采集端与接口端共用同一份）。
+本守卫只断言 `comic_crawler` **包内**的依赖方向；对 `comic_core` 的导入属于**外部依赖**，
+不参与分层判定（`_internal_imports` 只匹配 `comic_crawler.*`）。
+
 **为什么要这个测试**：分层靠人自觉一定会退化成"随手 import"。把它变成断言后，
-一旦有人让 `models` 反向依赖 `storage`（或契约层 import 实现层），测试立刻红。
+一旦有人让 `http` 反向依赖 `scheduling`（或契约层 import 实现层），测试立刻红。
 新增模块时若不在下表，测试会提示未归类 —— 这正是提醒你"想清楚它属于哪一层"。
 """
 from __future__ import annotations
@@ -30,24 +35,17 @@ PKG_NAME = "comic_crawler"
 # 层号越小越"外层/通用"；未列出的模块视为未归类（测试失败，提示补录）
 _LAYER_PREFIXES: list[tuple[int, tuple[str, ...]]] = [
     (0, (
-        f"{PKG_NAME}.models",
         f"{PKG_NAME}.config",
         f"{PKG_NAME}.http",
         f"{PKG_NAME}.fingerprint",
-        f"{PKG_NAME}.paths",
-        f"{PKG_NAME}.taxonomy",
-        f"{PKG_NAME}.logctx",
     )),
     (1, (
         f"{PKG_NAME}.sources.base",
         f"{PKG_NAME}.sources.registry",
-        f"{PKG_NAME}.storage.base",
     )),
     (2, (
         f"{PKG_NAME}.sources",
-        f"{PKG_NAME}.storage.mysql",
         f"{PKG_NAME}.images",
-        f"{PKG_NAME}.storage",
     )),
     (3, (
         f"{PKG_NAME}.scheduling",
@@ -169,7 +167,7 @@ class TestLayering(unittest.TestCase):
     def test_contracts_define_expected_abcs(self) -> None:
         """契约层必须真的定义抽象基类（避免契约层被搬空）。"""
         from comic_crawler.sources.base import CrawlerAdapter
-        from comic_crawler.storage.base import Storage, UserStore
+        from comic_core.storage.base import Storage, UserStore
 
         self.assertTrue(isinstance(CrawlerAdapter, type))
         self.assertTrue(isinstance(Storage, type))

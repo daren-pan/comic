@@ -1,53 +1,29 @@
 """数据源开关状态与元信息。
 
-开关的**默认值**来自 `comic_crawler.sources.SOURCES[].enabled`；管理台的覆盖态
-持久化到 `config.SOURCE_STATE_FILE`（默认 `crawler-service/data/source_state.json` —— 与图库同一个
-运行时数据目录；容器内是 bind 过来的 `/data/source_state.json`），重启不丢。
+开关的**生效态**（代码默认值 + 管理台覆盖态）与**持久化**都由采集层负责 ——
+`comic_crawler.facade` 的 `load_source_state` / `save_source_state`（状态文件与图库
+同在运行时数据目录，见 `crawler-service/src/comic_crawler/sources/state.py`）。
+
+本模块只做两件事：① 进程内缓存一份生效态（读接口高频调用，不值得每次重读文件）；
+② 拼装管理台要的元信息（开关态 + 库内作品数 + 上次同步时间）。
 """
 from __future__ import annotations
 
-import json
-import logging
-
-from core import config
+from core import bootstrap  # noqa: F401  —— 先完成 sys.path 引导（使 comic_crawler 可导入）
 from core.db import db
 
-_logger = logging.getLogger("comic.admin")
-
+#: 进程内缓存的生效态；只在 `toggle()` 里改，并同步落盘。
 _state: dict[str, bool] = {}
 
 
-def _load() -> dict[str, bool]:
-    state: dict[str, bool] = {}
-    try:
-        from comic_crawler.facade import SOURCES
+def _load() -> None:
+    from comic_crawler.facade import load_source_state
 
-        for s in SOURCES:
-            state[s.name] = s.enabled
-    except Exception:
-        pass
-    if config.SOURCE_STATE_FILE.exists():
-        try:
-            saved = json.loads(config.SOURCE_STATE_FILE.read_text("utf-8"))
-            if isinstance(saved, dict):
-                for k, v in saved.items():
-                    if isinstance(v, bool):
-                        state[k] = v
-        except Exception:
-            _logger.exception("读取 source_state.json 失败")
-    return state
+    global _state
+    _state = load_source_state()
 
 
-def _save() -> None:
-    try:
-        config.SOURCE_STATE_FILE.write_text(
-            json.dumps(_state, ensure_ascii=False, indent=2), "utf-8"
-        )
-    except Exception:
-        _logger.exception("写入 source_state.json 失败")
-
-
-_state = _load()
+_load()
 
 
 def is_enabled(name: str) -> bool:
@@ -56,8 +32,10 @@ def is_enabled(name: str) -> bool:
 
 def toggle(name: str) -> bool:
     """翻转并持久化；返回翻转后的状态。"""
+    from comic_crawler.facade import save_source_state
+
     _state[name] = not _state.get(name, True)
-    _save()
+    save_source_state(_state)
     return _state[name]
 
 

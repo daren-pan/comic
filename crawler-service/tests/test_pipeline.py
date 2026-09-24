@@ -15,8 +15,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from comic_crawler.fingerprint import build_fingerprint, normalize_title
-from comic_crawler.models import ComicDetail
-from comic_crawler.storage.mysql import MySQLStorage
+from comic_core.models import ComicDetail
+from comic_core.storage.mysql import MySQLStorage
 
 
 class TestFingerprint(unittest.TestCase):

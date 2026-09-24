@@ -49,7 +49,7 @@ from urllib.parse import urlencode
 
 from parsel import Selector
 
-from ...models import (
+from comic_core.models import (
     ChapterBrief,
     ComicBrief,
     ComicDetail,

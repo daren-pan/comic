@@ -13,7 +13,8 @@
 api-service/
 ├── main.py            # 仅装配：建 app → include_router → 有 dist 才挂载（挂载必须在最后，避免 "/" 抢走 API 路由）
 ├── core/              # 基础设施（无业务）
-│   ├── config.py      #   路径引导（开发态把 crawler-service/src 加入 sys.path；wheel 态靠 pip 依赖）+ DIST_DIR / STATE_FILE
+│   ├── bootstrap.py   #   路径引导：把 crawler-service/src 注入 sys.path（**导入即生效**；wheel 态靠 pip 依赖，自然跳过）
+│   ├── config.py      #   纯常量（无副作用）：项目根 / 前端 dist 目录（路径注入归 bootstrap，源开关状态归采集层）
 │   ├── db.py          #   两个进程级单例：db（MySQLStorage）· users（MySQLUserStore）
 │   ├── security.py    #   bcrypt · JWT · get_current_user / get_optional_user · 两道门
 │   ├── pagination.py  #   分页归一 + 单页上限 MAX_PAGE_SIZE（**接口侧**约束，与存储实现无关）
@@ -94,7 +95,10 @@ cd api-service
   库里只存真实计数。⚠️ 统计收藏数用 `COUNT(DISTINCT f.user_id)`，**不能用 `f.id`**。
 - **图片**：DB 只存图库内相对 key；响应带缓存头（封面 1 小时 + `ETag`、正文页 7 天、**占位图 `no-store`**）；
   穿透取图的三道约束（并发 / 去重 / 负缓存）见 `crawler-service/README.md`。
-- **管理台后台任务**：采集 / 巡检 / 导入都是**长任务**，用 `services/tasks.py` 的 `threading.Thread` + 内存任务表执行，
+  **决策与协议分离**：`services/images.py` 只算「给哪份字节 + 什么缓存头」，返回框架无关的 `ImagePayload`；
+  组装 `Response` / 判 `304` 是 `routers/public.py` 的事 —— 故 services 层不出现任何 FastAPI 类型。
+- **管理台后台任务**：路由只做**入参解析 + 派发**，任务体在 `services/admin_jobs.py`（同步 / 巡检 / 导入 / 封面自愈），
+  都是**长任务**，用 `services/tasks.py` 的 `threading.Thread` + 内存任务表执行，
   触发后立即返回 `taskId`，前端轮询取结果。⚠️ **任务表在内存里 → 不能多进程**（见 `docs/deploy.md` §8）；
   ⚠️ 这些任务在 **api 进程内**直接调 `comic_crawler`，**改完 crawler-service 必须重启后端**。
 - **测试纯逻辑**：不连库、不起 HTTP；需要存储时把 `core.db` 换成假存储。

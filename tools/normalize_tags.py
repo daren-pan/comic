@@ -1,6 +1,6 @@
 """一次性迁移：把库内**已有**标签按中文同义词词表统一为规范名。
 
-背景：标签归一化（`comic_crawler.taxonomy`）在**写入时**生效；但库里此前写入的标签
+背景：标签归一化（`comic_core.taxonomy`）在**写入时**生效；但库里此前写入的标签
 （mangadex 的英文、zaimanhua 的中文、weebcentral 的英文）仍是各源原文，本脚本按**同一张词表**
 把它们合并到规范名，使历史数据与新采集的数据一致。
 
@@ -30,8 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "crawler-service", "src"))
 
-from comic_crawler.storage.mysql import MySQLStorage  # noqa: E402
-from comic_crawler.taxonomy import canonical_tag  # noqa: E402
+from comic_core.storage.mysql import MySQLStorage  # noqa: E402
+from comic_core.taxonomy import canonical_tag  # noqa: E402
 
 BACKUP_DIR = Path(__file__).resolve().parents[1] / "backup"
 

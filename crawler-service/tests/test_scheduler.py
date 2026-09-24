@@ -18,9 +18,9 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from comic_crawler.config import SourceConfig
-from comic_crawler.models import ComicListResult
+from comic_core.models import ComicListResult
 from comic_crawler.scheduling import SyncScheduler
-from comic_crawler.storage import Storage
+from comic_core.storage import Storage
 
 # 凌晨 0:30（不触发每日全量）
 T0 = datetime.datetime(2026, 9, 2, 0, 30).timestamp()

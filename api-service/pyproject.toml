@@ -3,7 +3,8 @@
 # 产物：python -m pip wheel --no-deps -w dist .
 #       → dist/comic_api-<版本>-py3-none-any.whl
 # 镜像里 `pip install` 这个 whl 即可（见 deploy/api/Dockerfile）—— pip 会按下面的 dependencies
-# 自动解析出 comic-crawler（采集层产物）。**两个模块之间只有这一处依赖声明**，镜像层不再继承。
+# 自动解析出 comic-core（公共内核）与 comic-crawler（采集层）。**模块之间只有这一处依赖声明**，
+# 镜像层不再继承。
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
@@ -14,14 +15,16 @@ version = "1.0.0"
 description = "漫画聚合平台 · 接口服务（FastAPI，纯 API）"
 requires-python = ">=3.10"
 dependencies = [
+    # 公共内核：领域模型 / 存储契约与 MySQL 实现 / 图库读写 / 日志落库 Handler
+    # （pymysql、cryptography 由它传递）
+    "comic-core>=1.0.0",
     "fastapi>=0.111",
     "uvicorn>=0.30",
-    "pymysql>=1.1",
-    "cryptography>=42",   # MySQL 8.0 的 caching_sha2_password 认证（PyMySQL 需要）
     "bcrypt>=4.0",
     "PyJWT>=2.8",
-    # 采集层：接口层在**进程内**直接调用 comic_crawler（见 core/config.py 的导入引导），是硬依赖。
-    # 声明在这里 → 由 pip 解析安装；镜像不再靠 `FROM comic-crawler:1.0.0` 白拿（方向单向：api → crawler）。
+    # 采集层：接口层仍在**进程内**直接调用 comic_crawler（编排 / 适配器 / 穿透取图），是硬依赖。
+    # 声明在这里 → 由 pip 解析安装（方向单向：api → crawler）。
+    # ⚠️ 计划中：改成 HTTP 调用采集服务后，这一行会被删掉。
     "comic-crawler>=1.0.0",
 ]
 

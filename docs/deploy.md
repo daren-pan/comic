@@ -21,8 +21,9 @@
 deploy/
 ├── web/        Dockerfile + nginx.conf + dist/（网页端产物）  → comic-web:1.0.0    自带 nginx，宿主 85
 ├── front/      Dockerfile + nginx.conf + dist/（移动端产物）  → comic-front:1.0.0  自带 nginx，宿主 86
+├── core/       dist/comic_core-*.whl                          → **无镜像**（纯库，只作命名构建上下文 `core`）
 ├── crawler/    Dockerfile + dist/comic_crawler-*.whl          → comic-crawler:1.0.0  采集层（可单独当 CLI 镜像）
-├── api/        Dockerfile + dist/comic_api-*.whl              → comic-api:1.0.0      接口层（依赖采集层 wheel，**纯 API**）
+├── api/        Dockerfile + dist/comic_api-*.whl              → comic-api:1.0.0      接口层（依赖 core + crawler 的 wheel，**纯 API**）
 ├── mysql/      Dockerfile + sql/（建库脚本产物）              → comic-mysql:1.0.0    本项目独占的库（FROM mysql:8.0）
 ├── build.sh / build.bat                                       生成产物 + 按序构建这些镜像
 ├── up.sh                                                      **一键**：前端 build（默认两个入口，可 --web/--front 选）+ 上面这些 + up -d + 自检
@@ -113,13 +114,15 @@ docker compose -f deploy/docker-compose.yml up -d
 > 也可用 `PYTHON=/path/to/python` 显式指定）。
 > 它会临时拉 `setuptools` 做构建隔离，首次构建需要网络。
 
-**两个模块之间没有镜像依赖**：`api` 不再 `FROM comic-crawler:1.0.0`，而是在 `api-service/pyproject.toml`
-的 `dependencies` 里声明 `comic-crawler>=1.0.0`（**方向单向：api → crawler**），构建时 pip 按这条声明解析安装；
-采集层的 **wheel 产物**经 BuildKit 命名上下文 `crawler` 喂进 api 的构建上下文（`build.sh` 的
-`--build-context crawler=./crawler`、compose 的 `additional_contexts`）。所以**不必先有 crawler 镜像**，
-只要它的 wheel 已生成（步骤 1 已保证）；顺序 `mysql → web → crawler → api → front` 仍固定在 `build.sh` 里，
-只是不再是硬约束。两个前端镜像**反向不依赖后端**（nginx.conf 里的 `upstream comic-app:8000` 构建期不解析、
-运行期才需要），顺序里放哪都行。只在个别层改动时，也可以单独 `docker compose build comic-app`。
+**模块之间没有镜像依赖**：`api` 不再 `FROM comic-crawler:1.0.0`，而是在 `api-service/pyproject.toml`
+的 `dependencies` 里声明 `comic-core>=1.0.0` 与 `comic-crawler>=1.0.0`（**方向单向：api → crawler → core**），
+构建时 pip 按这些声明解析安装；上游两层的 **wheel 产物**经 BuildKit 命名上下文 `core` / `crawler`
+喂进 api 的构建上下文（`build.sh` 的 `--build-context`、compose 的 `additional_contexts`）。
+所以**不必先有 crawler 镜像**，只要那两个 wheel 已生成（步骤 1 已保证）；顺序
+`mysql → web → crawler → api → front` 仍固定在 `build.sh` 里。⚠️ `core` 上下文**两个消费方都要挂**
+（crawler 层与 api 层）—— 漏了它 pip 会去 PyPI 找 `comic-core`（并不存在，实测 404）而直接报错。
+顺序里放哪都行。两个前端镜像**反向不依赖后端**（nginx.conf 里的 `upstream comic-app:8000` 构建期不解析、
+运行期才需要）。只在个别层改动时，也可以单独 `docker compose build comic-app`。
 
 要点：
 
@@ -167,17 +170,21 @@ docker compose -f deploy/docker-compose.yml up -d
 ## 2. 方式 B：直接在仓库里跑（**本地开发用这个**）
 
 > **分工**：本地开发就走这条路（宿主直跑，起得快、有热重载）；**上线走 §1 的 Docker Compose**。
-> 本节同时说明了 `core/config.py` 的路径回落机制 —— 开发态的 `crawler-service/src` 是候选路径里的第一个，
-> 所以仓库本身就是一个可运行形态。
+> 本节同时说明了 `core/bootstrap.py` 的路径注入机制 —— 它把 `<repo>/comic-core/src` 与
+> `<repo>/crawler-service/src` 加进 `sys.path`，所以仓库本身就是可运行形态，**不需要设 `PYTHONPATH`**。
 
-`core/config.py` 的候选路径里，**开发态是第一个**（`crawler-service/src`），`DIST_DIR` 也会回落到
-`comic-web/dist` —— 所以仓库本身就是一个可运行的部署形态：
+`core/bootstrap.py` 的候选路径列表里，**开发态两条排在最前**（`comic-core/src`、`crawler-service/src`），
+`DIST_DIR` 也会回落到 `comic-web/dist` —— 所以仓库本身就是一个可运行的部署形态：
 
 ```bash
-pip install -r api-service/requirements.txt -r crawler-service/requirements.txt
+pip install -r comic-core/requirements.txt -r crawler-service/requirements.txt -r api-service/requirements.txt
 cd comic-web && npm run build          # 前端产物（改过前端才需重跑）
 cd api-service && python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+> 三个 `requirements.txt` **只列第三方依赖** —— `comic_core` / `comic_crawler` 是仓库内本地包
+> （PyPI 上不存在），靠 `api-service/core/bootstrap.py` 在导入时把两个 `src` 目录注入 `sys.path`
+> 来定位（**导入即生效、幂等，不需要手工设 `PYTHONPATH`**；wheel 态它们已在 site-packages，候选目录不存在、自然跳过）。
 
 环境变量与建库同 §4 / §5。用 systemd 托管时指向仓库里的 venv 即可（`ExecStart=<venv>/bin/python -m uvicorn ...`，
 `Restart=always`、`WorkingDirectory=<repo>/api-service`、`EnvironmentFile=` 放密钥）。
@@ -200,17 +207,18 @@ cd comic-web && npm install && npm run build    # 先构建前端 → comic-web/
 
 | 路径 | 内容 |
 |---|---|
-| `main.py` · `core/` · `routers/` · `services/` · `schemas.py` · `serializers.py` | HTTP 服务（api-service 分层代码） |
-| `src/comic_crawler/` | 采集服务包（适配器 / 存储 / 调度 / 词表数据 `data/`），**含非 py 资源** |
+| `main.py` · `core/` · `routers/` · `services/` · `schemas.py` · `serializers.py` | HTTP 服务（api-service 分层代码）。⚠️ 这里的 `core/` 是 api 的 HTTP 分层包，与 `src/comic_core/` 无关 |
+| `src/comic_core/` | 公共内核（领域模型 / 存储契约与 MySQL 实现 / 图库读写 / 标签归一），**含词表数据 `data/`** |
+| `src/comic_crawler/` | 采集服务包（适配器 / 存储 / 调度 / CLI） |
 | `dist/` | 前端产物（同源托管） |
 | `sql/mysql_schema.sql` | 建库脚本（10 张表，含 `log_record`） |
-| `requirements.txt` | api + crawler 依赖**合并去重**（`sort -u` 生成） |
+| `requirements.txt` | core + crawler + api 依赖**合并去重**（`sort -u` 生成） |
 | `README-DEPLOY.md` | 一页运行说明（脚本自动生成） |
 
-**为什么是 `src/comic_crawler/` 这层而不是直接放 `comic_crawler/`**：
-`data` 目录（图库 + 源开关状态）的默认根由 `comic_crawler` 包位置推出来（向上两级）——
-放 `src/` 下才能与开发态同构，运行时数据正好落在 `<out>/data/`。
-`core/config.py` 里三个候选路径就是为这件事准备的（开发态 / 打包态两种）。
+**为什么两个包都放在 `src/` 下、而不是直接放 `<out>/`**：
+`data` 目录（图库 + 源开关状态）的默认根由包位置推出来 —— 放 `src/` 下才能与开发态同构，
+运行时数据正好落在 `<out>/data/`。`api-service/core/bootstrap.py` 的候选路径里就有一条
+`<bundle>/src`，正是为这件事准备的（所以运行时**不需要**手工设 `PYTHONPATH`）。
 
 ## 4. 环境变量（都有默认值 —— 上线必须改的见 §7）
 
@@ -243,7 +251,7 @@ cd comic-web && npm install && npm run build    # 先构建前端 → comic-web/
 
 ```bash
 # 在仓库里：
-mysql -h <host> -P <port> -u root -p < crawler-service/sql/mysql_schema.sql
+mysql -h <host> -P <port> -u root -p < comic-core/sql/mysql_schema.sql
 # 若用的是 §3 的发布包（包内有 sql/ 目录）：
 #   mysql -h <host> -P <port> -u root -p < sql/mysql_schema.sql
 ```

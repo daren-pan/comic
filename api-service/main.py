@@ -4,10 +4,10 @@
 
 | 位置 | 职责 |
 |---|---|
-| `core/` | 基础设施：`config` 路径引导、`db` 存储句柄、`security` 认证、`pagination` 分页归一、`responses` 统一响应 |
+| `core/` | 基础设施：`bootstrap` 路径引导（导入即注入 sys.path）、`config` 路径常量、`db` 存储句柄、`security` 认证、`pagination` 分页归一、`responses` 统一响应 |
 | `schemas.py` | 请求体模型（Pydantic） |
 | `serializers.py` | 领域对象 → 前端驼峰契约（**纯函数**，不碰存储） |
-| `services/` | 业务动作：`images` 图片读写与占位图、`tags` 标签批量注入、`tasks` 后台任务、`sources` 数据源开关 |
+| `services/` | 业务动作：`images` 图片取数决策与占位图、`tags` 标签批量注入、`admin_jobs` 管理台任务体、`tasks` 后台任务、`sources` 数据源开关 |
 | `routers/` | HTTP 接口：`public` 公开浏览、`auth` 认证、`users` 收藏/历史、`admin` 采集管理台、`admin_users` 授权页 |
 
 约定：响应统一为 `{ code, message, data }`；图片端点优先返回已转存的真实文件，
@@ -27,7 +27,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from core.config import DIST_DIR  # 必须最先导入：内部完成 sys.path 引导
+from core import bootstrap  # noqa: F401  —— 必须最先导入：导入即完成 sys.path 引导
+from core.config import DIST_DIR
 from core.logging_setup import setup as setup_logging
 from routers import admin, admin_users, auth, public, users
 

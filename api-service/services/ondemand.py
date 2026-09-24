@@ -147,7 +147,7 @@ def import_one(
 
 
 def _chapter_brief(source: str, comic: dict, chapter: dict):
-    from comic_crawler.facade import ChapterBrief
+    from comic_core.models import ChapterBrief
 
     return ChapterBrief(
         source=source,
@@ -160,7 +160,7 @@ def _chapter_brief(source: str, comic: dict, chapter: dict):
 
 def _detail_stub(source: str, comic: dict):
     """给 `fetch_chapter_pages` 用的最小详情壳（现有适配器只用 chapter 参数）。"""
-    from comic_crawler.facade import ComicDetail
+    from comic_core.models import ComicDetail
 
     return ComicDetail(
         source=source,

@@ -12,10 +12,11 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from comic_core.models import ComicListResult, SyncStats
+from comic_core.storage.base import Storage
+
 from ..fingerprint import build_fingerprint
-from ..models import ComicListResult, SyncStats
 from ..sources.base import CrawlerAdapter
-from ..storage.base import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +173,9 @@ def _upsert_detail(
 
     # 外链封面落盘为图库内相对 key（入库即落盘；失败仅告警，下次同步自愈）
     try:
+        from comic_core.images.store import LocalImageStore
+
         from ..images.transfer import ensure_cover_local
-        from ..images.store import LocalImageStore
 
         # 带上标题 / 源名：失败时日志里才能直接看出是哪部作品（否则只有 comic_id）
         ensure_cover_local(

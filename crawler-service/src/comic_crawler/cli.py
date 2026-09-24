@@ -16,12 +16,13 @@ import argparse
 import logging
 import time
 
+from comic_core.images.store import LocalImageStore
+from comic_core.storage.base import Storage
+from comic_core.storage.mysql import MySQLStorage
+
 from .sources import SOURCES, create_adapter, list_adapters
 from .images.transfer import lazy_transfer
-from .images.store import LocalImageStore
-from .storage.mysql import MySQLStorage
 from .scheduling import SyncScheduler, full_sync, incremental_sync, inspect_sync
-from .storage.base import Storage
 
 
 def _storage(_args: argparse.Namespace) -> Storage:

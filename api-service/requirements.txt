@@ -1,5 +1,13 @@
 fastapi>=0.111
 uvicorn>=0.30
-pymysql>=1.1
 bcrypt>=4.0
 PyJWT>=2.8
+
+# ⚠️ 这里**只列第三方依赖**。`comic_core` / `comic_crawler` 都是仓库内的本地包
+#    （PyPI 上不存在，实测 404），不能写进 requirements.txt，
+#    否则 `pip install -r requirements.txt` 会解析失败。它们的获取方式：
+#      · 开发态   —— 仓库布局本身（靠 PYTHONPATH / editable 安装）
+#      · 镜像/wheel —— 由 pyproject.toml 的 dependencies 声明，pip 从本地 wheel 目录解析
+#      · 源码包   —— scripts/package.* 把三个包的 requirements 合并成一份
+#
+# 另：pymysql 已随存储下沉到 comic-core（见 comic-core/requirements.txt），本包不再直接使用。

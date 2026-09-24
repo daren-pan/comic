@@ -1,15 +1,24 @@
-"""图片读取与占位图生成。
+"""图片读取、占位图生成，以及**图片响应的取数决策**。
 
 - 读取端：已转存的真实文件优先，按**魔数**判定类型（不信任扩展名）；
   读不到则回退生成 SVG 占位图（与前端视觉一致），保证页面不出现裂图。
 - 写入端：`admin_image_store()` 给懒转存用，**与读取端同源**（同一图库根）。
+- 决策端：`resolve_cover_image()` / `resolve_page_image()` 把「封面 / 正文图该返回什么」
+  算成与框架无关的 `ImagePayload`（字节 + MIME + 缓存头 + 可选 ETag）。
+
+⚠️ **为什么决策也在这里**（2026-09-24 调整）：正文图是**三级兜底**（本地图库 → 源站
+穿透 → SVG 占位图，**顺序不能变**），三级各自还带不同的缓存语义 —— 这套规则原先散在
+`routers/public.py` 的路由函数里，与 HTTP 层混在一起。下沉到这里后，路由只负责把
+`ImagePayload` 拼成 `Response`（含 `If-None-Match` → 304 的 HTTP 语义），**不 import
+FastAPI 的响应类型**，因此本模块仍是纯逻辑、可直接单测。
 """
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
-from core import config  # noqa: F401  —— 先完成 sys.path 引导（使 comic_crawler 可导入）
+from core import bootstrap  # noqa: F401  —— 先完成 sys.path 引导（使 comic_crawler 可导入）
 
 _IMG_MAGIC: list[tuple[bytes, str]] = [
     (b"\x89PNG\r\n\x1a\n", "image/png"),
@@ -18,6 +27,27 @@ _IMG_MAGIC: list[tuple[bytes, str]] = [
     (b"GIF89a", "image/gif"),
     (b"RIFF", "image/webp"),  # 简化：WEBP 以 RIFF 开头
 ]
+
+#: 封面可以被「管理台 · 封面自愈（force=True）」换掉，所以只给 1 小时 ——
+#: 换图后最多 1 小时全站生效；1 小时内的重复请求由 ETag 条件请求兜住（304 空体，不重传）。
+COVER_MAX_AGE = 3600
+#: 正文页按 `(comic, chapter, page)` 落盘后内容即固定 → 7 天长缓存。两条命中路径的
+#: 缓存语义略有差别（都够用）：**本地命中**带 ETag（过期后条件请求换 304，不重传）；
+#: **穿透命中**直接给 `immutable`（字节就在手上，不值得为它多读一次刚写好的文件去算 ETag）。
+PAGE_MAX_AGE = 7 * 24 * 3600
+#: 占位图 = 临时兜底（源站没取到），**绝不能缓存**：否则源站恢复了用户还看旧图。
+NO_STORE: dict[str, str] = {"Cache-Control": "no-store"}
+
+
+@dataclass(frozen=True)
+class ImagePayload:
+    """与框架无关的图片响应载荷（由路由层拼成 `Response`）。"""
+
+    data: bytes
+    mime: str
+    headers: dict[str, str]
+    #: 仅**本地命中**才有；有它路由层才能做 `If-None-Match` → 304 的条件请求。
+    etag: str | None = None
 
 
 def sniff_image(data: bytes) -> str | None:
@@ -50,7 +80,7 @@ def resolve_image_root() -> Path:
 
     env `COMIC_IMAGE_ROOT` 的优先级由 `default_store_root()` 统一处理，此处不重复实现。
     """
-    from comic_crawler.facade import default_store_root
+    from comic_core.images.store import default_store_root
 
     return default_store_root().resolve()
 
@@ -94,9 +124,60 @@ def admin_image_store():
 
     `IMAGE_ROOT` 恒为绝对路径（`resolve_image_root()` 零兜底），故无需再判断 None。
     """
-    from comic_crawler.facade import LocalImageStore
+    from comic_core.images.store import LocalImageStore
 
     return LocalImageStore(root=IMAGE_ROOT)
+
+
+def _cache_headers(max_age: int, etag: str) -> dict[str, str]:
+    """图库命中时的缓存头：可长缓存 + ETag（供条件请求）。"""
+    return {"Cache-Control": f"public, max-age={max_age}", "ETag": etag}
+
+
+def resolve_cover_image(row: dict) -> ImagePayload:
+    """封面：图库命中 → 带 ETag 的长缓存；否则 → SVG 占位图（`no-store`）。"""
+    img = read_image_file(row.get("cover_url") or "")
+    if img:
+        data, mime, etag = img
+        return ImagePayload(data, mime, _cache_headers(COVER_MAX_AGE, etag), etag)
+    svg = make_cover_svg(row["title"], row["author"])
+    return ImagePayload(svg.encode("utf-8"), "image/svg+xml", dict(NO_STORE))
+
+
+def resolve_page_image(row: dict, page_no: int) -> ImagePayload:
+    """正文图**三级兜底**（顺序不能变）：本地图库 → 源站穿透 → SVG 占位图。
+
+    `row` 是 `db.get_page_context(chapter_id, page_no)` 的结果 —— 源 URL / 已转存 key /
+    作品与章节标题 / 本章总页数都在里面，三级各自需要的东西一个不缺（故这里不再查库）。
+    """
+    # 1) 本地图库命中（已转存的文件 / 图库内相对 key）—— 最快路径
+    img = read_image_file(row.get("oss_url") or "") or read_image_file(row.get("source_url") or "")
+    if img:
+        data, mime, etag = img
+        return ImagePayload(data, mime, _cache_headers(PAGE_MAX_AGE, etag), etag)
+
+    # 2) 穿透取图：本地没有 → 现场从源站取**这一张**，顺手落盘（下次访问走本地）。
+    #    用户等待 = 源站响应一张图的时间，而不是「整话下载完」；签名过期会自动重签。
+    #    并发闸门 / 同图去重 / 失败负缓存都在 crawler 侧（见 images/transfer.py）。
+    #    ⚠️ 延迟导入：`services.ondemand` 在模块级 import 本模块，这里若模块级反向 import 会成环。
+    from services.ondemand import fetch_page_online
+
+    data = fetch_page_online(int(row["chapter_id"]), page_no, row=row)
+    if data:
+        return ImagePayload(
+            data,
+            sniff_image(data) or "image/jpeg",
+            {"Cache-Control": f"public, max-age={PAGE_MAX_AGE}, immutable"},
+        )
+
+    # 3) 兜底：源站也取不到 → 占位图（保证不裂图），状态保持「未转存」待下次重试
+    svg = make_page_svg(
+        row.get("comic_title") or "漫画",
+        row.get("chapter_title") or "",
+        page_no,
+        int(row.get("total_pages") or 0) or page_no,
+    )
+    return ImagePayload(svg.encode("utf-8"), "image/svg+xml", dict(NO_STORE))
 
 
 def _hue(seed: str) -> int:

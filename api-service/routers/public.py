@@ -1,8 +1,8 @@
 """公开接口：健康检查、分类、作品、章节、封面与正文图（无需登录）。
 
-图片端点三级兜底（**顺序不能变**，见 `page_image`）：本地图库 → 源站穿透 → SVG 占位图。
-三级各自带**正确的缓存语义**：前两级可长缓存，占位图必须 `no-store` ——
-否则"当时取不到"的兜底图会被浏览器缓存住，源站恢复了用户还看旧图。
+图片端点只做 HTTP 那部分：把 `services.images` 算好的 `ImagePayload` 拼成响应，
+并处理 `If-None-Match` → 304 的条件请求。**取数决策（三级兜底、缓存语义）在
+`services.images`** —— 见 `resolve_cover_image` / `resolve_page_image`。
 
 ⚠️ 图片缓存是 2026-09-21 补的：此前这些响应**一个缓存头都没有**（`Response(content=...)`），
 于是每次翻页 / 回列表 / 刷新都在重下整张封面与整话正文图 —— 而它们的字节几乎从不变。
@@ -16,22 +16,12 @@ from fastapi.responses import Response
 from core.db import db
 from core.responses import ok
 from serializers import to_chapter, to_comic, to_page
-from services.images import make_cover_svg, make_page_svg, read_image_file, sniff_image
-from services.ondemand import ensure_chapter_pages, fetch_page_online
+from services.images import ImagePayload, resolve_cover_image, resolve_page_image
+from services.ondemand import ensure_chapter_pages
 from services.ondemand import search as search_sources
 from services.tags import attach_tags
 
 router = APIRouter(tags=["public"])
-
-#: 封面可以被「管理台 · 封面自愈（force=True）」换掉，所以只给 1 小时 ——
-#: 换图后最多 1 小时全站生效；1 小时内的重复请求由 ETag 条件请求兜住（304 空体，不重传）。
-COVER_MAX_AGE = 3600
-#: 正文页按 `(comic, chapter, page)` 落盘后内容即固定 → 7 天长缓存。两条命中路径的
-#: 缓存语义略有差别（都够用）：**本地命中**带 ETag（过期后条件请求换 304，不重传）；
-#: **穿透命中**直接给 `immutable`（字节就在手上，不值得为它多读一次刚写好的文件去算 ETag）。
-PAGE_MAX_AGE = 7 * 24 * 3600
-#: 占位图 = 临时兜底（源站没取到），**绝不能缓存**。
-NO_STORE = {"Cache-Control": "no-store"}
 
 
 def _etag_hit(request: Request, etag: str) -> bool:
@@ -42,26 +32,11 @@ def _etag_hit(request: Request, etag: str) -> bool:
     return raw.strip() == "*" or etag in [t.strip() for t in raw.split(",")]
 
 
-def _file_response(request: Request, img: tuple[bytes, str, str], max_age: int) -> Response:
-    """图库命中：带 ETag 的图片响应（条件请求命中则返回 304 空体）。"""
-    data, mime, etag = img
-    headers = {"Cache-Control": f"public, max-age={max_age}", "ETag": etag}
-    if _etag_hit(request, etag):
-        return Response(status_code=304, headers=headers)
-    return Response(content=data, media_type=mime, headers=headers)
-
-
-def _passthrough_response(data: bytes) -> Response:
-    """穿透取图成功：把**刚落盘**的这张图直接返回，并带上与本地命中一致的长缓存。
-
-    这里刻意不带 ETag：正文页用 `immutable`（7 天内浏览器不回头问），
-    既然不打算再验证，就没必要为它多读一次刚写好的文件去算 ETag。
-    """
-    return Response(
-        content=data,
-        media_type=sniff_image(data) or "image/jpeg",
-        headers={"Cache-Control": f"public, max-age={PAGE_MAX_AGE}, immutable"},
-    )
+def _image_response(request: Request, payload: ImagePayload) -> Response:
+    """`ImagePayload` → 响应；带 ETag 时支持条件请求（命中则 304 空体）。"""
+    if payload.etag and _etag_hit(request, payload.etag):
+        return Response(status_code=304, headers=payload.headers)
+    return Response(content=payload.data, media_type=payload.mime, headers=payload.headers)
 
 
 @router.get("/api/health")
@@ -130,14 +105,7 @@ def cover(comic_id: int, request: Request):
     row = db.get_comic(comic_id)
     if not row:
         raise HTTPException(status_code=404, detail="comic not found")
-    img = read_image_file(row.get("cover_url") or "")
-    if img:
-        return _file_response(request, img, COVER_MAX_AGE)
-    return Response(
-        content=make_cover_svg(row["title"], row["author"]),
-        media_type="image/svg+xml",
-        headers=NO_STORE,
-    )
+    return _image_response(request, resolve_cover_image(row))
 
 
 @router.get("/api/images/{comic_id}/{chapter_id}/{page_no}")
@@ -153,27 +121,4 @@ def page_image(comic_id: int, chapter_id: int, page_no: int, request: Request):
     if not row:
         raise HTTPException(status_code=404, detail="page not found")
 
-    # 1) 本地图库命中（已转存的文件 / 图库内相对 key）—— 最快路径
-    img = read_image_file(row.get("oss_url") or "") or read_image_file(row.get("source_url") or "")
-    if img:
-        return _file_response(request, img, PAGE_MAX_AGE)
-
-    # 2) 穿透取图：本地没有 → 现场从源站取**这一张**，顺手落盘（下次访问走本地）。
-    #    用户等待 = 源站响应一张图的时间，而不是「整话下载完」；签名过期会自动重签。
-    #    并发闸门 / 同图去重 / 失败负缓存都在 crawler 侧（见 images/transfer.py）。
-    data = fetch_page_online(chapter_id, page_no, row=row)
-    if data:
-        return _passthrough_response(data)
-
-    # 3) 兜底：源站也取不到 → 占位图（保证不裂图），状态保持「未转存」待下次重试
-    comic = db.get_comic(comic_id)
-    return Response(
-        content=make_page_svg(
-            comic["title"] if comic else "漫画",
-            ch["title"],
-            page_no,
-            int(row.get("total_pages") or 0) or page_no,
-        ),
-        media_type="image/svg+xml",
-        headers=NO_STORE,
-    )
+    return _image_response(request, resolve_page_image(row, page_no))

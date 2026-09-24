@@ -13,7 +13,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from ..models import ChapterBrief, ComicBrief, ComicDetail, ComicListResult, PageInfo
+from comic_core.models import ChapterBrief, ComicBrief, ComicDetail, ComicListResult, PageInfo
 
 
 class CrawlerAdapter(ABC):

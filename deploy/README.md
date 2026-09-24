@@ -6,14 +6,19 @@
 deploy/
 ├── web/       Dockerfile + nginx.conf + dist/（网页端产物）  → comic-web:1.0.0    自带 nginx，宿主 85
 ├── front/     Dockerfile + nginx.conf + dist/（移动端产物）  → comic-front:1.0.0  自带 nginx，宿主 86
+├── core/      dist/comic_core-*.whl                          → **无镜像**（纯库，只作命名构建上下文 `core`）
 ├── crawler/   Dockerfile + dist/comic_crawler-*.whl          → comic-crawler:1.0.0  采集层（可单独当 CLI 镜像）
-├── api/       Dockerfile + dist/comic_api-*.whl              → comic-api:1.0.0      接口层（依赖采集层 wheel，**纯 API**）
+├── api/       Dockerfile + dist/comic_api-*.whl              → comic-api:1.0.0      接口层（依赖 core + crawler 的 wheel，**纯 API**）
 ├── mysql/     Dockerfile + sql/（建库脚本产物）              → comic-mysql:1.0.0    本项目独占的库
 ├── build.sh / build.bat                                      生成产物 + 按序构建这些镜像
 ├── up.sh                                                     **一键**：前端 build（默认两个入口，可 --web/--front 选）+ 上面这些 + up -d + 自检
 ├── docker-compose.yml                                        编排：comic-mysql + comic-app + comic-web / comic-front
 └── .env.example                                              配置模板（`deploy/.env` 已 gitignore）
 ```
+
+> `core/` 是唯一**没有 Dockerfile** 的模块 —— `comic-core` 是纯库、不是部署单元，
+> 这里只需要一个放 wheel 的地方，供 BuildKit 命名上下文 `core` 挂给 crawler 与 api。
+> 详见 [`core/README.md`](core/README.md)。
 
 > 命名统一带 `comic-` 前缀：**镜像名**、**容器名**、**compose 服务名**三者一致
 > （服务名 = 容器名，所以 `docker compose ps` / `exec comic-app` 用的是同一个名字）。
@@ -60,12 +65,14 @@ deploy/
 
 | 模块 | 产物 | 来源 |
 |---|---|---|
-| `crawler` / `api` | **wheel** | 各自的 `pyproject.toml`（= 那个模块的 pom.xml）经 `pip wheel` 构建 |
+| `core` / `crawler` / `api` | **wheel** | 各自的 `pyproject.toml`（= 那个模块的 pom.xml）经 `pip wheel` 构建 |
 | `web` | `dist/` 静态文件 | `cd comic-web && npm run build` 后复制进来；来源可用 `WEB_SRC=<目录>` 覆盖 |
 | `front` | `dist/` 静态文件 | `cd comic-front && npm run build:h5` 后复制进来；来源可用 `FRONT_SRC=<目录>` 覆盖 |
-| `mysql` | `sql/mysql_schema.sql` | 从 `crawler-service/sql/` 复制（烘进镜像，供首次初始化） |
+| `mysql` | `sql/mysql_schema.sql` | 从 `comic-core/sql/` 复制（烘进镜像，供首次初始化） |
 
 wheel 里只有包本身 + 依赖声明 —— 测试、文档、样例夹具（`guazi/fixtures/*.html` 等）**自动被排除**。
+三个 wheel 之间有**固定的拓扑顺序 `core → crawler → api`**（后两者的 `METADATA` 里声明了前者），
+`build.sh` 按这个顺序构建；**没有镜像依赖**，镜像之间只通过 wheel 产物 + 命名构建上下文连接。
 
 ## 三步起来
 
@@ -116,12 +123,15 @@ docker compose -f deploy/docker-compose.yml up -d
 
 ## 几个不显然的点
 
-- **两个模块之间没有镜像依赖**：`api` 不再 `FROM comic-crawler:1.0.0`，而是在
-  `api-service/pyproject.toml` 的 `dependencies` 里声明 `comic-crawler>=1.0.0`（方向单向：api → crawler），
-  构建时 pip 按这条声明解析安装；采集层的 **wheel 产物**经 BuildKit 命名上下文 `crawler` 喂进 api 的
-  构建上下文（`build.sh` 的 `--build-context crawler=./crawler` / compose 的 `additional_contexts`）。
-  所以**不必先有 crawler 镜像**，只要它的 wheel 已生成（`build.sh` 步骤 1 已保证）；
+- **模块之间没有镜像依赖**：`api` 不再 `FROM comic-crawler:1.0.0`，而是在
+  `api-service/pyproject.toml` 的 `dependencies` 里声明 `comic-core>=1.0.0` 与 `comic-crawler>=1.0.0`
+  （方向单向：api → crawler → core），构建时 pip 按这些声明解析安装；上游两层的 **wheel 产物**
+  经 BuildKit 命名上下文 `core` / `crawler` 喂进 api 的构建上下文（`build.sh` 的
+  `--build-context` / compose 的 `additional_contexts`）。
+  所以**不必先有 crawler 镜像**，只要那两个 wheel 已生成（`build.sh` 步骤 1 已保证）；
   顺序 `mysql → web → crawler → api → front` 仍固定在 `build.sh` 里，只是不再是硬约束。
+  ⚠️ `core` 上下文**两个消费方都要挂**（crawler 层与 api 层）—— 漏了它 pip 会去 PyPI 找
+  `comic-core`（并不存在，实测 404）而直接报错。
   两个前端镜像**反向不依赖后端**（nginx.conf 里的 `upstream comic-app:8000` 构建期不解析、运行期才需要）；
 - **构建上下文就是模块文件夹**（`context: ./api`），里面只有产物 + Dockerfile，
   所以不需要 `.dockerignore`，也不会把 `.git`/`.venv`/`node_modules` 送进构建；

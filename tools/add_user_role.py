@@ -13,7 +13,7 @@
 
 ### 本脚本做三件事（都幂等）
 
-1. **补列**：没有 `role` 就加（DDL 真源是 `crawler-service/sql/mysql_schema.sql`，新库建表本来就带）；
+1. **补列**：没有 `role` 就加（DDL 真源是 `comic-core/sql/mysql_schema.sql`，新库建表本来就带）；
 2. **定超管**：库里**没有任何 `superadmin`** 时，把**最早的特权用户**（`admin` 里 id 最小的）
    提升为 `superadmin`；连特权用户都没有，就提升**最早注册的用户** ——
    否则升级完没人能进授权页，等于把自己锁在外面；
@@ -38,9 +38,9 @@ from __future__ import annotations
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "crawler-service", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "comic-core", "src"))
 
-from comic_crawler.storage.mysql import MySQLStorage  # noqa: E402
+from comic_core.storage.mysql import MySQLStorage  # noqa: E402
 
 TABLE = "user"
 COLUMN = "role"

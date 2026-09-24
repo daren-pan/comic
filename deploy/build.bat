@@ -4,9 +4,10 @@ rem ============================================================
 rem  构建部署产物与镜像（分层：每个模块一个文件夹 + 一个 Dockerfile）
 rem
 rem  步骤 1  生成各模块产物到 deploy\<模块>\dist\
+rem             comic-core\       --wheel-->  deploy\core\dist\comic_core-<版本>.whl
 rem             crawler-service\  --wheel-->  deploy\crawler\dist\comic_crawler-<版本>.whl
 rem             api-service\      --wheel-->  deploy\api\dist\comic_api-<版本>.whl
-rem             sql\mysql_schema.sql --复制--> deploy\mysql\sql\
+rem             comic-core\sql\mysql_schema.sql --复制--> deploy\mysql\sql\
 rem             comic-web\dist\   --复制---->  deploy\web\dist\    （网页端产物）
 rem             comic-front\dist\build\h5 --复制--> deploy\front\dist\ （移动端产物）
 rem  步骤 2  按依赖顺序构建镜像
@@ -17,6 +18,13 @@ rem  启动时会自动执行烘在镜像里的建库脚本，10 张表直接建
 rem          （api 构建时要读采集层的 wheel 产物，所以 crawler 的**产物**必须先出 —— 步骤 1 已保证。
 rem           两个模块之间**没有镜像依赖**：api 只是在 pyproject.toml 的 dependencies 里声明
 rem           comic-crawler，构建时由 pip 解析安装。）
+rem
+rem  ⚠️ comic-core 是**纯库、没有镜像** —— 它是 deploy\ 下唯一一个「只出 wheel、不建镜像」的模块，
+rem     所以 deploy\core\ 里只有 dist\（和一个说明用的 README.md），没有 Dockerfile。
+rem     它的 wheel 以 BuildKit **命名构建上下文 core** 喂给 crawler 与 api 两层
+rem     （见下面 :buildimg 调用处的 "core=%DEPLOY%core"）——
+rem     少了它，pip 装 comic-crawler / comic-api 时会去 PyPI 找 comic-core 并直接报错。
+rem     wheel 的拓扑顺序固定为 comic-core -> crawler -> api（后两个的 METADATA 里声明了 comic-core）。
 rem
 rem  两个前端镜像（comic-web / comic-front）**各自带 nginx**：静态产物 + 反代在同一个容器里，
 rem  可以同时构建、同时运行，互不影响。它们共用同一份 nginx 站点配置 ——
@@ -94,6 +102,14 @@ echo -^> [1/2] 生成模块产物到 deploy\<模块>\dist\
 rem 构建 wheel。必须在模块目录里用 `.` 作为源：
 rem   传裸名字（如 api-service）会被 pip 当成**包名**去 PyPI 找，而 PyPI 上真有个同名的第三方包，
 rem   会静默下回来一个假产物。输出目录用相对路径（..\deploy\...）避免路径形态问题。
+rem 拓扑顺序：comic-core 在最前 -- 后两个 wheel 的 METADATA 里声明了它
+echo    comic-core\       --wheel--^>  deploy\core\dist\
+if exist "%DEPLOY%core\dist" rd /s /q "%DEPLOY%core\dist"
+if not exist "%DEPLOY%core\dist" mkdir "%DEPLOY%core\dist"
+pushd "%ROOT%\comic-core"
+"%PY%" -m pip wheel --no-deps --wheel-dir "..\deploy\core\dist" . >nul || (popd & exit /b 1)
+popd
+
 echo    crawler-service\  --wheel--^>  deploy\crawler\dist\
 if exist "%DEPLOY%crawler\dist" rd /s /q "%DEPLOY%crawler\dist"
 if not exist "%DEPLOY%crawler\dist" mkdir "%DEPLOY%crawler\dist"
@@ -108,9 +124,9 @@ pushd "%ROOT%\api-service"
 "%PY%" -m pip wheel --no-deps --wheel-dir "..\deploy\api\dist" . >nul || (popd & exit /b 1)
 popd
 
-echo    sql\mysql_schema.sql  --复制--^>  deploy\mysql\sql\
+echo    comic-core\sql\mysql_schema.sql  --复制--^>  deploy\mysql\sql\
 if not exist "%DEPLOY%mysql\sql" mkdir "%DEPLOY%mysql\sql"
-copy /y "%ROOT%\crawler-service\sql\mysql_schema.sql" "%DEPLOY%mysql\sql\mysql_schema.sql" >nul
+copy /y "%ROOT%\comic-core\sql\mysql_schema.sql" "%DEPLOY%mysql\sql\mysql_schema.sql" >nul
 
 if "%BUILD_WEB%"=="1" (
   echo    comic-web\dist  --复制--^>  deploy\web\dist\
@@ -136,7 +152,7 @@ if "%BUILD_FRONT%"=="1" (
 
 echo.
 echo -^> 产物检查
-for %%m in (crawler api) do (
+for %%m in (core crawler api) do (
   set "N=0"
   for %%f in ("%DEPLOY%%%m\dist\*.whl") do set /a N+=1
   if "!N!"=="0" (
@@ -169,10 +185,12 @@ echo -^> [2/2] 构建镜像（顺序：mysql -^> web -^> crawler -^> api -^> fro
 if defined PIP_INDEX echo    [PyPI 源] %PIP_INDEX%
 call :buildimg mysql   comic-mysql:1.0.0   || exit /b 1
 if "%BUILD_WEB%"=="1"   call :buildimg web     comic-web:1.0.0     || exit /b 1
-call :buildimg crawler comic-crawler:1.0.0 || exit /b 1
-rem api 要读采集层的 wheel 产物 -> 用 BuildKit 命名上下文把 deploy\crawler 挂成 `crawler`
-rem （Dockerfile 里 COPY --from=crawler dist\）。不是镜像依赖，只要 wheel 已生成即可。
-call :buildimg api     comic-api:1.0.0     "crawler=%DEPLOY%crawler" || exit /b 1
+call :buildimg crawler comic-crawler:1.0.0 "core=%DEPLOY%core" || exit /b 1
+rem api 要读**两个**上游 wheel 产物 -> 挂两个命名上下文：
+rem   core    = 公共内核（deploy\core\dist\），Dockerfile 里 COPY --from=core dist\
+rem   crawler = 采集层（deploy\crawler\dist\），Dockerfile 里 COPY --from=crawler dist\
+rem 都不是镜像依赖，只要两个 wheel 已生成即可。
+call :buildimg api     comic-api:1.0.0     "crawler=%DEPLOY%crawler" "core=%DEPLOY%core" || exit /b 1
 if "%BUILD_FRONT%"=="1" call :buildimg front   comic-front:1.0.0   || exit /b 1
 
 echo.
@@ -191,14 +209,26 @@ echo        详细说明见本文件头部注释
 exit /b 0
 
 rem ---- 构建单个镜像（PIP_INDEX 可选）----
-rem %1=模块目录  %2=镜像名  %3=额外的 --build-context 值（可选，形如 name=dir）
+rem %1=模块目录  %2=镜像名  %3..%9=额外的 --build-context 值（可选，每个形如 name=dir，可给多个）
+rem 注意是**可变个数**：api 要同时挂 core 与 crawler 两个上下文，
+rem 早期版本只认 %3 一个，加第二个会被静默丢掉 -> pip 找不到 comic-core 而构建失败。
+rem ⚠️ 必须先把 %1/%2 存进变量再 shift，否则 shift 之后它们就变成上下文了。
 :buildimg
+set "BIMG_DIR=%DEPLOY%%~1"
+set "BIMG_TAG=%~2"
 set "EXTRA="
-if not "%~3"=="" set "EXTRA=--build-context %3"
+shift
+shift
+:buildimg_args
+if "%~1"=="" goto :buildimg_run
+set "EXTRA=%EXTRA% --build-context %~1"
+shift
+goto :buildimg_args
+:buildimg_run
 if defined PIP_INDEX (
-  docker build --build-arg "PIP_INDEX=%PIP_INDEX%" %EXTRA% -t %2 "%DEPLOY%%1"
+  docker build --build-arg "PIP_INDEX=%PIP_INDEX%" %EXTRA% -t %BIMG_TAG% "%BIMG_DIR%"
 ) else (
-  docker build %EXTRA% -t %2 "%DEPLOY%%1"
+  docker build %EXTRA% -t %BIMG_TAG% "%BIMG_DIR%"
 )
 exit /b %errorlevel%
 

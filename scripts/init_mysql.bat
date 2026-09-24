@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  Import crawler-service\sql\mysql_schema.sql into a MySQL (create db + tables).
+rem  Import comic-core\sql\mysql_schema.sql into a MySQL (create db + tables).
 rem  Idempotent: CREATE DATABASE IF NOT EXISTS + CREATE TABLE IF NOT EXISTS only.
 rem  The schema contains NO DROP, so existing data is NEVER deleted.
 rem
@@ -43,7 +43,7 @@ if errorlevel 1 (
     echo [ERROR] CREATE DATABASE failed. Check host/port/credentials.
     exit /b 1
 )
-mysql -h%HOST% -P%PORT% -uroot --default-character-set=utf8mb4 %DB% < crawler-service\sql\mysql_schema.sql
+mysql -h%HOST% -P%PORT% -uroot --default-character-set=utf8mb4 %DB% < comic-core\sql\mysql_schema.sql
 if errorlevel 1 (
     echo [ERROR] schema import failed.
     exit /b 1

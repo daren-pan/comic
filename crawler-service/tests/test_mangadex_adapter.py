@@ -238,7 +238,7 @@ class TestMangaDexAdapter(unittest.TestCase):
     def test_fetch_detail(self):
         fake = _FakeApi(detail_resp=DETAIL_RESP, feed_resp=FEED_RESP)
         self.ad._api_get = fake
-        from comic_crawler.models import ComicBrief
+        from comic_core.models import ComicBrief
 
         brief = ComicBrief(
             source="mangadex", source_comic_id="m1", title="测试漫画A"
@@ -308,7 +308,7 @@ class TestMangaDexAdapter(unittest.TestCase):
             },
         )
         self.ad._api_get = fake
-        from comic_crawler.models import ComicBrief
+        from comic_core.models import ComicBrief
 
         detail = self.ad.fetch_comic_detail(
             ComicBrief(source="mangadex", source_comic_id="m9", title="")
@@ -325,7 +325,7 @@ class TestMangaDexAdapter(unittest.TestCase):
 
     def test_fetch_chapter_pages(self):
         self.ad._api_get = _FakeApi(home_resp=AT_HOME_RESP)
-        from comic_crawler.models import ChapterBrief, ComicDetail
+        from comic_core.models import ChapterBrief, ComicDetail
 
         detail = ComicDetail(
             source="mangadex", source_comic_id="m1", title="x", chapters=[]

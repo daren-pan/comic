@@ -55,16 +55,17 @@ _QUIET_FILTER = QuietPollingFilter()  # 单例：重复 setup 时 addFilter 不�
 # 这些 logger 前缀调到 INFO（其余第三方库留在 root 的 WARNING，否则 httpx 会对每张图刷一行）。
 # 注意 `services` 必须在内：api-service 自己的业务日志（如「读时登记页清单」）用的是
 # `logging.getLogger(__name__)`，名字是 `services.*` —— 漏掉的话这些 INFO 会被静默丢弃。
-INFO_LOGGERS: tuple[str, ...] = ("comic_crawler", "comic.admin", "services")
+# `comic_core` 是公共内核（存储/图库/标签归一）的日志名前缀，与 `comic_crawler` 同理。
+INFO_LOGGERS: tuple[str, ...] = ("comic_crawler", "comic_core", "comic.admin", "services")
 
 
 def install_db_handler():
     """把日志落库的 Handler 挂到 root（`log_record` 表，见 crawler 的 log_handler 模块）。
 
-    延迟导入：只有真正要装的时候才 import 采集层契约面（那会顺带拉起 pymysql 等），
+    延迟导入：只有真正要装的时候才 import 那个 Handler（会顺带拉起 pymysql 等），
     单测/脚本里只想用过滤器与级别配置时不受影响。
     """
-    from comic_crawler.facade import install_log_handler as install
+    from comic_core.storage.mysql.log_handler import install
 
     return install()
 

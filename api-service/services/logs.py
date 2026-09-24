@@ -1,6 +1,6 @@
 """运行日志的**查询**（管理台「日志查询」页）。
 
-数据来源：`log_record` 表 —— 日志由 `comic_crawler.storage.mysql.log_handler` 在打日志时
+数据来源：`log_record` 表 —— 日志由 `comic_core.storage.mysql.log_handler` 在打日志时
 自动落库（后台线程批量写，见该模块）。本模块只负责**读**：条件筛选 + 分页 + 单条详情 + 保留策略。
 
 与旧实现的关键区别：过去是"读 `logs/api.log` 末尾 N 行"给弹窗看（前端每 4 秒轮询一次），
@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from core import config  # noqa: F401  —— 先完成 sys.path 引导（使 comic_crawler 可导入）
+from core import bootstrap  # noqa: F401  —— 先完成 sys.path 引导（使 comic_core 可导入）
 from core.pagination import normalize
-from comic_crawler.facade import MySQLLogStore
+from comic_core.storage.mysql import MySQLLogStore
 
 # 进程内复用一个 store（它自己每次调用建连接，无状态）
 _store = MySQLLogStore()

@@ -15,8 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from comic_crawler import logctx  # noqa: E402
-from comic_crawler.storage.mysql import record_to_row  # noqa: E402
+from comic_core import logctx  # noqa: E402
+from comic_core.storage.mysql import record_to_row  # noqa: E402
 
 
 def _record(
@@ -110,7 +110,7 @@ class TestRecordToRow(unittest.TestCase):
 
     def test_all_columns_present(self):
         """行必须覆盖 log_record 的全部业务列（少一列 insert 就会报错）。"""
-        from comic_crawler.storage.mysql.log_store import LOG_COLUMNS
+        from comic_core.storage.mysql.log_store import LOG_COLUMNS
 
         self.assertEqual(set(record_to_row(_record())), set(LOG_COLUMNS))
 

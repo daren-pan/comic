@@ -29,11 +29,13 @@ httpx」的调用方，再把 `fetch_page_bytes` 改成模块级 `__getattr__` �
 """
 from __future__ import annotations
 
-from . import logctx
-from .images.store import LocalImageStore, default_store_root
+from comic_core import logctx
+from comic_core.images.store import LocalImageStore, default_store_root
+from comic_core.models import ChapterBrief, ComicDetail
+from comic_core.storage.mysql import MySQLLogStore, MySQLStorage, MySQLUserStore
+from comic_core.storage.mysql.log_handler import install as install_log_handler
+
 from .images.transfer import fetch_page_bytes
-from .models import ChapterBrief, ComicDetail
-from .paths import SOURCE_STATE_FILE
 from .scheduling import (
     full_sync,
     heal_covers,
@@ -42,21 +44,21 @@ from .scheduling import (
     inspect_sync,
 )
 from .sources import SOURCES, create_adapter
-from .storage.mysql import MySQLLogStore, MySQLStorage, MySQLUserStore
-from .storage.mysql.log_handler import install as install_log_handler
+from .sources.state import load_source_state, save_source_state
 
 __all__ = [
-    # L0 通用内核：领域模型 / 路径 / 日志上下文
+    # L0 通用内核：领域模型 / 日志上下文
     "logctx",
     "ChapterBrief",
     "ComicDetail",
-    "SOURCE_STATE_FILE",
     # L2 源站 / 存储 / 图片
     "LocalImageStore",
     "default_store_root",
     "fetch_page_bytes",
     "SOURCES",
     "create_adapter",
+    "load_source_state",
+    "save_source_state",
     "MySQLLogStore",
     "MySQLStorage",
     "MySQLUserStore",
