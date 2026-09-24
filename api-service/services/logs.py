@@ -15,7 +15,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from core import config  # noqa: F401  —— 先完成 sys.path 引导（使 comic_crawler 可导入）
-from comic_crawler.storage.mysql import MAX_PAGE_SIZE, MySQLLogStore
+from core.pagination import normalize
+from comic_crawler.facade import MySQLLogStore
 
 # 进程内复用一个 store（它自己每次调用建连接，无状态）
 _store = MySQLLogStore()
@@ -78,9 +79,13 @@ def to_log_row(row: dict, with_exc: bool = False) -> dict:
     时间统一格式化成**北京时间** `YYYY-MM-DD HH:MM:SS`（见 `to_beijing`）；
     `excText`（堆栈全文）只在详情接口带 —— 一页 50 条堆栈太占响应体。
 
-    ⚠️ 刻意**不放在 `serializers.py`**：那个模块在导入时就 `from core.db import db`（真实存储句柄），
-    一旦这里 import 它，任何导入日志服务的地方都会连带加载 `core.db` —— 单测就再也做不到
-    "纯逻辑不连库"了（本项目明确维持这条约定）。
+    ⚠️ 刻意**不放在 `serializers.py`**：那个模块做的是**通用**领域对象的形状转换
+    （comic / chapter / page / user），而日志行（`log_record`）只此一处消费 ——
+    映射与时间格式化（`to_beijing`）就近留在日志服务内更内聚。
+
+    （2026-09-24 之前还有一条更硬的理由：`serializers` 曾导入 `core.db`，谁 import 它
+    谁就连带加载真实存储句柄，单测做不了"纯逻辑不连库"。该问题已随 serializers 变纯
+    而消失，此处只保留"就近内聚"这一条。）
     """
     out = {
         "id": row["id"],
@@ -122,8 +127,7 @@ def query(
 ) -> dict:
     """按条件分页查日志 → `{items, total, page, pageSize}`（按时间倒序）。"""
     # 先把分页参数归一，再同时用于查询与回报 —— 否则"传 0 却报 50"这类不一致会让人误判
-    p = max(1, int(page or 1))
-    size = max(1, min(int(page_size or DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE))
+    p, size = normalize(page, page_size, DEFAULT_PAGE_SIZE)
     items, total = _store.query(
         page=p,
         page_size=size,

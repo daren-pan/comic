@@ -15,10 +15,11 @@ from fastapi.responses import Response
 
 from core.db import db
 from core.responses import ok
-from serializers import attach_tags, to_chapter, to_comic, to_page
+from serializers import to_chapter, to_comic, to_page
 from services.images import make_cover_svg, make_page_svg, read_image_file, sniff_image
 from services.ondemand import ensure_chapter_pages, fetch_page_online
 from services.ondemand import search as search_sources
+from services.tags import attach_tags
 
 router = APIRouter(tags=["public"])
 
@@ -102,6 +103,7 @@ def comic_detail(comic_id: int):
     if not db.increment_comic_views(comic_id):
         raise HTTPException(status_code=404, detail="comic not found")
     row = db.get_comic(comic_id)
+    attach_tags([row])   # 标签不在 comic 行上：单条也走同一入口注入（见 services.tags）
     return ok(to_comic(row))
 
 

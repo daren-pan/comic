@@ -23,8 +23,8 @@
 from __future__ import annotations
 
 from core.db import users  # noqa: F401  —— 先导入以完成 sys.path 引导
+from core.pagination import normalize
 from core.security import ASSIGNABLE_ROLES, ROLE_SUPERADMIN
-from comic_crawler.storage.mysql import MAX_PAGE_SIZE
 from serializers import to_admin_user
 
 DEFAULT_PAGE_SIZE = 20
@@ -34,10 +34,9 @@ def list_users(keyword: str | None = None, page: int = 1, page_size: int = DEFAU
     """分页列用户 → `{items, total, page, pageSize}`（按 id 升序，先注册的在前）。
 
     分页参数归一后**同时用于查询与回报** —— 否则"传 0 却报 20"这类不一致会让人误判
-    （与 `services/logs.query` 同一约定）。`MAX_PAGE_SIZE` 是存储包给出的接口侧上限。
+    （与 `services/logs.query` 同一约定，共用 `core.pagination.normalize`）。
     """
-    p = max(1, int(page or 1))
-    size = max(1, min(int(page_size or DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE))
+    p, size = normalize(page, page_size, DEFAULT_PAGE_SIZE)
     rows, total = users.list_users(
         keyword=(keyword or "").strip() or None, page=p, page_size=size
     )

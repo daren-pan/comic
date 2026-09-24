@@ -1,22 +1,28 @@
 # api-service（FastAPI）
 
-对外 REST API + **同源托管前端构建产物**；读取 crawler-service 落库的数据（唯一存储：MySQL）。
-装配入口 `main.py` **只做三件事**：建 app → `include_router` → 挂载前端 dist。
+对外 REST API（**纯 API**；前端产物由 `deploy/web`、`deploy/front` 两个带 nginx 的镜像各自发，
+不再同源托管）；读取 crawler-service 落库的数据（唯一存储：MySQL）。
+装配入口 `main.py` **只做三件事**：建 app → `include_router` → （有前端 dist 时才）挂载。
+依赖采集层的方式只有两处，且**方向单向**：① `pyproject.toml` 的 `dependencies` 里 `comic-crawler>=1.0.0`；
+② 代码里**只 import `comic_crawler.facade`**（采集侧对外契约面，见 `crawler-service/README.md`）——
+由 `tests/test_crawler_boundary.py` 断言守卫，穿透到任何子模块都会红。
 
 ## 模块架构
 
 ```
 api-service/
-├── main.py            # 仅装配：建 app → include_router → 托管 dist（挂载必须在最后，避免 "/" 抢走 API 路由）
+├── main.py            # 仅装配：建 app → include_router → 有 dist 才挂载（挂载必须在最后，避免 "/" 抢走 API 路由）
 ├── core/              # 基础设施（无业务）
-│   ├── config.py      #   路径引导（把 crawler-service/src 加入 sys.path）+ DIST_DIR / STATE_FILE
+│   ├── config.py      #   路径引导（开发态把 crawler-service/src 加入 sys.path；wheel 态靠 pip 依赖）+ DIST_DIR / STATE_FILE
 │   ├── db.py          #   两个进程级单例：db（MySQLStorage）· users（MySQLUserStore）
 │   ├── security.py    #   bcrypt · JWT · get_current_user / get_optional_user · 两道门
+│   ├── pagination.py  #   分页归一 + 单页上限 MAX_PAGE_SIZE（**接口侧**约束，与存储实现无关）
 │   └── responses.py   #   统一响应信封
 ├── schemas.py         # 请求体模型（入参**形状**边界）
-├── serializers.py     # 领域对象 → 前端驼峰契约
+├── serializers.py     # 领域对象 → 前端驼峰契约（**纯函数、不 import core.db**：tags 由调用方注入）
 ├── services/          # 业务动作（不绑定路由，可被 router / 后台任务复用）
 │   ├── images.py      #   图片读取（魔数判型）+ SVG 占位图 + admin_image_store()
+│   ├── tags.py        #   作品标签批量注入（一条 IN 查询，避免逐条查库）
 │   ├── tasks.py       #   后台任务注册表（内存 + threading + 前端轮询）
 │   ├── sources.py     #   数据源开关状态（source_state.json）与元信息
 │   ├── ondemand.py    #   源站搜索 / 按需导入 / 读时登记页清单 / 穿透取图
@@ -77,14 +83,14 @@ cd api-service
 
 - **分层**：新增接口进 `routers/*`、业务逻辑进 `services/`、入参模型进 `schemas.py`、跨层工具进 `core/`。
   **不要让 `main.py` 重新变胖**；新模块未归层会被 `tests/test_layering.py` 拦下。
-- **存储复用 crawler 的契约**：只用 `Storage` / `UserStore` 抽象（当前实现 `MySQLStorage`），取连接走
+- **存储复用 crawler 的实现**：`MySQLStorage` / `MySQLUserStore` 由契约面 `comic_crawler.facade` 导出，取连接走
   **共享连接池**（crawler-service 的 `storage/mysql/_pool.py`，每进程一份、上限 20）。
   改 SQL 时按「面向大数据量」自查：批量取对象用 `get_comics_by_ids` / `get_comic_tags_bulk`，禁止 N+1。
 - **鉴权两道门**：管理台与日志挂 `require_admin`（超管 + 普通管理员），授权页挂 `require_superadmin`（**仅超管**）
   —— 未登录 401 / 权限不足 403；**角色不写进 token**（每请求查库，改完立刻生效）。详见 `docs/auth.md` §8。
 - **收藏 vs 历史两套身份口径**：收藏必须登录、一律以 token 的 `user.id` 为准；历史对游客开放（带 token 时归属账号）。
   详见 `docs/auth.md` §9。
-- **热度不落库**：公式 `1000 + 浏览×1 + 收藏×2`，权重唯一定义在 `comic_crawler.storage.mysql._util`（`HEAT_*` + `heat_sql()`）；
+- **热度不落库**：公式 `1000 + 浏览×1 + 收藏×2`，权重唯一定义在采集侧 `storage/mysql/_util`（`HEAT_*` + `heat_sql()`）；
   库里只存真实计数。⚠️ 统计收藏数用 `COUNT(DISTINCT f.user_id)`，**不能用 `f.id`**。
 - **图片**：DB 只存图库内相对 key；响应带缓存头（封面 1 小时 + `ETag`、正文页 7 天、**占位图 `no-store`**）；
   穿透取图的三道约束（并发 / 去重 / 负缓存）见 `crawler-service/README.md`。

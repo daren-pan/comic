@@ -1,11 +1,16 @@
 """领域对象序列化：数据库蛇形字段 → 前端驼峰契约。
 
-这一层**只做形状转换**。唯一需要查库的地方是作品标签（走 `comic_tag` 关联表，
-不在 `comic` 行里）：
+这一层**只做形状转换、不碰存储**（2026-09-24 起）：模块**不导入 `core.db`**，
+因此任何 import 它的地方都能保持"纯逻辑、不连库"，单测不必再装存储桩。
 
-- **列表接口**先调 `attach_tags(rows)` 批量注入 `row["tags"]`（一条 SQL 取全部），
-  `to_comic` 直接读注入值 —— 否则逐部查询 + 逐次建连接会让接口随条数线性变慢；
-- **单条接口**（详情）不注入，`to_comic` 回退到单次 `db.get_comic_tags()`（代价可忽略）。
+唯一需要外部数据的字段是作品标签（在 `comic_tag` 关联表里、不在 `comic` 行上）——
+由调用方**先注入 `row["tags"]`** 再交给 `to_comic`：
+
+- **列表接口**：`services.tags.attach_tags(rows)`（一条 SQL 批量注入，避免逐条查询）；
+- **单条接口**（详情）：`services.tags.attach_tags([row])`，代价可忽略。
+
+`to_comic` 读不到 `tags` 时按空数组处理、**不回退查库** —— 忘了注入会表现为
+"标签为空"，新增调用点时请照抄上面两种写法。
 
 ⚠️ 作品**来源是单个**（`source`，不是数组）：一行只属于一个源。判重只看
 `(source, source_comic_id)` —— 同一部作品在别的源收过**是另一行**（跨源不合并，
@@ -14,29 +19,10 @@
 """
 from __future__ import annotations
 
-from core.db import db
-
-
-def attach_tags(rows: list[dict]) -> list[dict]:
-    """给一批作品行**批量**注入 `tags`，返回同一列表（原地写入，便于链式调用）。
-
-    原实现对每部作品单独 `db.get_comic_tags()`，而存储层每次调用都新建 MySQL 连接：
-    实测 `/api/comics` 12 条约 350ms、50 条约 1.29s，随条数线性增长。这里压成一条
-    `WHERE comic_id IN (...)`，N 次往返 → 1 次。
-    """
-    if not rows:
-        return rows
-    mapping = db.get_comic_tags_bulk([int(r["id"]) for r in rows])
-    for r in rows:
-        r["tags"] = mapping.get(int(r["id"]), [])
-    return rows
-
 
 def to_comic(row: dict) -> dict:
     status = row["status"] if row["status"] in ("连载中", "已完结") else "连载中"
-    tags = row.get("tags")
-    if tags is None:                      # 未被 attach_tags 注入（单条接口）→ 回退单次查询
-        tags = db.get_comic_tags(row["id"])
+    tags = list(row.get("tags") or [])     # 由调用方注入（见模块头）；未注入即空数组
     return {
         "id": row["id"],
         "title": row["title"],

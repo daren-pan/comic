@@ -1,6 +1,6 @@
 """收藏 / 历史列表的批量取数（消除逐条 `get_comic` 的 N+1）。
 
-**纯逻辑、不连库**：在导入 `routers.users` / `serializers` 之前，把 `core.db` 换成桩模块
+**纯逻辑、不连库**：在导入 `routers.users` / `services.tags` 之前，把 `core.db` 换成桩模块
 （`tests/_stub_db.py`，`sys.modules` 预置），因此 `MySQLStorage` 根本不会被实例化，也不会打开连接。
 
 ⚠️ 桩**必须**用 `_stub_db` 那一份，不要在本文件里再造一个：`sys.modules['core.db']` 是进程级全局，
@@ -8,7 +8,7 @@
 
 为什么值得单独守一条：这两个接口原先 `rows = [db.get_comic(cid) for cid in ...]` ——
 而 `MySQLStorage` 每次调用都新建连接，代价随收藏 / 历史条数线性增长。
-`/api/comics` 的标签 N+1 已经因此修过一次（见 `serializers.attach_tags`），
+`/api/comics` 的标签 N+1 已经因此修过一次（见 `services.tags.attach_tags`），
 这里用"断言逐条查询次数为 0"把同类退化拦住。
 """
 from __future__ import annotations
