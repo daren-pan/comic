@@ -32,6 +32,7 @@ SERVICE_ROOT = _DEV_DATA_OWNER if (_DEV_DATA_OWNER / "src").is_dir() else _PKG_R
 # 运行时数据根目录（**本地直跑与容器必须落在同一处** —— 见下），里面是"可变数据"：
 #     data/image_store/        图库
 #     data/source_state.json   管理台「数据源开关」状态（读写见 sources/state.py，env COMIC_STATE_FILE 可覆盖）
+#     data/schedule.json       管理台「定时任务」配置（读写见 scheduling/schedule.py，env COMIC_SCHEDULE_FILE 可覆盖）
 # 为什么要有这一层：容器部署时整个 /data 会 bind 到这个目录，于是"本地直跑"与"Docker 里跑"
 # 读写的是**同一批文件**；否则同一台机器上会出现两份图库，本地转存的图容器读不到（反之亦然），
 # 只能靠"记得同步"维持，而项目在数据库上已经吃过一次这种亏（见 AGENTS.md 硬性约定）。
@@ -42,6 +43,18 @@ IMAGE_STORE_ROOT = DATA_ROOT / "image_store"
 
 # 管理台「数据源开关」状态文件的默认位置；api 侧 env COMIC_STATE_FILE 可覆盖
 SOURCE_STATE_FILE = DATA_ROOT / "source_state.json"
+
+# 管理台「定时任务」配置文件的默认位置；env COMIC_SCHEDULE_FILE 可覆盖
+# （读写见 crawler 的 scheduling/schedule.py —— 与源开关一样，路径与读写都归采集层）
+SCHEDULE_FILE = DATA_ROOT / "schedule.json"
+
+# 定时任务的**运行态**（谁在跑/上次结果）与「立即执行」触发文件。
+# ⚠️ 与配置文件**分开放**：执行器（comic-scheduler 进程）与 api 是两个进程，
+#    每个文件只允许**一个写者**，否则并发写会互相覆盖 —— 见 scheduling/schedule_state.py。
+#   · schedule_state.json    写者 = 执行器，读者 = api（页面展示）
+#   · schedule_run_now.json  写者 = api（页面按钮），读者 = 执行器（读到即删）
+SCHEDULE_STATE_FILE = DATA_ROOT / "schedule_state.json"
+SCHEDULE_TRIGGER_FILE = DATA_ROOT / "schedule_run_now.json"
 
 # 仓库根（仅开发态有意义：用于定位 fixtures 等仓库内资源，打包态不依赖它）
 REPO_ROOT = SERVICE_ROOT.parent

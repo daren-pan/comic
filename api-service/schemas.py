@@ -106,6 +106,45 @@ class AdminImportBody(BaseModel):
     first_chapters: int | None = Field(default=None, ge=1)
 
 
+class AdminScheduleBody(BaseModel):
+    """「定时任务」保存入参（管理台「定时任务」栏）。
+
+    节奏用 **5 段 cron**（`分 时 日 月 周`）表达 —— 「每天定点」与「每隔一段时间」
+    已合并成同一个表达式：
+
+    | 想要的效果 | 表达式 |
+    |---|---|
+    | 每天 03:00（默认） | `0 3 * * *` |
+    | 每隔 15 分钟 | `*/15 * * * *` |
+    | 每 6 小时 | `0 */6 * * *` |
+    | 每周一 03:00 | `0 3 * * 1` |
+
+    这里只收口**形状**（非空、长度 ≤ 64）；段数 / 取值范围 / 步长的语义校验在
+    `services.scheduler.update()` 里用 `parse_cron` 做，非法返 **400** 并带上段名与原因
+    （唯一定义处是 crawler 的 `scheduling/cron.py`）。
+
+    每轮对 `sources` 里的每个源执行一次采集（`mode` 增量/全量，`limit` / `since` 透传，
+    与「触发采集」是同一套参数、最终调同一个 `admin_jobs.sync_job`）。
+
+    `sources` 留空 = 全部「**代码里默认启用**」的源（`mangadex` 因 AUP 非商用默认关闭）；
+    定时任务**不看**管理台那张开关 —— 它按"参数即准入"运行。要采集默认关闭的源
+    （如 `mangadex`），必须在这里显式点名。
+    """
+
+    enabled: bool = False
+    #: 5 段 cron（`分 时 日 月 周`）。默认值与旧的「每天 03:00」等价 ——
+    #: 见 crawler 的 `scheduling/cron.py`（`DEFAULT_CRON`）。
+    cron: str = Field(default="0 3 * * *", min_length=1, max_length=64)
+    #: 这一轮干什么：`sync` = 逐源采集（默认）、`inspect` = 失效巡检
+    #: （转存未转存页 + 全表校验 + 恢复丢失；**不含**手动巡检那步全库封面自愈）。
+    #: ⚠️ `inspect` 时 `mode`/`limit` 无意义，`sources` 恰好点名一个源才限定范围，否则全库。
+    action: Literal["sync", "inspect"] = "sync"
+    sources: list[str] = Field(default_factory=list)
+    mode: Literal["incremental", "full"] = "incremental"
+    limit: int | None = Field(default=None, ge=1)
+    since: str | None = None
+
+
 class AdminUserRoleBody(BaseModel):
     """授权页入参：给某个用户设置角色。
 
@@ -114,3 +153,34 @@ class AdminUserRoleBody(BaseModel):
     """
 
     role: str = Field(min_length=1, max_length=32)
+
+
+class MessageBody(BaseModel):
+    """发一条消息（`POST /api/messages`）—— **其他模块的写入入口**。
+
+    `kind` 刻意**不用 Literal 收口**：这是个开放写入接口，别的模块可以有自定义消息类型
+    （任务消息用任务类型 `sync`/`inspect`/`heal`/`import`/`schedule`；其余如 `system`/`notice`）。
+    但**长度上限必须有** —— 这些值直接落 VARCHAR 列，超长要么被静默截断、要么报错。
+    `level` 则收口成三档（前端据此显示 完成/警告/失败），非法值在存储层兜成 `info`。
+
+    **收件范围**（两个条件同时成立才可见；都不填 = 所有登录用户）：
+    - `toUserId`：定向发给某个人；
+    - `minRole` ：最低角色要求（`''`/`user` < `admin` < `superadmin`；`admin` 时超管也看得到）。
+      采集/巡检这类**任务**消息请传 `admin` —— 那是管理台的事，普通用户不需要看。
+    ⚠️ `minRole` 用 `Literal` 收口（写错了会静默发给所有人，比 422 危险），
+      非法的角色值会直接 422 报错。
+    """
+
+    kind: str = Field(default="system", max_length=16)
+    level: Literal["info", "warn", "error"] = "info"
+    title: str = Field(min_length=1, max_length=255)
+    body: str = Field(default="", max_length=4000)
+    #: 入参快照（可选）：任务类消息放 `{"since": "2026-10-01", "mode": "incremental", "limit": 1}` ——
+    #: 列表里据此显示"这条消息说的是哪段时间范围内的数据"。存储层会截断到 2000 字符。
+    params: dict | None = None
+    taskId: str = Field(default="", max_length=64)
+    source: str = Field(default="", max_length=64)
+    userId: int | None = None
+    username: str = Field(default="", max_length=64)
+    toUserId: int | None = None
+    minRole: Literal["", "user", "admin", "superadmin"] = ""

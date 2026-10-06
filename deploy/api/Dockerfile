@@ -26,8 +26,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 # 图库与源开关状态都落在 /data（compose 里 bind 到宿主运行时数据目录）。
 # wheel 装进 site-packages 后，包位置的相对推导不再指向本项目 → 图库根必须显式给。
+# ⚠️ 管理台「定时任务」的三个文件也必须指到 /data：其中配置与「立即执行」请求由**本进程**写，
+#    而执行器是独立容器（comic-scheduler），它读的就是同一批文件 —— 指错就等于两边各说各话
+#    （表现为页面保存成功但执行器看不到、点「立即执行」没反应）。
 ENV COMIC_IMAGE_ROOT=/data/image_store \
-    COMIC_STATE_FILE=/data/source_state.json
+    COMIC_STATE_FILE=/data/source_state.json \
+    COMIC_SCHEDULE_FILE=/data/schedule.json \
+    COMIC_SCHEDULE_STATE_FILE=/data/schedule_state.json \
+    COMIC_SCHEDULE_TRIGGER_FILE=/data/schedule_run_now.json
 
 WORKDIR /app
 

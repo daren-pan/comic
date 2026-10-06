@@ -6,23 +6,24 @@
 #             comic-core/        --wheel-->  deploy/core/dist/comic_core-<版本>.whl
 #             crawler-service/   --wheel-->  deploy/crawler/dist/comic_crawler-<版本>.whl
 #             api-service/       --wheel-->  deploy/api/dist/comic_api-<版本>.whl
+#             comic-scheduler/   --wheel-->  deploy/scheduler/dist/comic_scheduler-<版本>.whl
 #             <网页端产物目录>   --复制---->  deploy/web/dist/    （默认 comic-web/dist）
 #             <移动端产物目录>   --复制---->  deploy/front/dist/  （默认 comic-front/dist/build/h5）
 #  步骤 2  按依赖顺序构建镜像
-#             mysql → web → crawler → api → front
+#             mysql → web → crawler → api → scheduler → front
 #
 #  其中 mysql 镜像是本项目**独占**的数据库（MySQL 8.0，见 docker-compose.yml）——数据卷首次
 #  启动时会自动执行烘在镜像里的建库脚本，10 张表直接建好。
-#          （api 构建时要读采集层的 wheel 产物，所以 crawler 的**产物**必须先出 —— 步骤 1 已保证。
-#           两个模块之间**没有镜像依赖**：api 只是在 pyproject.toml 的 dependencies 里声明
-#           comic-crawler，构建时由 pip 解析安装。）
+#          （api 构建时要读采集层的 wheel 产物，scheduler 要读采集层 + 公共内核的 —— 所以
+#           两者的**产物**必须先出（步骤 1 已保证）。模块之间**没有镜像依赖**：都只是在
+#           pyproject.toml 的 dependencies 里声明上游，构建时由 pip 解析安装。）
 #
 #  ⚠️ comic-core 是**纯库、没有镜像** —— 它是 deploy/ 下唯一一个「只出 wheel、不建镜像」的模块，
 #     所以 deploy/core/ 里只有 dist/（和一个说明用的 README.md），没有 Dockerfile。
-#     它的 wheel 以 BuildKit **命名构建上下文 `core`** 喂给 crawler 与 api 两层
+#     它的 wheel 以 BuildKit **命名构建上下文 `core`** 喂给 crawler / api / scheduler 三层
 #     （见下面 build_img 调用处的 `--build-context core=./core`）——
-#     少了它，pip 装 comic-crawler / comic-api 时会去 PyPI 找 comic-core 并直接报错。
-#     wheel 的拓扑顺序固定为 **comic-core → crawler → api**（后两个的 METADATA 里声明了 comic-core）。
+#     少了它，pip 装 comic-crawler / comic-api / comic-scheduler 时会去 PyPI 找 comic-core 并直接报错。
+#     wheel 的拓扑顺序固定为 **comic-core → crawler → api / scheduler**（后三个的 METADATA 里都声明了上游）。
 #
 #  两个前端镜像（comic-web / comic-front）**各自带 nginx**：静态产物 + 反代在同一个容器里，
 #  所以没有"反代活着但产物不在"的悬空状态。两个可以同时构建、同时运行，互不影响。
@@ -149,10 +150,11 @@ build_wheel() {  # build_wheel <源模块目录> <deploy 子目录>
   #      `/d/...` 形式，直接给 pip.exe 会报 `Invalid requirement: Expected package name ...`。
   ( cd "$ROOT/$src" && "$PY" -m pip wheel --disable-pip-version-check --no-deps --wheel-dir "../deploy/$out/dist" . >/dev/null )
 }
-# 拓扑顺序：comic-core 在最前 —— 后两个 wheel 的 METADATA 里声明了它
+# 拓扑顺序：comic-core 在最前 —— 后三个 wheel 的 METADATA 里都声明了它
 build_wheel comic-core      core
 build_wheel crawler-service crawler
 build_wheel api-service     api
+build_wheel comic-scheduler scheduler
 
 echo "   comic-core/sql/mysql_schema.sql  --复制-->  deploy/mysql/sql/"
 mkdir -p "$DEPLOY/mysql/sql"
@@ -181,7 +183,7 @@ fi
 # ---------- 产物检查 ----------
 echo
 echo "-> 产物检查"
-for m in core crawler api; do
+for m in core crawler api scheduler; do
   n=$(ls -1 "$DEPLOY/$m/dist"/*.whl 2>/dev/null | wc -l | tr -d ' ')
   if [ "$n" -eq 0 ]; then
     echo "   !! deploy/$m/dist/ 下没有 whl —— 构建失败了？"
@@ -222,7 +224,7 @@ fi
 
 # ---------- 步骤 2：按序构建镜像 ----------
 echo
-echo "-> [2/2] 构建镜像（顺序：mysql → web → crawler → api → front）"
+echo "-> [2/2] 构建镜像（顺序：mysql → web → crawler → api → scheduler → front）"
 # 用**相对路径**而不是绝对路径：Git Bash 的 pwd 给出 /d/... 这种 POSIX 形式，
 # 直接传给 docker.exe（Windows 程序）会报 "unable to prepare context: path ... not found"。
 cd "$DEPLOY"
@@ -249,11 +251,14 @@ build_img crawler comic-crawler:1.0.0 --build-context "core=./core"
 # **都不是镜像依赖**，所以顺序不是硬约束，只要两个 wheel 已生成即可（步骤 1 已保证）。
 # 这里的相对路径按当前目录（= deploy/）解析。
 build_img api     comic-api:1.0.0 --build-context "crawler=./crawler" --build-context "core=./core"
+# scheduler 同样要读两个上游 wheel（采集层里有 cron 引擎与一轮执行，内核里有路径与存储），
+# 所以挂同样的两个命名上下文。它**不是** api 的衍生镜像 —— 两者平级，各自独立启停。
+build_img scheduler comic-scheduler:1.0.0 --build-context "crawler=./crawler" --build-context "core=./core"
 if [ "$BUILD_FRONT" = "1" ]; then build_img front comic-front:1.0.0; fi
 
 echo
 echo "OK  镜像已就绪"
-docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep -E "comic-(mysql|web|crawler|api|front)" || true
+docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep -E "comic-(mysql|web|crawler|api|scheduler|front)" || true
 echo
 echo "启动：docker compose -f deploy/docker-compose.yml up -d"
 echo "查看：docker compose -f deploy/docker-compose.yml ps"

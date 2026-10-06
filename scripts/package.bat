@@ -33,8 +33,13 @@ robocopy "%ROOT%\comic-core\src" "%OUT%\src" comic_core /E /XD __pycache__ /XF *
 echo -^> copy crawler package -^> src\comic_crawler
 robocopy "%ROOT%\crawler-service\src" "%OUT%\src" comic_crawler /E /XD __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
 
-echo -^> merge requirements (core + crawler + api, dedup)
-type "%ROOT%\comic-core\requirements.txt" "%ROOT%\crawler-service\requirements.txt" "%ROOT%\api-service\requirements.txt" | sort /unique > "%OUT%\requirements.txt"
+rem 定时任务执行器（独立进程）：管理台配的 cron 靠它跑，所以打包也得带上 ——
+rem 与 api 是同级的两个进程，共用一个 src\ 与同一份运行时数据目录。
+echo -^> copy scheduler package -^> src\comic_scheduler
+robocopy "%ROOT%\comic-scheduler\src" "%OUT%\src" comic_scheduler /E /XD __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
+
+echo -^> merge requirements (core + crawler + scheduler + api, dedup)
+type "%ROOT%\comic-core\requirements.txt" "%ROOT%\crawler-service\requirements.txt" "%ROOT%\comic-scheduler\requirements.txt" "%ROOT%\api-service\requirements.txt" | sort /unique > "%OUT%\requirements.txt"
 
 echo -^> copy schema
 copy /y "%ROOT%\comic-core\sql\mysql_schema.sql" "%OUT%\sql\" >nul
@@ -54,6 +59,7 @@ call :leftovers "%OUT%\routers"           "%ROOT%\api-service\routers"
 call :leftovers "%OUT%\services"          "%ROOT%\api-service\services"
 call :leftovers "%OUT%\src\comic_core"    "%ROOT%\comic-core\src\comic_core"
 call :leftovers "%OUT%\src\comic_crawler" "%ROOT%\crawler-service\src\comic_crawler"
+call :leftovers "%OUT%\src\comic_scheduler" "%ROOT%\comic-scheduler\src\comic_scheduler"
 call :leftovers "%OUT%\dist"              "%ROOT%\comic-web\dist"
 call :leftovers "%OUT%\sql"               "%ROOT%\comic-core\sql"
 if not defined LEFT echo     无遗留文件
@@ -62,6 +68,8 @@ echo.
 echo OK  bundle ready: %OUT%
 echo     cd %OUT% ^&^& python -m pip install -r requirements.txt
 echo     python -m uvicorn main:app --host 0.0.0.0 --port 8000
+echo     rem 定时采集另起一个进程（管理台配的 cron 靠它跑；不起 = 配了也没人跑）：
+echo     set PYTHONPATH=%OUT%\src ^&^& python -m comic_scheduler
 exit /b 0
 
 rem ---- 遗留检查（只报告，不删除）----

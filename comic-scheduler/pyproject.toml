@@ -1,0 +1,35 @@
+# 定时任务执行器打包描述（相当于 Java 那边的 pom.xml）
+#
+# 产物：python -m pip wheel --no-deps -w dist .
+#       → dist/comic_scheduler-<版本>-py3-none-any.whl
+# 镜像里 `pip install` 这个 whl 即可（见 deploy/scheduler/Dockerfile）。
+#
+# ⚠️ 依赖方向**单向**：scheduler → crawler → core。本包**不依赖 api-service**
+#    （接口层不参与定时执行）；两个进程之间只通过运行时数据目录里的三个文件交换：
+#      schedule.json（api 写配置 / 本包读）、schedule_state.json（本包写状态 / api 读）、
+#      schedule_run_now.json（api 写触发请求 / 本包读到即删）
+#    —— 见 crawler 的 `scheduling/schedule_state.py`。
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comic-scheduler"
+version = "1.0.0"
+description = "漫画聚合平台 · 定时任务执行器（读管理台配置，按 cron 在独立进程里跑采集）"
+requires-python = ">=3.10"
+dependencies = [
+    # 公共内核：路径常量、日志上下文、存储契约与 MySQL 实现。
+    # 采集层：cron 引擎、配置/运行态读写、一轮采集（`run_round`）。
+    # pymysql / httpx / parsel / zhconv 等由它们传递 —— 本包不直接使用。
+    "comic-core>=1.0.0",
+    "comic-crawler>=1.0.0",
+]
+
+[project.scripts]
+# 容器/命令行两条入口都留着：`comic-scheduler` 与 `python -m comic_scheduler` 等价
+comic-scheduler = "comic_scheduler.daemon:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["comic_scheduler*"]

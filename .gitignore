@@ -36,6 +36,11 @@ nohup.out
 logs/*
 !logs/.gitkeep
 source_state.json
+# 定时任务的三个文件（配置 / 运行态 / 「立即执行」触发请求）—— 都是运行时产物：
+# 配置由管理台页面写、运行态由 comic-scheduler 进程写、触发请求由页面写执行器删。
+schedule.json
+schedule_state.json
+schedule_run_now.json
 
 # ---- 数据库备份（含业务数据，仅供本地回滚，不随仓库分发） ----
 backup/

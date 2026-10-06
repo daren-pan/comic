@@ -4,6 +4,7 @@
 #   deploy/web/      网页端产物 dist/          -> comic-web:1.0.0     （自带 nginx，宿主 85）
 #   deploy/front/    移动端产物 dist/          -> comic-front:1.0.0   （自带 nginx，宿主 86）
 #   deploy/crawler/  采集层 wheel              -> comic-crawler:1.0.0（可单独当 CLI 镜像用）
+#   deploy/scheduler/定时任务执行器 wheel        -> comic-scheduler:1.0.0（独立进程，读管理台 cron）
 #   deploy/api/      接口层 wheel（依赖采集层 wheel）-> comic-api:1.0.0（**纯 API**，不含前端）
 #   deploy/mysql/    自带数据库 Dockerfile      -> comic-mysql:1.0.0 （本项目独占的库）
 #
@@ -28,7 +29,6 @@
 #   docker compose -f deploy/docker-compose.yml ps                       # 状态
 #   docker compose -f deploy/docker-compose.yml exec comic-app bash      # 进容器（跑迁移脚本等）
 #   docker compose -f deploy/docker-compose.yml exec comic-web nginx -t  # 校验 nginx 配置（运行期才可解析 comic-app）
-#   docker compose -f deploy/docker-compose.yml --profile collect up -d  # 额外启动定时采集
 #   docker compose -f deploy/docker-compose.yml down                     # 停（卷保留，数据不丢）
 name: comic
 
@@ -48,6 +48,18 @@ x-app-env: &app-env
   # （本地转存的图容器读不到、反之亦然），也不必靠"记得同步"维持一致。
   COMIC_IMAGE_ROOT: /data/image_store
   COMIC_STATE_FILE: /data/source_state.json
+  # 管理台「定时任务」的三个文件（也都在 /data 里）—— 两个进程靠它们交换，**一文件一写者**：
+  #   schedule.json            配置：api 写（页面保存），执行器读
+  #   schedule_state.json      运行态：执行器写，api 读（页面展示）
+  #   schedule_run_now.json    「立即执行一次」请求：api 写，执行器**读到即删**
+  # 见 comic-scheduler/README.md 与 crawler 的 scheduling/schedule_state.py。
+  COMIC_SCHEDULE_FILE: /data/schedule.json
+  COMIC_SCHEDULE_STATE_FILE: /data/schedule_state.json
+  COMIC_SCHEDULE_TRIGGER_FILE: /data/schedule_run_now.json
+  # 消息中心（`message` 表）：**写入只走 HTTP** —— api 地址 + 服务令牌（HMAC，见 comic_core/notify.py）。
+  # 独立进程 `comic-scheduler` 跑完一轮就往 `POST /api/messages` 发一条；api 自己那份走进程内直调。
+  # 服务令牌复用下面的 COMIC_JWT_SECRET（同一个密钥，不必再多一个环境变量）。
+  COMIC_API_BASE: ${COMIC_API_BASE:-http://comic-app:8000}
   # 时区：**必须显式设置** —— 基础镜像没配 TZ 时就是 UTC，而代码里所有"当前时间"都按
   # **本机时间**写入（log_record.created_at、comic/chapter.sync_time、logs/api.log 的时间戳），
   # 于是服务器上的日志时间会比北京时间早 8 小时（2026-09-18 排查「管理台日志时间对不上」）。
@@ -154,32 +166,32 @@ services:
     depends_on: [comic-app]
     networks: [frontend]
 
-  # ---------------- 定时采集（可选，默认不启动）----------------
-  # 用 --profile collect 才会起；不需要定时采集就永远不用它（可以在管理台手动触发）。
-  # ⚠️ 注意：调度器读的是**代码里的** SOURCES[].enabled，不读管理台那个开关文件 ——
-  #    在管理台关掉的源，这里仍会采集（已知差异，见 docs/deploy.md §9）。
+  # ---------------- 定时任务执行器（管理台「定时任务」栏的执行侧）----------------
+  # 读管理台配的 5 段 cron，到点对选中的数据源跑采集。**独立进程**（2026-10-06 从 api 进程搬出）：
+  # api 重启/重部署不中断定时采集，采集也不与请求处理抢同一个 Python 进程。
+  # 与 comic-app 只通过 /data 下那三个文件交换（见 x-app-env 的 COMIC_SCHEDULE_*）：
+  # 配置由页面写、运行态由本服务写、「立即执行」由页面写成它的输入。
+  # ⚠️ 它**不看**管理台的数据源开关（那张开关只管手动触发）：跑哪些源由管理台定时任务页的
+  #    「数据源」决定，留空 = 全部「代码里默认启用」的源 —— **参数即准入**。
+  # ⚠️ 本服务就是采集中枢：此前那套"轮询式 CLI 调度"（cli serve）已于 2026-10-06 删除，
+  #    现在调度真源只有管理台这一份 cron 配置。
   comic-scheduler:
-    profiles: [collect]
-    image: comic-crawler:1.0.0   # 直接用采集层镜像（不含 HTTP 层）
+    image: comic-scheduler:1.0.0
     container_name: comic-scheduler
     build:
-      context: ./crawler
-      # 采集层依赖公共内核的 wheel，同样要挂 `core` 命名上下文 —— 见 deploy/crawler/Dockerfile
-      # 的 `COPY --from=core dist/`。漏了它 pip 会去 PyPI 找 comic-core 并直接报错。
+      context: ./scheduler
+      # 本层只装 wheel，**不依赖任何上游镜像**：core 与 crawler 都当命名上下文挂进来
+      # （见 deploy/scheduler/Dockerfile 的两处 `COPY --from=`）。漏了任一个，
+      # pip 装 comic-scheduler 时会去 PyPI 找 comic-core / comic-crawler 并直接报错。
       additional_contexts:
         core: ./core
+        crawler: ./crawler
     restart: unless-stopped
     environment: *app-env
     volumes:
-      # 与 app 是**同一个宿主目录**（转存写、接口读，必须同源）
+      # 与 app 是**同一个宿主目录**（配置/状态/触发文件与图库都在这）：必须同源，
+      # 否则管理台的配置到不了执行器、执行器的状态也回不到页面。
       - ${COMIC_DATA_HOST:-../crawler-service/data}:/data
-    command:
-      - python
-      - -m
-      - comic_crawler.cli
-      - serve
-      - --interval
-      - ${COLLECT_INTERVAL:-900}
     depends_on:
       comic-mysql:
         condition: service_healthy

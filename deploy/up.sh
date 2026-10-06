@@ -7,7 +7,7 @@
 #    1) 前置检查（docker / compose v2 / deploy/.env / 运行时数据目录）
 #    2) 构建所选前端的产物（网页端 comic-web/dist；移动端 comic-front/dist/build/h5）
 #    3) 调 deploy/build.sh：生成 wheel、复制前端产物，按序构建镜像
-#    4) docker compose up -d（起所选的前端入口 + 它们依赖的 app/mysql）
+#    4) docker compose up -d（起所选的前端入口 + 它们依赖的 app/mysql + 定时执行器 scheduler）
 #    5) 自检：mysql 健康 → 容器内接口可用 → 数据目录可写 → 各入口 HTTP 码
 #
 #  前端选择：**不带参数 = 两个入口都起**；带 --web / --front 就是只起选中的那个。
@@ -18,7 +18,7 @@
 #    bash deploy/up.sh --front             # 只起移动端（comic-front，宿主 86）
 #    bash deploy/up.sh --skip-web          # 前端没改，跳过 npm build（快很多）
 #    bash deploy/up.sh --skip-pull         # 不更新代码，直接按当前工作区构建
-#    bash deploy/up.sh --collect           # 额外启动定时采集（comic-scheduler）
+#    bash deploy/up.sh --collect           # 【已废弃】定时执行器现在默认启动，加了只是兼容旧脚本
 #    bash deploy/up.sh --migrate           # 起完服务后，对**已有库**跑一遍幂等迁移脚本
 #                                          #   （老环境升级用；全新库不需要 —— 建表脚本已带全）
 #    bash deploy/up.sh -h
@@ -56,6 +56,11 @@ for a in "$@"; do
   esac
 done
 
+# `--collect` 已废弃（2026-10-06）：scheduler 现在**默认启动**，留着只是为了不打断旧脚本
+if [ "$COLLECT" = "1" ]; then
+  echo "   （--collect 已废弃：定时任务执行器现在默认启动，不必再加这个参数）"
+fi
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY="$ROOT/deploy"
 cd "$DEPLOY"                      # 之后一律用**相对路径**调 docker/compose
@@ -89,12 +94,14 @@ WEB_DIST="$(abs "$WEB_DIST")"
 FRONT_DIST="$(abs "$FRONT_DIST")"
 
 # 要起哪些 compose 服务（依赖链会自动带上 comic-app 与 comic-mysql）
-# ⚠️ 这里必须把 scheduler 也显式列进来：`up -d <服务名>` 只起列出来的服务，
-#    光带 --profile collect 不够（profile 只是"允许"它被起，不会替你把它加进名单）。
+# ⚠️ `up -d <服务名>` 只起**列出来的**服务，所以下面必须逐个列全。
+# ⚠️ scheduler（定时任务执行器）**始终列进来**：管理台「定时任务」栏配的东西靠它执行，
+#    2026-10-06 起它已从 api 进程搬成独立服务、也不再藏在 --profile collect 后面 ——
+#    "配了却没容器跑"是最难发现的失败，不如默认就起来。
 TARGETS=()
 [ "$WANT_WEB" = "1" ]   && TARGETS+=(comic-web)
 [ "$WANT_FRONT" = "1" ] && TARGETS+=(comic-front)
-[ "$COLLECT" = "1" ]    && TARGETS+=(comic-scheduler)
+TARGETS+=(comic-scheduler)
 
 # ---------- 0. 更新代码 ----------
 # 「改了代码没生效」的头号原因就是漏了这一步（2026-09-18 排查）。放在最前面，
@@ -204,11 +211,7 @@ WEB_SRC="$WEB_DIST" FRONT_SRC="$FRONT_DIST" bash "$DEPLOY/build.sh" "${BUILD_ARG
 
 # ---------- 4. 起服务 ----------
 step "[4/6] 启动服务（${TARGETS[*]}）"
-if [ "$COLLECT" = "1" ]; then
-  compose --profile collect up -d "${TARGETS[@]}"
-else
-  compose up -d "${TARGETS[@]}"
-fi
+compose up -d "${TARGETS[@]}"
 
 # ---------- 4.5 已有库迁移（可选） ----------
 if [ "$MIGRATE" = "1" ]; then

@@ -43,6 +43,8 @@ export function setRoute(path: string, query: Record<string, unknown> = {}): voi
 }
 
 // ---- web 路径 → uni 页面路径 ----
+// ⚠️ **新增页面必须在这里登记一行**，否则 `toUniUrl()` 会走下面的兜底分支悄悄跳回首页
+// （2026-10-06 实测：漏登记 `/admin/schedule` → 点「定时任务」跳到了首页，且控制台无任何报错）。
 const STATIC: Record<string, string> = {
   '/': 'pages/index/index',
   '/search': 'pages/search/index',
@@ -54,6 +56,7 @@ const STATIC: Record<string, string> = {
   '/admin': 'pages/admin/index',
   '/admin/logs': 'pages/admin/logs',
   '/admin/users': 'pages/admin/users',
+  '/admin/schedule': 'pages/admin/schedule',
 }
 
 function withQuery(page: string, query: Record<string, unknown>): string {
@@ -91,6 +94,9 @@ export function toUniUrl(to: NavTarget): string {
   const m2 = path.match(/^\/reader\/(\d+)\/(\d+)$/)
   if (m2) return withQuery('pages/reader/index', { comicId: m2[1], chapterId: m2[2], ...query })
 
+  // 兜底：未登记的路径静默跳首页是踩过的坑（漏登记 `/admin/schedule` → 点入口跳到首页、
+  // 控制台一点提示都没有）。这里主动出声，让「忘了登记 STATIC」当场可见。
+  console.warn(`[router] 未登记的 web 路径 ${path} → 兜底回首页；请在 utils/router.ts 的 STATIC 里登记`)
   return withQuery('pages/index/index', {})
 }
 

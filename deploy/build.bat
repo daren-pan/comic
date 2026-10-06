@@ -7,24 +7,25 @@ rem  步骤 1  生成各模块产物到 deploy\<模块>\dist\
 rem             comic-core\       --wheel-->  deploy\core\dist\comic_core-<版本>.whl
 rem             crawler-service\  --wheel-->  deploy\crawler\dist\comic_crawler-<版本>.whl
 rem             api-service\      --wheel-->  deploy\api\dist\comic_api-<版本>.whl
+rem             comic-scheduler\  --wheel-->  deploy\scheduler\dist\comic_scheduler-<版本>.whl
 rem             comic-core\sql\mysql_schema.sql --复制--> deploy\mysql\sql\
 rem             comic-web\dist\   --复制---->  deploy\web\dist\    （网页端产物）
 rem             comic-front\dist\build\h5 --复制--> deploy\front\dist\ （移动端产物）
 rem  步骤 2  按依赖顺序构建镜像
-rem             mysql -> web -> crawler -> api -> front
+rem             mysql -> web -> crawler -> api -> scheduler -> front
 rem
 rem  其中 mysql 镜像是本项目**独占**的数据库（MySQL 8.0，见 docker-compose.yml）——数据卷首次
 rem  启动时会自动执行烘在镜像里的建库脚本，10 张表直接建好。
-rem          （api 构建时要读采集层的 wheel 产物，所以 crawler 的**产物**必须先出 —— 步骤 1 已保证。
-rem           两个模块之间**没有镜像依赖**：api 只是在 pyproject.toml 的 dependencies 里声明
-rem           comic-crawler，构建时由 pip 解析安装。）
+rem          （api 构建时要读采集层的 wheel 产物，scheduler 要读采集层 + 公共内核的 —— 所以
+rem           两者的**产物**必须先出（步骤 1 已保证）。模块之间**没有镜像依赖**：都只是在
+rem           pyproject.toml 的 dependencies 里声明上游，构建时由 pip 解析安装。）
 rem
 rem  ⚠️ comic-core 是**纯库、没有镜像** —— 它是 deploy\ 下唯一一个「只出 wheel、不建镜像」的模块，
 rem     所以 deploy\core\ 里只有 dist\（和一个说明用的 README.md），没有 Dockerfile。
-rem     它的 wheel 以 BuildKit **命名构建上下文 core** 喂给 crawler 与 api 两层
+rem     它的 wheel 以 BuildKit **命名构建上下文 core** 喂给 crawler / api / scheduler 三层
 rem     （见下面 :buildimg 调用处的 "core=%DEPLOY%core"）——
-rem     少了它，pip 装 comic-crawler / comic-api 时会去 PyPI 找 comic-core 并直接报错。
-rem     wheel 的拓扑顺序固定为 comic-core -> crawler -> api（后两个的 METADATA 里声明了 comic-core）。
+rem     少了它，pip 装 comic-crawler / comic-api / comic-scheduler 时会去 PyPI 找 comic-core 并直接报错。
+rem     wheel 的拓扑顺序固定为 comic-core -> crawler -> api / scheduler（后三个的 METADATA 里都声明了上游）。
 rem
 rem  两个前端镜像（comic-web / comic-front）**各自带 nginx**：静态产物 + 反代在同一个容器里，
 rem  可以同时构建、同时运行，互不影响。它们共用同一份 nginx 站点配置 ——
@@ -124,6 +125,13 @@ pushd "%ROOT%\api-service"
 "%PY%" -m pip wheel --no-deps --wheel-dir "..\deploy\api\dist" . >nul || (popd & exit /b 1)
 popd
 
+echo    comic-scheduler\  --wheel--^>  deploy\scheduler\dist\
+if exist "%DEPLOY%scheduler\dist" rd /s /q "%DEPLOY%scheduler\dist"
+if not exist "%DEPLOY%scheduler\dist" mkdir "%DEPLOY%scheduler\dist"
+pushd "%ROOT%\comic-scheduler"
+"%PY%" -m pip wheel --no-deps --wheel-dir "..\deploy\scheduler\dist" . >nul || (popd & exit /b 1)
+popd
+
 echo    comic-core\sql\mysql_schema.sql  --复制--^>  deploy\mysql\sql\
 if not exist "%DEPLOY%mysql\sql" mkdir "%DEPLOY%mysql\sql"
 copy /y "%ROOT%\comic-core\sql\mysql_schema.sql" "%DEPLOY%mysql\sql\mysql_schema.sql" >nul
@@ -152,7 +160,7 @@ if "%BUILD_FRONT%"=="1" (
 
 echo.
 echo -^> 产物检查
-for %%m in (core crawler api) do (
+for %%m in (core crawler api scheduler) do (
   set "N=0"
   for %%f in ("%DEPLOY%%%m\dist\*.whl") do set /a N+=1
   if "!N!"=="0" (
@@ -181,7 +189,7 @@ if "%BUILD_FRONT%"=="1" (
 
 rem ---------- 步骤 2：按序构建镜像 ----------
 echo.
-echo -^> [2/2] 构建镜像（顺序：mysql -^> web -^> crawler -^> api -^> front）
+echo -^> [2/2] 构建镜像（顺序：mysql -^> web -^> crawler -^> api -^> scheduler -^> front）
 if defined PIP_INDEX echo    [PyPI 源] %PIP_INDEX%
 call :buildimg mysql   comic-mysql:1.0.0   || exit /b 1
 if "%BUILD_WEB%"=="1"   call :buildimg web     comic-web:1.0.0     || exit /b 1
@@ -191,6 +199,9 @@ rem   core    = 公共内核（deploy\core\dist\），Dockerfile 里 COPY --from
 rem   crawler = 采集层（deploy\crawler\dist\），Dockerfile 里 COPY --from=crawler dist\
 rem 都不是镜像依赖，只要两个 wheel 已生成即可。
 call :buildimg api     comic-api:1.0.0     "crawler=%DEPLOY%crawler" "core=%DEPLOY%core" || exit /b 1
+rem scheduler 同样要读两个上游 wheel（采集层里有 cron 引擎与一轮执行，内核里有路径与存储），
+rem 所以挂同样的两个命名上下文。它**不是** api 的衍生镜像 —— 两者平级，各自独立启停。
+call :buildimg scheduler comic-scheduler:1.0.0 "crawler=%DEPLOY%crawler" "core=%DEPLOY%core" || exit /b 1
 if "%BUILD_FRONT%"=="1" call :buildimg front   comic-front:1.0.0   || exit /b 1
 
 echo.

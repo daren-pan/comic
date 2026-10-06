@@ -83,6 +83,50 @@ export interface SourceInfo {
   lastSync: string | null   // 上次同步完成时间（ISO）
 }
 
+/**
+ * 管理台「定时任务」配置（`/api/admin/schedule`）。
+ *
+ * 节奏用 **5 段 cron**（`分 时 日 月 周`）表达 —— 「每天定点」与「每隔一段时间」已合并成一个表达式，
+ * 例如每天 03:00 是 `0 3 * * *`、每周一 03:00 是 `0 3 * * 1`；「每隔 N 分钟」用步长形式表达。
+ * ⚠️ 本注释刻意不写那种步长的字面量：`星号斜杠N` 里的两个字符会**提前闭合块注释**（踩过两次）。
+ * 完整写法见页面上的预设按钮与 `comic-scheduler/README.md`。
+ * 每轮对 `sources` 里每个源执行一次采集（`mode`/`limit`/`since` 与「触发采集」同一套参数）。
+ * ⚠️ `sources` 留空 = 全部「**代码里默认启用**」的源；定时任务**不看**数据源开关。
+ */
+export interface AdminScheduleConfig {
+  enabled: boolean
+  cron: string                 // 5 段 cron：分 时 日 月 周（语义校验在后端）
+  action: 'sync' | 'inspect'   // 这一轮干什么：逐源采集 / 失效巡检
+  sources: string[]            // 空 = 全部「代码里默认启用」的源（巡检时为全库）
+  mode: 'incremental' | 'full' // 仅 action='sync' 有意义
+  limit: number | null         // 受控样本数；null = 不限（仅 action='sync' 有意义）
+  since: string | null         // 时间窗下界（ISO）；巡检时作为转存窗口下界
+}
+
+/** 定时任务状态：配置 + 本轮实际源 + 下次执行时刻 + 最近一次运行结果（+ 执行器在线情况）。 */
+export interface AdminScheduleStatus {
+  config: AdminScheduleConfig
+  sources: string[]            // 后端算出的本轮实际源（配置留空时的默认集）
+  nextRunAt: string | null     // 下次执行（ISO，**严格晚于当前**）；未启用/表达式非法为 null
+  serverTime: string           // 服务器当前时间（对齐时区用）
+  running: boolean
+  lastRunAt: string | null
+  lastStatus: 'running' | 'done' | 'failed' | null
+  lastMessage: string | null
+  lastTaskId: string | null
+  lastSources: string[]
+  cronError: string | null     // 表达式非法时的原因（配置文件被手改坏时才会出现）
+  executorAlive: boolean       // 执行器（独立进程 comic-scheduler）心跳是否新鲜
+  heartbeatAt: string | null   // 执行器最近一次心跳；没有它说明执行器从没起来过
+  executorPid: number | null   // 执行器进程号（运维排查用）
+}
+
+/** 「立即执行一次」的返回：只是"**请求已提交**" —— 采集在独立进程里跑，api 拿不到任务号。 */
+export interface AdminScheduleRunNowResult {
+  requested: boolean
+  requestedAt?: string
+}
+
 export interface SyncStats {
   source: string
   mode: string
@@ -94,12 +138,21 @@ export interface SyncStats {
   failed: number
 }
 
+/**
+ * 管理台后台任务（`admin_task` 表，`/api/admin/tasks`）。
+ *
+ * ⚠️ 任务**落库**（2026-10-06 从进程内 dict 搬来）：api 重启不丢、且与**触发账号**绑定
+ * （`userId`/`username`），所以能看出"这条是谁点的"。`params` 是触发时的入参快照。
+ */
 export interface AdminTask {
   id: string
-  type: 'sync' | 'transfer' | 'inspect' | 'heal' | 'import'
+  type: 'sync' | 'transfer' | 'inspect' | 'heal' | 'import' | 'schedule'
   status: 'running' | 'done' | 'failed'
   message: string
   result: Record<string, unknown> | null
+  params: Record<string, unknown> | null   // 入参快照（源/模式/limit…）
+  userId: number | null                    // 触发账号（定时执行没有账号，故可能为 null）
+  username: string
   startedAt: string
   finishedAt: string | null
 }
@@ -211,4 +264,44 @@ export interface AdminUserPage {
   total: number
   page: number
   pageSize: number
+}
+
+/**
+ * 消息中心的一条消息（`message` 表，`/api/messages`）
+ *
+ * 面向**所有登录用户**：服务端按"这条消息发给谁"（`toUserId` 定向某人 + `minRole` 最低角色）
+ * 过滤后再返回，所以同一次请求对不同账号内容不同；**已读按账号各一份**。
+ *
+ * ⚠️ 列表里有两种条目：
+ *   - **已发生的消息**（`id = "msg-<数字>"`，`messageId` 有值）—— 库里的一行；
+ *   - **正在跑的任务**（`id = 任务号`，`messageId = null`）—— 还没"发生完"，由后端临时并入
+ *     （**仅管理员及以上**：任务消息是管理员范围的）。
+ */
+export interface MessageItem {
+  id: string                                        // 列表 key：消息用 msg-<数字>，运行中的任务用任务号
+  messageId: number | null                          // 标记已读用的数字 id（运行中的任务为 null）
+  kind: 'sync' | 'transfer' | 'inspect' | 'heal' | 'import' | 'schedule' | 'system' | string
+  level: 'info' | 'warn' | 'error'                  // 完成 / 警告 / 失败
+  title: string
+  body: string
+  /**
+   * **入参快照**（任务类消息有）：`since`/`until`/`mode`/`limit`/`sources`/`action`/`keyword`…
+   *
+   * 用途：一眼看出"这条消息说的是**哪段时间范围内**的数据"（`since` = 起始时间，
+   * 为空表示"按源自身水位"或"不限"）。列表里由 `paramSummary()` 渲染成一行。
+   */
+  params: Record<string, unknown> | null
+  taskId: string                                    // 关联任务号（可空）
+  source: string                                    // 数据源（可空）
+  username: string                                  // 触发人（定时轮次 = 系统（定时））
+  minRole: '' | 'user' | 'admin' | 'superadmin' | string   // 收件范围：最低角色要求（空 = 所有登录用户）
+  status: 'running' | 'done' | 'failed'
+  time: string | null
+  read: boolean
+}
+
+/** 消息列表 + 未读数（`GET /api/messages`） */
+export interface MessageFeed {
+  items: MessageItem[]
+  unread: number
 }

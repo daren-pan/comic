@@ -1,0 +1,10 @@
+# ⚠️ 这里**只列第三方依赖** —— 本执行器目前**没有**自己的三方依赖：
+#    它要用的东西全在公共内核与采集层里（cron 引擎、配置/状态读写、一轮采集、MySQL 客户端）。
+#
+# `comic_core` / `comic_crawler` 都是仓库内的本地包（PyPI 上不存在），不能写进本文件，
+# 否则 `pip install -r requirements.txt` 会解析失败。它们的获取方式：
+#   · 开发态   —— 仓库布局本身（靠 PYTHONPATH / editable 安装，见 README）
+#   · 镜像/wheel —— 由 pyproject.toml 的 dependencies 声明，pip 从本地 wheel 目录解析
+#
+# 所以这个文件是**故意留空的**：留着是为了让 `deploy/build.sh` 与
+# `scripts/package.*` 的「每个模块一个 requirements」约定保持一致。

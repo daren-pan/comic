@@ -48,9 +48,15 @@ copy_tree "$ROOT/comic-core/src" "$OUT/src" comic_core
 echo "-> copy crawler package -> src/comic_crawler"
 copy_tree "$ROOT/crawler-service/src" "$OUT/src" comic_crawler
 
-echo "-> merge requirements (core + crawler + api, dedup)"
+# 定时任务执行器（独立进程）：管理台配的 cron 靠它跑，所以打包也得带上 ——
+# 与 api 是同级的两个进程，共用一个 src/ 与同一份运行时数据目录。
+echo "-> copy scheduler package -> src/comic_scheduler"
+copy_tree "$ROOT/comic-scheduler/src" "$OUT/src" comic_scheduler
+
+echo "-> merge requirements (core + crawler + scheduler + api, dedup)"
 sort -u "$ROOT/comic-core/requirements.txt" \
         "$ROOT/crawler-service/requirements.txt" \
+        "$ROOT/comic-scheduler/requirements.txt" \
         "$ROOT/api-service/requirements.txt" > "$OUT/requirements.txt"
 
 echo "-> copy schema"
@@ -76,9 +82,10 @@ cat > "$OUT/README-DEPLOY.md" <<'EOF'
 | `main.py` · `core/` · `routers/` · `services/` · `schemas.py` · `serializers.py` | HTTP 服务（api-service 分层代码）。⚠️ 这里的 `core/` 是 api 的 HTTP 分层包，与 `src/comic_core/` 无关 |
 | `src/comic_core/` | 公共内核（领域模型 / 存储契约与 MySQL 实现 / 图库读写 / 标签归一） |
 | `src/comic_crawler/` | 采集服务包（适配器 / 存储 / 调度 / CLI） |
+| `src/comic_scheduler/` | 定时任务执行器（独立进程；读管理台配的 cron → 跑采集 → 写运行态） |
 | `dist/` | 前端构建产物（同源托管） |
 | `sql/mysql_schema.sql` | 建库脚本 |
-| `requirements.txt` | core + crawler + api 依赖合并 |
+| `requirements.txt` | core + crawler + scheduler + api 依赖合并 |
 
 ## 运行
 
@@ -88,6 +95,16 @@ export COMIC_MYSQL_HOST=... COMIC_MYSQL_PORT=3309 COMIC_MYSQL_USER=root \
        COMIC_MYSQL_PASSWORD=... COMIC_IMAGE_ROOT=/srv/comic/data/image_store COMIC_JWT_SECRET=<强随机值>
 python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+**定时采集要另起一个进程**（管理台「定时任务」栏配的 cron 由它执行；不起它 = 配了也没人跑）。
+它没有 `core.bootstrap` 那一层，所以要显式给 `PYTHONPATH`：
+
+```bash
+PYTHONPATH=src python -m comic_scheduler      # 常驻：每 5s 看一次表（容器里是 comic-scheduler 服务）
+```
+
+> 三个文件（`data/schedule.json` 配置 / `data/schedule_state.json` 运行态 / `data/schedule_run_now.json`
+> 触发请求）是这两个进程唯一的交换通道，**必须落在同一个数据目录**里（默认就是 `<部署目录>/data/`）。
 
 - **不用设 `PYTHONPATH`**：`comic_core` / `comic_crawler` 放在 `src/` 下（刻意与开发树同构，
   好让 data 目录仍解析到 `<部署目录>/data/`），`main.py` 导入 `core.bootstrap` 时会自动把
