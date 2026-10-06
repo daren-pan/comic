@@ -14,6 +14,36 @@ const nickname = ref('')
 const error = ref('')
 const loading = ref(false)
 
+/** 登录成功后回哪儿：默认「我的」；带了 `?redirect=` 就回那儿（见 `normalizeRedirect`） */
+const redirectTo = ref('/me')
+
+/**
+ * 收敛 `?redirect=`：**只接受站内绝对路径**，其余一律回默认。
+ *
+ * 为什么必须校验：这个参数是"跳到登录页时带上的原路径"（守卫 / 401 / 消息页都会带），
+ * 但它来自 URL —— 不做校验就等于开放重定向（诱导用户点一条
+ * `…/login?redirect=https://evil.example` 的链接，登录后被带走）。
+ * 规则：必须以 `/` 开头、不能是 `//`（协议相对）、不能含 `://` 或反斜杠。
+ *
+ * ⚠️ 要**解两次**：uni 的页面栈会把 query 再编码一次，取到的是 `%252Fmessages`
+ * 这种形态（2026-10-06 实测），只解一次会得到 `%2Fmessages` 这种非法路径。
+ */
+function normalizeRedirect(raw: unknown): string {
+  let value = String(raw ?? '').trim()
+  if (!value) return '/me'
+  for (let i = 0; i < 2 && /%[0-9a-f]{2}/i.test(value); i += 1) {
+    try {
+      value = decodeURIComponent(value)
+    } catch {
+      break          // 编码坏了就按现在的样子继续校验（会被下面的规则挡掉）
+    }
+  }
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('://') || value.includes('\\')) {
+    return '/me'
+  }
+  return value
+}
+
 async function submit() {
   if (!username.value.trim() || !password.value) {
     error.value = '请输入用户名和密码'
@@ -31,7 +61,8 @@ async function submit() {
     } else {
       await userStore.register(username.value.trim(), password.value, nickname.value.trim())
     }
-    router.push('/me')
+    // replace（不是 push）：登录页不该留在返回栈里 —— 否则回退会退回登录页
+    router.replace(redirectTo.value)
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : '操作失败，请重试'
   } finally {
@@ -52,8 +83,11 @@ function toggleMode() {
 function onBack() {
   router.back()
 }
-// uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）
-onLoad((options) => setRoute('/login', options ?? {}))
+// uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）+ 记住"登录后回哪儿"
+onLoad((options) => {
+  setRoute('/login', options ?? {})
+  redirectTo.value = normalizeRedirect(options?.redirect)
+})
 
 </script>
 
