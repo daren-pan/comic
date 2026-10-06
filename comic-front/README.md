@@ -47,7 +47,7 @@ comic-front/
 | `pages/comic/index` | `/comic/:id` | 详情页 | 封面 / 简介 / 标签 / 来源标注 + 收藏 + 章节列表 + 续读 |
 | `pages/reader/index` | `/reader/:comicId/:chapterId` | 在线阅读器 | 双阅读模式、主题切换、章节切换、进度记忆 |
 | `pages/me/index` | `/me` | 我的 | 最近阅读（续读 / 删除）+ 我的收藏 |
-| `pages/messages/index` | `/messages` | 消息中心 | 采集 / 巡检 / 自愈结果 + 系统消息；**顶栏铃铛的落点**（本端只有独立页，下拉浮层已随桌面端删除） |
+| `pages/messages/index` | `/messages` | 消息中心（**服务端 `message` 表，所有登录用户**，按收件范围过滤）；**顶栏铃铛的落点** |
 | `pages/login/index` | `/login` | 登录 / 注册 | JWT 登录；收藏需登录，历史**登录后归属账号、游客用浏览器匿名 id** |
 | `pages/admin/index` | `/admin` | 采集管理台 | 采集 / 巡检 / 封面自愈；**需管理员**。窄屏卡片单列铺开 |
 | `pages/admin/logs` | `/admin/logs` | 运行日志查询 | 按级别 / 源站 / 事件 / 作品 / 时间窗筛；**需管理员**。窄屏表格→卡片 + 点行展开详情 |
@@ -494,13 +494,52 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 
 ## 消息中心（独立页）
 
-数据源只有一处：`stores/message.ts`（Pinia + 本地持久化，key `comic_msg_notices`，上限 50 条）。
-采集 / 巡检 / 自愈任务在后台轮询到 done/failed 时写入，另有 `addSystem()` 预留系统推送。
+⚠️ **它是"通知中心"，不是管理台专属**（2026-10-06 重新设计）：消息在 MySQL 的 `message` 表里，
+**面向所有登录用户**；每条消息带**收件范围**（定向某人 `toUserId` + 最低角色 `minRole`），
+服务端按当前账号过滤后才返回 —— 所以同一次 `GET /api/messages`，普通用户只看到发给自己的，
+管理员还多看到任务消息（`minRole='admin'`）。前端经 `GET /api/messages` 读（未读数与列表一次拿回），
+**已读也按账号各一份**（`message_read` 表）—— 换机器 / 换浏览器看到的是同一份，且互不影响。
+`stores/message.ts` 只做三件事：
 
-**本端只有独立页**：点顶栏铃铛 → 跳 `pages/messages/index`（整页：顶部「← 返回 + 全部已读 + 清空」
+- 拉列表（有 `running` 条目时 5s 轮一次，空闲 60s）+ 把"结果刚出来"那一刻弹成 toast；
+- 标记已读（`POST /api/messages/read-all`；点某条 = `/{id}/read`）—— **只影响我自己**；
+- `notify()` —— **唯一不进列表的本地提示**（权限门卫那种"被拦下"的即时提示，只弹 toast）。
+
+**列表里有两种条目**：库里的消息（`id = msg-<数字>`，`messageId` 有值）与**正在跑的任务**
+（`id = 任务号`，`messageId = null`，后端由 `services.messages.feed()` 临时并入，**仅管理员及以上**）。
+后者让"定时轮次正在跑"也能看见；跑完它会被那条正式消息取代（id 不同，不会重复）。
+
+**铃铛对所有登录用户显示**（`v-if="isLoggedIn"`），轮询由 `watch(isLoggedIn, ...)` 拉起/停止
+（登录态可能来自本机缓存、也可能要等 `/api/auth/me` 回来，所以用 watch 而不是 `onMounted` 里判一次）。
+
+**只有登录用户能进这一页**：`onLoad` 先自查登录态，没登录直接 `router.replace('/login?redirect=…')`
+并**不渲染主体**（`ready` 门闩）—— 不依赖"接口 401 → 请求层清登录态并跳转"那条兜底：
+那样会先闪一下空页面、还白发一个请求。服务端同样有门（`/api/messages` 要登录），前端这步只是体验层的门。
+
+**它同时是"任务历史"的唯一入口**：采集管理页原来底部那块「最近任务」（读 `admin_task` 的 20 条 +
+"只看我的"）已于 2026-10-06 **并入这里** —— 任务收尾会发一条消息（收件范围 = 管理员及以上，
+`kind` = 任务类型、`username` = 触发人），跑的过程中还有"进行中"条目。所以：
+- 想看"谁在什么时候跑了什么、结果如何" → 顶栏铃铛；
+- 触发任务后采集管理页只调一次 `msgStore.refresh()`（先出现进行中条目）；
+- `GET /api/admin/tasks` 端点保留（`api/admin.ts` 里也留了薄封装），但**前端列表已不再用它**。
+
+**每条消息显示"入参"一行**（`paramSummary()`，见 `stores/message.ts`）：`入参：起始 2026-09-01 ·
+增量 · 上限 1` —— 一眼看出这条消息说的是**哪段时间范围内**的数据。
+- `since` 有值就是**时间窗下界**；为空时两种语义不同：采集 = `起始 按源水位`、巡检 = `起始 不限`；
+- ⚠️ **没有 `params` 就整行不显示**（别去猜"按源水位"）：入参列上线之前的老消息、
+  以及不带入参的其他模块消息，猜出来的都是假的；
+- `params` 来自任务入参快照（`admin_task.params`）；跑的时候那条"进行中"条目也带着它。
+
+⚠️ **"完成"提示（toast）按 `taskId` 追踪，不是按条目 `id`**：同一次任务，跑的时候条目 id 是**任务号**、
+跑完那条消息的 id 是 `msg-<数字>` —— 两个 id 不同；只有按 `taskId` 才能认出"这个任务跑完了"并推送结果提示
+（漏了这点，手动触发与定时轮次跑完都不会弹提示，只剩角标）。
+
+**本端只有独立页**：点顶栏铃铛 → 跳 `pages/messages/index`（整页：顶部「← 返回 + 全部已读 + 刷新」
 + 消息卡片列表）。原先宽屏的顶栏下拉浮层（340px 贴右上角）**已随桌面端删除**。
+⚠️ **没有「清空」**：消息在库里是历史（别的机器也在看），前端删不掉也不该删 —— 不想看就"全部已读"；
+真要清理走保留策略（`services/messages` 的 `purge`）。
 
-**已读时机**：**离开时才标已读**（`onHide` + `onUnload` 各挂一次）。若进页就标，顶部「全部已读」按钮
+**已读时机**：**离开时才整页标已读**（`onHide` + `onUnload` 各挂一次）。若进页就标，顶部「全部已读」按钮
 （`v-if="msgStore.unread"`）永远不会出现、未读高亮也看不到 —— 而「哪条是新的」正是未读标记的全部价值。
 两个钩子都要挂：`onHide` 覆盖「从抽屉菜单 / 底栏 push 到别的页」（本页只隐藏、不销毁），
 `onUnload` 覆盖「返回 / redirectTo」（本页被销毁），漏一个就会角标残留。
@@ -552,6 +591,23 @@ npm run dev:app         # App（需 HBuilderX 配合打包）
 3. 复现问题 → 读 `browser_console_messages` 拿报错 → 读 `browser_network_requests` 定位是哪条 `/api/*` 挂了 → `browser_network_request` 看响应体。
 4. 样式问题：`browser_snapshot` 或 `browser_evaluate` 读 `getComputedStyle` / `getBoundingClientRect`，别靠肉眼读 CSS 文件推断。
 
+**⚠️ 两个踩过的坑（2026-10-06，用桩拦截接口验收管理台时）**
+
+- **带查询串的接口，桩必须用 `*` 收尾**：`page.route('**/api/admin/tasks')` **匹配不到**
+  `/api/admin/tasks?limit=20`（glob 是按整串 URL 匹配的）→ 请求漏到真后端 →
+  **401 → `request.ts` 清 token → 整页跳登录页**，症状是"页面空白/全部断言为假"，
+  极容易误判成自己刚写的代码坏了。写成 `'**/api/admin/tasks*'`。
+- **拿不到内容时先看最终 URL 与控制台**：跳登录页时 `page.url()` 会带
+  `#/pages/login/index?redirect=...`，控制台则有那条 401。先看这两个，比逐行读源码快得多。
+
+**⚠️ 另外两条（同一轮踩到的）**
+
+- **页面路径要与 `pages.json` 完全一致**：消息页是 `pages/messages/index` → 地址是
+  `#/pages/messages/index`（少写 `/index` 时 vue-router 只打一条 `No match found for path` 警告，
+  页面**空白无内容**，控制台没有红色报错 —— 很容易当成"数据没拉到"）。
+- **别用 `document.querySelectorAll('button')` 点界面**：uni 把 `<button>` 渲染成 **`<uni-button>`**，
+  按标签找会一个都找不到（表现为"点了但没反应"）。按类名找（`.msg-link` 等）或直接用快照的 `ref`。
+
 **MCP 不可用时：自动检测 + 补装（不等用户要求）**
 
 **第一步永远是「检测 playwright MCP 是否存在」—— 不要只看某个固定配置文件。**
@@ -593,6 +649,40 @@ npm run dev:app         # App（需 HBuilderX 配合打包）
 WorkBuddy **不会自动启用**新 MCP：需要用户到**连接器管理页右上角「自定义连接器」入口，点 `playwright` 的 Trust**。**这条提示必须打出来，不能省略、不能只在心里想**；Trust 完成后本会话的 `mcp__playwright__*` 才会回到索引。
 
 **Trust 完成前**：不要静默退回「读代码猜」。可先用本机替代手段临时取证（直接 `curl` 打接口看响应、无头浏览器 CDP 脚本、让用户贴控制台截图），并**说明这是临时手段**、已在等 Trust。
+
+### ⚠️ AI 协作改 `src/` 会把 dev server 打挂（2026-10-06 实测，已修）
+
+现象：dev server 跑着的时候，用**原子写**的工具（DSH 等）保存 `comic-front/src/**` 下任一文件，
+dev server **整个进程退出**（页面从可用变成不可达），报错形如：
+
+```
+Error: EBUSY: resource busy or locked,
+  watch '...\src\pages\admin\.schedule.vue.<pid>.<uuid>.tmpdir\schedule.vue.tmp'
+```
+
+原因：这类工具按「**同级** `.<文件名>.<pid>.<uuid>.tmpdir/` 里写 `.tmp`，写完再改名」落盘；
+chokidar（Vite 的 watcher）会去 watch **正被写者锁住**的那个临时文件 → 抛 `EBUSY`，
+而这是 watch 层的**未捕获错误** → node 直接退出。
+
+已在 `vite.config.ts` 的 `server.watch.ignored` 里忽略 `**/*.tmpdir/**` 根治。
+改动 `vite.config.ts` 本身仍需重启 dev server 才生效。
+
+> 若哪天又出现同类崩溃（别的工具换了个临时目录命名），照这个思路往 `ignored` 里加一条即可，
+> 而不是"改完代码记得手动重启" —— 那是治标。
+
+### ⚠️ `*/` 不能写进块注释（踩过两次，2026-10-06）
+
+定时任务那套文案里到处是 cron 例子，而 `*/15 * * * *` 这种步长写法**只要出现在 `/* */` 或 `/** */` 里，
+`*/` 就会提前闭合注释** —— 后面的文字变成非法代码，报错还指不到点上：
+
+| 位置 | 报错 | 症状 |
+|---|---|---|
+| CSS 注释（`schedule.vue` 的 `<style>`） | `[postcss] Unexpected '/'` | 样式块 500 → **整页白屏** |
+| TS 的 JSDoc（`types.ts`） | `Transform failed ... ERROR: Unexpected "*"` | 模块 500 → 页面加载失败 |
+
+写法：注释里用**文字描述**（"每隔 N 分钟用步长形式"），字面量留给模板 / 字符串 / HTML 文本 ——
+那些地方不受注释规则约束。判断方法：改完立刻按文件名向 Vite 取一次（`curl http://localhost:5174/src/xxx.ts`），
+非 200 就是编译失败了（见下面「前端问题排查」）。
 
 ## 约定
 

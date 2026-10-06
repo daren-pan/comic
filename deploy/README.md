@@ -8,16 +8,17 @@ deploy/
 ├── front/     Dockerfile + nginx.conf + dist/（移动端产物）  → comic-front:1.0.0  自带 nginx，宿主 86
 ├── core/      dist/comic_core-*.whl                          → **无镜像**（纯库，只作命名构建上下文 `core`）
 ├── crawler/   Dockerfile + dist/comic_crawler-*.whl          → comic-crawler:1.0.0  采集层（可单独当 CLI 镜像）
+├── scheduler/ Dockerfile + dist/comic_scheduler-*.whl        → comic-scheduler:1.0.0 定时任务执行器（独立进程）
 ├── api/       Dockerfile + dist/comic_api-*.whl              → comic-api:1.0.0      接口层（依赖 core + crawler 的 wheel，**纯 API**）
 ├── mysql/     Dockerfile + sql/（建库脚本产物）              → comic-mysql:1.0.0    本项目独占的库
 ├── build.sh / build.bat                                      生成产物 + 按序构建这些镜像
 ├── up.sh                                                     **一键**：前端 build（默认两个入口，可 --web/--front 选）+ 上面这些 + up -d + 自检
-├── docker-compose.yml                                        编排：comic-mysql + comic-app + comic-web / comic-front
+├── docker-compose.yml                                        编排：comic-mysql + comic-app + comic-scheduler + comic-web / comic-front
 └── .env.example                                              配置模板（`deploy/.env` 已 gitignore）
 ```
 
 > `core/` 是唯一**没有 Dockerfile** 的模块 —— `comic-core` 是纯库、不是部署单元，
-> 这里只需要一个放 wheel 的地方，供 BuildKit 命名上下文 `core` 挂给 crawler 与 api。
+> 这里只需要一个放 wheel 的地方，供 BuildKit 命名上下文 `core` 挂给 crawler / api / scheduler。
 > 详见 [`core/README.md`](core/README.md)。
 
 > 命名统一带 `comic-` 前缀：**镜像名**、**容器名**、**compose 服务名**三者一致
@@ -65,14 +66,15 @@ deploy/
 
 | 模块 | 产物 | 来源 |
 |---|---|---|
-| `core` / `crawler` / `api` | **wheel** | 各自的 `pyproject.toml`（= 那个模块的 pom.xml）经 `pip wheel` 构建 |
+| `core` / `crawler` / `scheduler` / `api` | **wheel** | 各自的 `pyproject.toml`（= 那个模块的 pom.xml）经 `pip wheel` 构建 |
 | `web` | `dist/` 静态文件 | `cd comic-web && npm run build` 后复制进来；来源可用 `WEB_SRC=<目录>` 覆盖 |
 | `front` | `dist/` 静态文件 | `cd comic-front && npm run build:h5` 后复制进来；来源可用 `FRONT_SRC=<目录>` 覆盖 |
 | `mysql` | `sql/mysql_schema.sql` | 从 `comic-core/sql/` 复制（烘进镜像，供首次初始化） |
 
 wheel 里只有包本身 + 依赖声明 —— 测试、文档、样例夹具（`guazi/fixtures/*.html` 等）**自动被排除**。
-三个 wheel 之间有**固定的拓扑顺序 `core → crawler → api`**（后两者的 `METADATA` 里声明了前者），
-`build.sh` 按这个顺序构建；**没有镜像依赖**，镜像之间只通过 wheel 产物 + 命名构建上下文连接。
+四个 wheel 之间有**固定的拓扑顺序 `core → crawler → api / scheduler`**（后三者的 `METADATA` 里声明了上游），
+`build.sh` 按这个顺序构建；**没有镜像依赖**，镜像之间只通过 wheel 产物 + 命名构建上下文连接
+（`api` 与 `scheduler` 平级，都挂 `core` + `crawler` 两个命名上下文）。
 
 ## 三步起来
 
@@ -90,7 +92,7 @@ docker compose -f deploy/docker-compose.yml up -d
 ./deploy/up.sh --front           # 只起移动端（comic-front，宿主 86）
 ./deploy/up.sh --skip-web        # 前端没改 → 跳过 npm build（快很多）
 ./deploy/up.sh --skip-pull       # 不更新代码 → 直接按当前工作区构建
-./deploy/up.sh --collect         # 额外起定时采集 comic-scheduler
+./deploy/up.sh --collect         # 【已废弃】定时执行器 comic-scheduler 现在**默认启动**，加了只是兼容旧脚本
 ./deploy/up.sh --migrate         # 老环境升级：起完后跑一遍幂等迁移脚本（已有库才需要）
 ```
 
@@ -128,21 +130,26 @@ docker compose -f deploy/docker-compose.yml up -d
   （方向单向：api → crawler → core），构建时 pip 按这些声明解析安装；上游两层的 **wheel 产物**
   经 BuildKit 命名上下文 `core` / `crawler` 喂进 api 的构建上下文（`build.sh` 的
   `--build-context` / compose 的 `additional_contexts`）。
+  **`scheduler` 层同理**：它也只读 `core` + `crawler` 两个 wheel 产物（`comic-scheduler/pyproject.toml`
+  声明 `comic-core` 与 `comic-crawler`），与 `api` **平级**、不是它的衍生镜像。
   所以**不必先有 crawler 镜像**，只要那两个 wheel 已生成（`build.sh` 步骤 1 已保证）；
-  顺序 `mysql → web → crawler → api → front` 仍固定在 `build.sh` 里，只是不再是硬约束。
-  ⚠️ `core` 上下文**两个消费方都要挂**（crawler 层与 api 层）—— 漏了它 pip 会去 PyPI 找
+  顺序 `mysql → web → crawler → api → scheduler → front` 仍固定在 `build.sh` 里，只是不再是硬约束。
+  ⚠️ `core` 上下文**三个消费方都要挂**（crawler / api / scheduler 层）—— 漏了它 pip 会去 PyPI 找
   `comic-core`（并不存在，实测 404）而直接报错。
   两个前端镜像**反向不依赖后端**（nginx.conf 里的 `upstream comic-app:8000` 构建期不解析、运行期才需要）；
 - **构建上下文就是模块文件夹**（`context: ./api`），里面只有产物 + Dockerfile，
   所以不需要 `.dockerignore`，也不会把 `.git`/`.venv`/`node_modules` 送进构建；
 - **wheel 装进 site-packages 后相对路径推导失效**，所以镜像里显式给了
-  `COMIC_IMAGE_ROOT` / `COMIC_STATE_FILE` 等环境变量（见 api 与 crawler 的 Dockerfile）；
+  `COMIC_IMAGE_ROOT` / `COMIC_STATE_FILE` / `COMIC_SCHEDULE_*` 等环境变量（见 api / crawler / scheduler 的 Dockerfile）。
+  ⚠️ `COMIC_SCHEDULE_*` 那三个是 `api` 与 `scheduler` **必须一致**的：它们是两个进程交换配置/状态/触发请求的
+  唯一通道，一个指到 `/data`、另一个指到镜像内部，就会表现成"页面保存成功但执行器没反应"；
 - **容器里 `comic_crawler` 来自 pip 安装的依赖**（site-packages），不再靠镜像继承 ——
   `core/config.py` 那套相对路径候选在 wheel 态自然全部落空、直接可导入；
 - **采集层能单独用**：`docker run --rm comic-crawler:1.0.0 python -m comic_crawler.cli list`；
 - **`/data` 必须在镜像里建好**（采集层 Dockerfile 里做了 `mkdir + chown`）——
   命名卷首次创建会继承镜像中该路径的属主，否则以 uid 10001 运行的进程写不进去；
-- **app 单进程**（不加 `--workers`）—— 内存任务表与内存开关状态尚未改造，多 worker 会导致"任务查不到"；
+- **app 单进程**（不加 `--workers`）—— 数据源开关状态仍在进程内缓存，多 worker 会导致"开关不同步"；
+  （后台任务表已落库 `admin_task`，2026-10-06 起不再是阻塞项，详见 `docs/deploy.md` §8）；
 - **容器名固定**：`comic-mysql` / `comic-app` / `comic-web` / `comic-front`（+ `comic-scheduler`）——
   由 compose 的 `container_name` 指定，不用 compose 自动生成的 `xxx-1` 形式，运维时好叫；
 - **宿主端口可配**：`.env` 的 `WEB_PORT`（默认 85）/ `FRONT_PORT`（默认 86）。端口被占用就改这里，

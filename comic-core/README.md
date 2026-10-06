@@ -31,7 +31,8 @@ comic-core/
     ├── paths.py              # 路径常量：数据根 / 图库根 / 源开关文件
     ├── taxonomy.py           # 标签归一（繁体→简体、别名映射；读 data/tag_synonyms.json）
     ├── data/                 # taxonomy 的运行时数据（必须随包发布）
-    ├── logctx.py             # 日志上下文（task_id / task_type，供管理台「按任务查」）
+    ├── logctx.py             # 日志上下文（task_id / task_type，供管理台「按任务查」）+ 任务号生成
+    ├── notify.py             # 往消息中心投递消息（`POST /api/messages` + HMAC 服务令牌；只用标准库）
     ├── storage/              # 存储契约（base）+ MySQL 实现（mysql/，含 log_handler）
     └── images/store.py       # 图库读写契约 + 本地实现（LocalImageStore / default_store_root）
 ```

@@ -80,7 +80,7 @@ wheel 里只有包本身与依赖声明：**测试、文档、样例夹具自动
 #   ./deploy/up.sh --front       只起移动端（comic-front，宿主 86）
 #   ./deploy/up.sh --skip-web    前端没改 → 跳过 npm build（快很多）
 #   ./deploy/up.sh --skip-pull   不更新代码 → 直接按当前工作区构建
-#   ./deploy/up.sh --collect     额外起定时采集 comic-scheduler
+#   ./deploy/up.sh --collect     【已废弃】定时执行器 comic-scheduler 现在默认启动（加了只是兼容旧脚本）
 #   ./deploy/up.sh --migrate     ★ 服务器上**已有旧库**时加上它（跑幂等迁移脚本，见 §5）
 
 cp deploy/.env.example deploy/.env      # 至少改 MYSQL_ROOT_PASSWORD 与 COMIC_JWT_SECRET
@@ -118,9 +118,10 @@ docker compose -f deploy/docker-compose.yml up -d
 的 `dependencies` 里声明 `comic-core>=1.0.0` 与 `comic-crawler>=1.0.0`（**方向单向：api → crawler → core**），
 构建时 pip 按这些声明解析安装；上游两层的 **wheel 产物**经 BuildKit 命名上下文 `core` / `crawler`
 喂进 api 的构建上下文（`build.sh` 的 `--build-context`、compose 的 `additional_contexts`）。
+**`scheduler` 层同理**（`comic-scheduler/pyproject.toml` 声明同样两个上游），与 `api` 平级而非衍生。
 所以**不必先有 crawler 镜像**，只要那两个 wheel 已生成（步骤 1 已保证）；顺序
-`mysql → web → crawler → api → front` 仍固定在 `build.sh` 里。⚠️ `core` 上下文**两个消费方都要挂**
-（crawler 层与 api 层）—— 漏了它 pip 会去 PyPI 找 `comic-core`（并不存在，实测 404）而直接报错。
+`mysql → web → crawler → api → scheduler → front` 仍固定在 `build.sh` 里。⚠️ `core` 上下文**三个消费方都要挂**
+（crawler / api / scheduler 层）—— 漏了它 pip 会去 PyPI 找 `comic-core`（并不存在，实测 404）而直接报错。
 顺序里放哪都行。两个前端镜像**反向不依赖后端**（nginx.conf 里的 `upstream comic-app:8000` 构建期不解析、
 运行期才需要）。只在个别层改动时，也可以单独 `docker compose build comic-app`。
 
@@ -147,12 +148,40 @@ docker compose -f deploy/docker-compose.yml up -d
   全新库**首个注册用户自动成为超管**；老库升级跑 `up.sh --migrate`（`add_user_role.py` 会把**最早的特权用户**
   提升为超管，否则升级后没人能授权）。给他人授权用管理台「授权」页
   （comic-web 是 `/#/admin/users`，comic-front 是 `/#/pages/admin/users`）；
-- **定时采集是可选服务**，默认不启动：`docker compose -f deploy/docker-compose.yml --profile collect up -d`。
-  ⚠️ 调度器读的是**代码里的** `SOURCES[].enabled`，**不读**管理台那个开关文件 ——
-  在管理台关掉的源，调度器仍会采集；不想采就手动触发或改代码默认值；
-- **采集层可单独用**（不经过接口层）：
+- **定时采集：一条路，两个进程**。管理台「定时任务」栏是**唯一的配置入口**，真正跑采集的是
+  **独立服务 `comic-scheduler`**（2026-10-06 从 api 进程里搬出来，**默认随栈启动**，不再藏在
+  `--profile collect` 后面）：
+  1. 页面（`comic-front` 的 `/#/pages/admin/schedule`、`comic-web` 的 `/#/admin/schedule`）写配置 →
+     api 落盘到运行时数据目录的 `schedule.json`；
+  2. `comic-scheduler` 每 5s 看一次表（cron 表达式，如 `0 3 * * *` = 每天 03:00、`*/15 * * * *` = 每 15 分钟），
+     到点按配置的 `action` 跑一轮：`sync`（默认）= 对选中的数据源各跑一次采集，
+     `inspect` = 失效巡检（转存未转存页 + 全表校验 + 恢复丢失，**不含**手动巡检那步全库封面自愈）；
+     跑完把运行态写回 `schedule_state.json`、并把这一轮记进任务表 `admin_task`（见下条）；
+  3. 「立即执行一次」也是走这两个进程：api 写一个 `schedule_run_now.json`（**带上点按钮的人**），
+     执行器**读到即删**并跳一轮。
+
+  ⚠️ 三个文件**各只有一个写者**（配置 api 写 / 状态执行器写 / 触发 api 写执行器删）——
+  两个进程同时写同一个 JSON 会互相截断，这是这套设计唯一的硬约束。
+  ⚠️ 采集语义与管理台「触发采集」**构造上一致**（都调采集层的 `sync_source`）；准入是**参数即准入** ——
+  **不看**数据源开关，留空 = 全部默认启用的源（要采 `mangadex` 这类默认关闭的源须显式点名）。
+  到点时执行器没在跑（或已过 300s 宽限窗口）就跳过该轮（**错过不补**，要补点「立即执行一次」）。
+  ⚠️ 页面会显示「执行器：在线/离线」（靠心跳判定）—— 执行器没起来时配置照样存得下，但**不会有人跑**。
+  ⚠️ **定时轮次也会发消息**（消息中心，收件范围 = 管理员及以上）：手动触发与定时轮次跑完都往
+  `message` 表发一条（`kind` = 任务类型），归属显示「系统（定时）」或点按钮的人；
+  跑的过程中还会以"进行中"条目出现在列表里。管理台顶栏铃铛 → 消息中心就是任务历史的入口
+  （原来采集管理页底部那块「最近任务」2026-10-06 已并入这里）。
+  ⚠️ **消息中心**：一轮跑完，执行器会往 `POST /api/messages` 发一条消息（管理台顶栏铃铛与消息页）。
+  它是**另一个容器**，所以需要 `COMIC_API_BASE`（compose 的 `x-app-env` 默认 `http://comic-app:8000`）
+  与 **`X-Service-Token`**（HMAC，密钥复用 `COMIC_JWT_SECRET`，见 `comic_core/notify.py`）。
+  发消息失败**只是记一条 warning**，不影响这一轮采集 —— 消息是可观测性，不是采集的前置条件。
+  cron 语法见 `crawler-service/src/comic_crawler/scheduling/cron.py`；
+  三个文件与两个进程的分工见 `comic-scheduler/README.md`。
+  （采集中枢只有这一处：**没有** CLI 采集命令 —— `cli run` / `cli serve` 已于 2026-10-06 删除。）
+- **采集层可单独用**（不经过接口层 —— 但注意：**采集本身只能由管理台或 `comic-scheduler` 触发**，
+  这里能单独跑的是运维命令）：
   ```bash
-  docker run --rm -e COMIC_MYSQL_HOST=... comic-crawler:1.0.0 python -m comic_crawler.cli run --source zaimanhua --limit 1
+  docker run --rm -e COMIC_MYSQL_HOST=... comic-crawler:1.0.0 python -m comic_crawler.cli inspect   # 失效巡检
+  docker run --rm comic-crawler:1.0.0 python -m comic_crawler.cli list                             # 看已注册源
   ```
 - **现有库升级**（不是全新初始化）时，新表/索引/去约束用 `tools/` 里的迁移脚本补。镜像里**不带**
   `tools/`（全新部署由 `mysql_schema.sql` 建全表，用不到它们），需要在容器里跑就把目录挂进去。
@@ -180,11 +209,15 @@ docker compose -f deploy/docker-compose.yml up -d
 pip install -r comic-core/requirements.txt -r crawler-service/requirements.txt -r api-service/requirements.txt
 cd comic-web && npm run build          # 前端产物（改过前端才需重跑）
 cd api-service && python -m uvicorn main:app --host 0.0.0.0 --port 8000
+# 定时采集要单独起执行器（管理台配的 cron 靠它跑；不起它 = 配了也没人跑）
+cd ../comic-scheduler && PYTHONPATH=../crawler-service/src:../comic-core/src python -m comic_scheduler
 ```
 
 > 三个 `requirements.txt` **只列第三方依赖** —— `comic_core` / `comic_crawler` 是仓库内本地包
 > （PyPI 上不存在），靠 `api-service/core/bootstrap.py` 在导入时把两个 `src` 目录注入 `sys.path`
 > 来定位（**导入即生效、幂等，不需要手工设 `PYTHONPATH`**；wheel 态它们已在 site-packages，候选目录不存在、自然跳过）。
+> ⚠️ `comic-scheduler` **没有** bootstrap 那一层（它是个独立进程、不在 api 的导入链里），
+> 所以本机直跑要显式给 `PYTHONPATH`；容器里则是 pip 装好的 wheel（见 `deploy/scheduler/Dockerfile`）。
 
 环境变量与建库同 §4 / §5。用 systemd 托管时指向仓库里的 venv 即可（`ExecStart=<venv>/bin/python -m uvicorn ...`，
 `Restart=always`、`WorkingDirectory=<repo>/api-service`、`EnvironmentFile=` 放密钥）。
@@ -315,41 +348,63 @@ Stop-Process -Id <pid> -Force
 
 ## 8. 为什么现在不能多进程（重要）
 
-API 进程里有两处**进程内状态**，多 worker 会直接出错：
+API 进程里还有**一处进程内状态**，多 worker 会直接出错：
 
 | 位置 | 状态 | 多 worker 的后果 |
 |---|---|---|
-| `services/tasks.py` | `_TASKS` 是内存字典、`_SEQ` 是内存计数器 | **任务查不到**：`POST /api/admin/sync` 落在 worker A，前端轮询 `GET /api/admin/tasks/{id}` 可能落到 worker B → 404，任务永远显示"进行中" |
 | `services/sources.py` | `_state` 是内存缓存（落盘文件 `source_state.json`） | **开关不同步**：在 A 关闭的源，B 仍按旧状态执行 |
 
-`tasks.py` 的 docstring 自己也写着"任务表存在内存里（进程重启即清空），对演示用途足够；生产可换 Redis/DB"。
+> ✅ **任务表已经不再是阻塞项**（2026-10-06）：后台任务从进程内 dict 搬到了 MySQL 的
+> `admin_task` 表（`services/tasks.py` + `comic_core.storage.mysql.task_store`）——
+> 任务与触发账号一起落库，api 重启不丢、也能看出是谁点的。启动时 `tasks.reap_stale()`
+> 会按**本进程启动时刻**为界，把上一进程没跑完的 `running` 标成「服务重启，任务中断」，
+> 所以将来 A worker 的启动不会误伤 B 正在跑的任务。
 
 > 附带一条：**连接池也是每进程一份**（crawler-service 的 `storage/mysql/_pool.py`，上限 20）——
 > 多 worker 会把 MySQL 连接数成倍放大，而 `my.cnf` 的 `max_connections = 200` 是硬顶。
-> 这也是暂不扩 worker 的一个附带理由（不是主因，主因是上表那两处进程内状态）。
+> 这也是暂不扩 worker 的附带理由（主因还是上表那处开关状态）。
 
-**要扩到多进程，先做这两件事**：任务表落库（新表或 Redis）、数据源开关每次读文件/库（或加缓存失效）。
+**要扩到多进程，现在只剩一件半事**：数据源开关每次读文件/库（或加缓存失效）；
+另外 `services/tasks.py` 里"执行仍在 api 进程内的后台线程"这一点要一并想清楚 ——
+线程随进程走，多 worker 下任务落在哪个 worker 都行（状态在库里），但**同一个任务不能跨 worker 续跑**。
 
 另外两条与 worker 数无关但需要知道的：
 
-- **调度循环不在 API 进程里**（`SyncScheduler` 只被 `crawler-service` 的 CLI `serve` 用），
-  所以"多 worker 会不会重复采集"这件事**不存在**；
+- **调度循环都不在 API 进程里**：手动触发是 api 进程内的后台线程（短任务，人等着看结果），
+  定时执行在**独立服务 `comic-scheduler`** —— 所以"多 worker 会不会重复采集"这件事
+  **不存在**（真要担心的是"起两份 `comic-scheduler`"，那是双进程问题，与 worker 数无关）；
 - 日志落库的 Handler 是**每个进程各挂一个**（各自一条后台线程 + 批量写），多 worker 下是 N 份并行写，不会串。
 
 ## 9. 定时采集
 
-生产里"定时采集"有两条路，都是现成的：
+生产里"定时采集"由**独立服务 `comic-scheduler`** 执行，配置入口是管理台「定时任务」栏
+（两个进程如何交换配置/状态/触发请求，见 §5 的"定时采集：一条路，两个进程"）：
 
 ```bash
-# 一次性同步（适合 cron / 计划任务）
-python -m comic_crawler.cli run --source zaimanhua
-
-# 常驻调度（按间隔循环跑，自己内置循环）
-python -m comic_crawler.cli serve
+# 随栈启动（默认就起；--collect 已废弃）
+bash deploy/up.sh
+# 看它有没有在跑 / 有没有按点采集
+docker compose -f deploy/docker-compose.yml logs -f comic-scheduler
 ```
 
-> 这两条命令跑的是 `crawler-service` 的 CLI；在发布包里对应 `<out>/src/comic_crawler`，
-> 加 `PYTHONPATH=<out>/src` 即可。也可以**不部署调度**，只在管理台手动触发。
+页面上的「执行器：在线 / 离线」与心跳时间就是它的体检报告 —— "配了到底有没有人跑"一眼可辨。
+定时任务的**动作**可选**采集**（逐源）或**失效巡检**（转存 + 全表校验 + 恢复丢失）：
+后者让"每小时/每天巡检一次"重新有了归宿（旧的轮询调度删掉后曾一度只剩手动按钮）；
+⚠️ 定时巡检**不含**手动巡检那步「全库封面自愈」—— 巡检频率高，不该每次都多打一轮源站请求。
+每一轮的记录都会进**消息中心**（`message` 表，收件范围 = 管理员及以上：谁触发的、跑了多久、结果如何）。
+也可以**完全不用定时**（只在管理台手动触发）。采集层剩下的命令都是**运维/排障**用的：
+
+```bash
+# 失效巡检（转存未转存页 + 全表校验 + 恢复丢失）
+python -m comic_crawler.cli inspect [--source <name>]
+# 懒转存未转存页 / 看库内数据 / 列已注册源
+python -m comic_crawler.cli transfer-images | show | list
+```
+
+> 这些命令跑的是 `crawler-service` 的 CLI；在发布包里对应 `<out>/src/comic_crawler`，
+> 加 `PYTHONPATH=<out>/src` 即可。
+> ⚠️ **没有** `cli run` / `cli serve`（2026-10-06 删除）：采集只能由管理台「触发采集」
+> 或 `comic-scheduler` 触发，避免出现第三个各管一摊的采集入口。
 
 ## 10. 实测记录（2026-09-15）
 

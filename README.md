@@ -4,7 +4,7 @@
 存储唯一方案为 **MySQL**（`MySQLStorage` 单实现，`Storage` 抽象作为契约保留），图片统一为**图库内相对 key**。
 
 > 仓库**不携带任何数据文件**（`*.db*` / `*.sqlite*` 已全局忽略）。数据需联网采集重建后使用。
-> 参考：`cli run` 增量/全量采集（见 crawler-service/README.md）。
+> 采集方式：管理台「触发采集」（手动，api 进程内）或 `comic-scheduler`（定时，独立进程）—— 见下文第 3 步。
 
 ## 目录结构
 
@@ -16,6 +16,8 @@ comic/
 │   ├── sql/                  #   mysql_schema.sql（表结构，无数据快照）
 │   ├── data/                 #   运行时数据（gitignore）：image_store/ 图库 + source_state.json 源开关状态
 │   ├── tests/                #   单元测试（含 test_layering.py 分层守卫；样例 HTML 随各源包 fixtures/）
+├── comic-scheduler/          # 定时任务执行器（独立进程）：读管理台配的 cron → 跑采集 → 写运行态
+│   └── src/comic_scheduler/  #   daemon.py（每 5s 看一次表：cron 判定 + 消费「立即执行」请求）
 ├── api-service/              # FastAPI 业务服务（唯一存储：MySQL，同源托管前端）
 │   ├── main.py               #   装配入口（建 app / 挂路由 / 托管 dist）
 │   ├── core/ services/       #   基础设施（config·db·security·responses）与业务动作（images·tasks·sources）
@@ -66,14 +68,16 @@ cp deploy/.env.example deploy/.env     # 至少填 MYSQL_ROOT_PASSWORD 与 COMIC
 # 1. 起数据库 —— 数据卷为空时自动执行建库脚本（烘在镜像里），10 张表直接建好，无需手工跑 SQL
 docker compose -f deploy/docker-compose.yml up -d comic-mysql
 
-# 2. 采集写库（首次需联网增量/全量）
-cd crawler-service
-PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua --mode full   # 可换 --source
-PYTHONPATH=src python -m comic_crawler.cli transfer-images                       # 图片懒转存（可选）
-
-# 3. 启动站点（连接参数**无需手工导出**：代码兜底读 deploy/.env）
-cd ../api-service && python -m uvicorn main:app --host 127.0.0.1 --port 8000
+# 2. 启动站点（连接参数**无需手工导出**：代码兜底读 deploy/.env）
+cd api-service && python -m uvicorn main:app --host 127.0.0.1 --port 8000
 # 或直接：scripts\start_mysql.bat / scripts/start_mysql.sh
+
+# 3. 首次采集写库：打开管理台 http://127.0.0.1:8000/#/admin →「触发采集」
+#    选源 zaimanhua（主源）、模式「全量」、数量上限留空；图片由接口读时懒转存。
+#    想让它自己定时跑：起 comic-scheduler（见 comic-scheduler/README.md），
+#    在页面「定时任务」栏写一条 cron 即可 —— 采集全程不需要手敲命令。
+#    ⚠️ 采集**没有** CLI 子命令（`cli run` / `cli serve` 已于 2026-10-06 删除）；
+#       运维类命令仍在（转存 / 巡检，见 crawler-service/README.md）。
 ```
 
 打开 http://127.0.0.1:8000 即可浏览全部漫画、看图、收藏、记录历史。
@@ -117,9 +121,9 @@ npm run dev:mp-weixin # 小程序（产物 comic-front/dist/dev/mp-weixin，用�
 ## 数据更新与图片转存
 
 ```bash
-# 采集最新章节（源站适配器见 crawler-service/README.md，真实源需联网）
+# 采集请在管理台「触发采集」（或交给 comic-scheduler 按 cron 跑）；以下是运维命令：
+# 源站适配器见 crawler-service/README.md，真实源需联网
 cd crawler-service
-PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua   # 增量同步某源
 PYTHONPATH=src python -m comic_crawler.cli transfer-images          # 未转存图片懒转存
 PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡检（转存未转存页 + 全表校验已转存对象 + 恢复丢失）
 ```
@@ -166,4 +170,4 @@ PYTHONPATH=src python -m comic_crawler.cli inspect                  # 失效巡�
 
 - 仓库内 `crawler-service/data/` 不入库（gitignore），图库内容为**本机受控抓取的少量章节页**（在漫画等源站公开免费内容，仅供个人学习演示，不对外分发、不绕过付费/VIP）；
 - 采集适配器仅用于接口演示，请尊重源站 robots 与版权，控制频率；
-- 若需公开此仓库，请先移除演示抓取的版权图片（清空 `crawler-service/data/image_store` 并用 `cli run` 重建可授权数据）。
+- 若需公开此仓库，请先移除演示抓取的版权图片（清空 `crawler-service/data/image_store`，再用管理台「触发采集」重建可授权数据）。

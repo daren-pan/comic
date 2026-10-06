@@ -46,14 +46,16 @@ build/deploy/
 ├── main.py  core/  routers/  services/  schemas.py  serializers.py   # HTTP 层
 ├── src/comic_core/                                                  # 公共内核（领域模型/存储/图库/标签）
 ├── src/comic_crawler/                                               # 采集包
+├── src/comic_scheduler/                                             # 定时任务执行器（独立进程）
 ├── dist/                                                            # 前端产物（同源托管）
 ├── sql/mysql_schema.sql
-├── requirements.txt                                                 # core + crawler + api 依赖合并去重
+├── requirements.txt                                                 # core + crawler + scheduler + api 依赖合并去重
 └── README-DEPLOY.md
 ```
 
 > ⚠️ 上面 `core/`（api 的 HTTP 分层包）与 `src/comic_core/`（公共内核）**同名不同物**，别混。
 > 两个包都放 `src/` 下是为了让 data 目录仍解析到 `<bundle>/data/`。
+> 定时采集要**另起一个进程**：`PYTHONPATH=src python -m comic_scheduler`（管理台配的 cron 靠它跑）。
 
 用法示例：
 

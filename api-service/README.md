@@ -24,7 +24,8 @@ api-service/
 ├── services/          # 业务动作（不绑定路由，可被 router / 后台任务复用）
 │   ├── images.py      #   图片读取（魔数判型）+ SVG 占位图 + admin_image_store()
 │   ├── tags.py        #   作品标签批量注入（一条 IN 查询，避免逐条查库）
-│   ├── tasks.py       #   后台任务注册表（内存 + threading + 前端轮询）
+│   ├── tasks.py       #   后台任务（**落库** `admin_task`：状态/结果/触发账号 + threading + 前端轮询）
+│   ├── messages.py    #   消息中心（`message` 表 + 已读记账 `message_read`）：按账号过滤/记账，写入唯一入口
 │   ├── sources.py     #   数据源开关状态（source_state.json）与元信息
 │   ├── ondemand.py    #   源站搜索 / 按需导入 / 读时登记页清单 / 穿透取图
 │   ├── logs.py        #   运行日志查询（log_record）
@@ -34,6 +35,7 @@ api-service/
     ├── auth.py        #   注册 / 登录 / 当前用户
     ├── users.py       #   收藏（需登录）/ 阅读历史（登录→账号、游客→匿名）
     ├── admin.py       #   采集管理台 + 日志查询（`require_admin`）
+    ├── messages.py    #   消息中心读写（**登录即可读**，内容按账号过滤；写 `require_admin_or_service`）
     └── admin_users.py #   授权页（`require_superadmin`，仅超管）
 ```
 
@@ -61,7 +63,11 @@ api-service/
 | `POST /api/admin/inspect` | 触发**全库**失效巡检（全库维护的唯一入口），body `{source?, since?, until?}`。三步：转存未转存页 + **全表**校验已转存对象（缺失恢复）+ 全库封面自愈 |
 | `POST /api/admin/import` | **按需导入单部作品**，body `{source, keyword?\|ref?\|source_comic_id?}`（三选一定位）。收录榜单之外的作品、全量收目录、**不下载正文图** |
 | `POST /api/admin/heal-covers` | **按作品强制封面自愈**，body `{keyword, source?}`（`keyword` 必填 = 名称或 ID，可多个）。跳过「文件在即健康」判断，专治**「封面文件在但内容是错的」** |
-| `GET /api/admin/tasks[/{task_id}]` | 后台任务状态轮询（running / done / failed + 结果统计） |
+| `GET /api/admin/tasks[/{task_id}]` | 后台任务状态轮询（running / done / failed + 结果统计）；`?limit=&mine=`（`mine=true` 只看自己触发的）。⚠️ 前端**消息中心**已覆盖"任务历史"这一用途（见下条），这个端点留给外部/调试用 |
+| `GET /api/messages?limit=&unread_only=` | **消息中心**列表 + 未读数（一次拿回）：**发给当前账号的**消息 + 正在跑的任务（仅管理员） |
+| `GET /api/messages/unread` | 我的未读数（只给角标用） |
+| `POST /api/messages` | **发一条消息**（其他模块的写入入口）：body `{kind, level, title, body, params?, taskId?, source?, userId?, username?, toUserId?, minRole?}`；**管理员 JWT 或 `X-Service-Token`**。`params` = **入参快照**（`since`/`until`/`mode`/`limit`…），列表据此显示"这条消息对应哪段时间范围" |
+| `POST /api/messages/{id}/read` · `/read-all` | 标记一条 / 全部已读（**按账号各一份**：`message_read` 表） |
 | `GET /api/admin/logs` | 运行日志查询（`log_record`）：级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / 时间窗 + 分页 |
 | `GET /api/admin/logs/{id}` · `/options` · `POST /logs/purge?days=` | 单条日志（含堆栈全文）· 筛选候选值 · 删除 N 天前的日志 |
 | `GET /api/admin/users` · `POST /api/admin/users/{id}/role` | 授权页：用户列表（关键字 + 分页）· 设置角色（`admin` / `user`；**改自己会被拒**） |
@@ -98,9 +104,27 @@ cd api-service
   **决策与协议分离**：`services/images.py` 只算「给哪份字节 + 什么缓存头」，返回框架无关的 `ImagePayload`；
   组装 `Response` / 判 `304` 是 `routers/public.py` 的事 —— 故 services 层不出现任何 FastAPI 类型。
 - **管理台后台任务**：路由只做**入参解析 + 派发**，任务体在 `services/admin_jobs.py`（同步 / 巡检 / 导入 / 封面自愈），
-  都是**长任务**，用 `services/tasks.py` 的 `threading.Thread` + 内存任务表执行，
-  触发后立即返回 `taskId`，前端轮询取结果。⚠️ **任务表在内存里 → 不能多进程**（见 `docs/deploy.md` §8）；
+  都是**长任务**，用 `services/tasks.py` 的 `threading.Thread` 执行；触发后立即返回 `taskId`，前端轮询取结果。
+  ✅ **任务落库**（`admin_task`，2026-10-06 从内存搬来）：状态 / 结果 / **触发账号**（`user_id` + `username`）
+  / 入参快照都在库里 —— api 重启不丢，启动时把上一进程残留的 `running` 标成「服务重启，任务中断」。
+  读写实现在公共内核的 `comic_core.storage.mysql.task_store`；任务列表可 `?mine=true` 只看自己触发的。
+  ⚠️ 任务的**执行**仍在 api 进程内的后台线程（"人等着看结果"的短任务）—— 与**定时执行**不同，后者在独立进程
+  `comic-scheduler` 里；详见 `docs/deploy.md` §8 与 `comic-scheduler/README.md`。
   ⚠️ 这些任务在 **api 进程内**直接调 `comic_crawler`，**改完 crawler-service 必须重启后端**。
+- **消息中心**（`message` 表 + `message_read` 已读记账）：**面向所有登录用户的平台级通知中心**（不是管理台专属）。
+  三个刻意的设计：
+  - **内容以库为准**：前端不保存任何消息（换机器/换浏览器看到的是同一份）；
+  - **可见范围由数据决定**（`to_user_id` 定向某人 + `min_role` 最低角色要求）：
+    任务消息 `min_role='admin'`（普通用户看不到）、全员公告 `''`、定向通知 `to_user_id=<某人>`；
+    "最低角色"是**包含式**的（`admin` 的消息超管也看得到）。判定口径只有一处纯函数：
+    `comic_core.storage.mysql.message_store.visible_roles`。
+    **已读按账号各一份**（`message_read`）：广播消息 A 读过不会清掉 B 的角标；
+  - **写入只有一个入口**：`POST /api/messages`。api 自己的任务收尾走**进程内**直调
+    `services.messages.publish_task()`；别的进程（`comic-scheduler`、运维脚本、外部系统）走 HTTP，
+    带 **`X-Service-Token`**（HMAC，见 `comic_core/notify.py`，复用 `COMIC_JWT_SECRET`，不新增密钥/依赖）。
+    这样 `kind`/`level`/`minRole` 的合法值与长度上限只在一处收敛，不会有进程绕过接口写脏消息。
+  - 列表还会把"**正在跑的任务**"临时并进来（活状态，不落消息行，**仅管理员及以上**）——
+    跑完由任务侧发那条正式消息，同一件事不会在任务表与消息表里各存一份状态。
 - **测试纯逻辑**：不连库、不起 HTTP；需要存储时把 `core.db` 换成假存储。
   ⚠️ **假存储只有一份**（`tests/_stub_db.py`），用它的测试文件必须在**导入应用模块之前**调 `install_stub()`
   —— 所有测试跑在同一进程里，两份桩会互相污染。

@@ -66,15 +66,20 @@ crawler-service/
 
 ## 功能与接口
 
-**命令行**（`python -m comic_crawler.cli <子命令>`）
+**命令行**（`python -m comic_crawler.cli <子命令>`）—— **运维/排障用**，不是常规采集入口
 
 | 子命令 | 作用 |
 |---|---|
-| `run --source X [--mode incremental\|full] [--since D] [--limit N]` | 采集某源（默认增量；`--limit` 为受控样本） |
 | `transfer-images [--since D] [--until D] [--limit N] [--source X]` | 转存窗口内的**未转存页**（默认不限量；`--source` 只转某源） |
 | `inspect [--source X] [--since D] [--until D]` | 失效巡检：转存未转存页 + **全表**校验已转存对象 + 丢失恢复 |
-| `serve [--source X] [--interval S]` | 常驻定时调度：增量按各源间隔 / 每日全量 / 每小时巡检 |
 | `list` · `show` | 列出已注册适配器 · 查看库内数据 |
+
+⚠️ **`run` / `serve` 已删除**（2026-10-06）。采集只有两条路，别再开第三个入口：
+
+| 场景 | 走哪条 |
+|---|---|
+| 手动、要进度与结果 | 管理台「触发采集」（api 进程内后台线程，`taskId` 轮询；`数量上限` 填 1 = 受控样本） |
+| 定时、无人值守 | `comic-scheduler`（独立进程，读管理台配的 5 段 cron，见 `../comic-scheduler/README.md`） |
 
 **按需导入**（`scheduling/ondemand.import_comic`；入口为搜索页「导入并阅读」或 `POST /api/admin/import`）
 —— 与采集共用同一套入库逻辑（`sync._upsert_detail`），差别只在驱动方式：
@@ -109,11 +114,9 @@ export PYTHONPATH=src:../comic-core/src        # Windows(PowerShell): $env:PYTHO
 # 数据库容器（本项目独占实例，宿主 127.0.0.1:3309；连接参数读 deploy/.env，无需手工导出）
 docker compose -f ../deploy/docker-compose.yml up -d comic-mysql
 
-# 采集 / 转存 / 巡检 / 定时调度
-python -m comic_crawler.cli run --source zaimanhua --limit 3
+# 转存 / 巡检（运维命令；采集请在管理台「触发采集」或交给 comic-scheduler）
 python -m comic_crawler.cli transfer-images
 python -m comic_crawler.cli inspect
-python -m comic_crawler.cli serve
 
 # 单测（纯逻辑：不连库、不写临时文件）
 python -m unittest discover -s tests -t tests
