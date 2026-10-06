@@ -1,215 +1,236 @@
-// 消息中心全局 store（Pinia）
+// 消息中心全局 store（Pinia）—— **服务端通知中心（`message` 表）的视图**
 //
-// 设计目标：把「采集/巡检」的任务结果从管理页内部的临时状态，升级为**全站可读的消息中心**，
-// 顶栏在登录账号旁展示未读角标，点击展开消息面板；并预留「系统消息推送」入口（addSystem）。
+// ⚠️ 这一块前后改了三版，都是往"更靠服务端、受众更广"走：
+//   1.0 纯前端本地消息（点过哪个任务就登记一条、落 localStorage）→ 换机器就没了、定时轮次不出现；
+//   2.0 直接读管理台任务表 → 定时轮次有了，但消息仍只等于"任务"，只有管理员有；
+//   3.0（现在）**面向所有登录用户的通知中心**：`message` 表 + `POST /api/messages` 写入接口 ——
+//       每条消息带**收件范围**（定向某人 / 最低角色），读取时由服务端按当前账号过滤，
+//       **已读按账号各一份**（`message_read` 表：广播消息 A 读过不会清掉 B 的角标）。
+//
+// 本 store 只做三件事：拉 `GET /api/messages`（列表 + 未读数一次拿回）、标记已读、把"结果刚出来"
+// 那一刻弹成 toast。**不存任何消息内容到本地** —— 换台机器打开，看到的是同一份。
 //
 // 关键点：
-// - 轮询放在 store（单例）而非组件，任务即使离开 /admin 页也会继续跟踪到 done/failed；
-// - 消息类型：sync(采集) / inspect(巡检) / heal(封面自愈) / system(系统推送)；transfer 仅历史兼容；
-// - 持久化：已完成消息落本地存储（key=comic_msg_notices，上限 50 条），刷新不丢；
-//   刷新时仍在 running 的消息视为「任务已中断」（后端任务无法跨会话恢复），标记为 failed；
-// - toast 结果弹窗也由 store 持有，Layout 顶栏统一渲染，任何页面都能看到执行完毕提示。
-import { computed, ref, watch } from 'vue'
+// - 列表里两种条目：库里的消息（`msg-<id>`）与**正在跑的任务**（任务号，后端临时并入，**仅管理员**）——
+//   后者让"定时轮次正在跑"也能看见；跑完它会被那条正式消息取代（id 不同，不会重复）；
+// - **轮询**：有 running 条目时 5s 一次（能看到 running → done 的跳变并弹 toast），空闲 60s 一次；
+// - **登录即用**：数据源只要登录（内容按账号过滤），所以 Layout 按 `isLoggedIn` 拉起/停止轮询；
+// - 唯一的本地提示是 `notify()`（权限门卫这类"被拦下"的即时提示）：只弹 toast、不进列表，
+//   免得列表出现"换机器就没了"的第二类条目。
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getAdminTask } from '../api'
-import { storage } from '../utils/storage'
-import type { AdminTask } from '../types'
+import { getMessages, markAllMessagesRead, markMessageRead } from '../api'
+import type { MessageItem } from '../types'
 
-/** 消息类型：采集 / 失效巡检 / 封面自愈 / 系统推送（`transfer` 仅为**历史消息**兼容保留 —— 独立转存入口已删） */
-export type NoticeKind = 'sync' | 'transfer' | 'inspect' | 'heal' | 'system'
-/** 消息状态：运行中 / 完成 / 失败 / 通知（系统消息） */
+/** 消息条目（= 接口出参形状；列表与 toast 共用同一份） */
+export type NoticeItem = MessageItem
+/** 消息状态（从 `status`/`level` 归一出来，供展示层用） */
 export type NoticeStatus = 'running' | 'done' | 'failed' | 'info'
 
-export interface NoticeItem {
-  id: string
-  kind: NoticeKind
-  status: NoticeStatus
-  source?: string        // 数据源名（system 消息为空）
-  mode?: string          // 采集模式：incremental / full
-  summary: string        // 主文本（结果摘要）
-  detail: string         // 次要文本（预留槽位，当前一律为空不渲染）
-  time: string           // ISO 时间
-  read: boolean          // 是否已读（未读计角标）
-}
-
-const STORAGE_KEY = 'comic_msg_notices'
-const MAX_NOTICES = 50
-const POLL_INTERVAL = 1500   // 轮询间隔（ms）
+const LIMIT = 50             // 一次拉多少条
+const POLL_RUNNING = 5000    // 有任务在跑时的轮询间隔（ms）
+const POLL_IDLE = 60000      // 空闲时的轮询间隔（ms）
 const TOAST_DURATION = 6000  // 结果弹窗停留（ms）
 
-/** 任务结果摘要（采集：扫描/新增/更新/章节/失败；巡检：校验/转存/恢复/失效；自愈：检查/修复/跳过/失败） */
-export function noticeSummary(t: AdminTask): string {
-  if (t.status !== 'done' || !t.result) return ''
-  if (t.type === 'sync') {
-    const s = t.result.stats as Record<string, number> | undefined
-    if (s) {
-      return `扫描 ${s.total_seen} 部 | 新增 ${s.new_comics} | 更新 ${s.updated_comics} | 新增章节 ${s.new_chapters} | 失败 ${s.failed}`
-    }
-  }
-  const r = t.result as Record<string, number>
-  if (t.type === 'inspect') {
-    return `校验 ${r.checked ?? 0} | 转存 ${r.transferred ?? 0} | 恢复 ${r.recovered ?? 0} | 失效 ${r.invalid ?? 0}`
-  }
-  if (t.type === 'heal') {
-    return `检查 ${r.checked ?? 0} | 修复 ${r.healed ?? 0} | 跳过 ${r.skipped ?? 0} | 失败 ${r.failed ?? 0}`
-  }
-  return `检查 ${r.checked ?? 0} | 成功 ${r.transferred ?? 0} | 失败 ${r.failed ?? 0}`
-}
-
-// ---- 展示用格式化（顶栏下拉面板与移动端消息页**共用同一份**）----
-// 原先这三个函数写在 Layout.vue 局部，独立消息页出现后必须共用 ——
-// 复制两份迟早走偏（改了标签文案只改一处）。
+// ---- 展示用格式化（消息页与 toast **共用同一份**，不各写一份）----
 /** 消息类型中文名 */
-export function kindLabel(k: NoticeKind): string {
-  return k === 'sync'
-    ? '采集'
-    : k === 'transfer'
-      ? '转存'
-      : k === 'inspect'
-        ? '巡检'
-        : k === 'heal'
-          ? '自愈'
-          : '系统'
+export function kindLabel(k: string): string {
+  return (
+    {
+      sync: '采集',
+      transfer: '转存',
+      inspect: '巡检',
+      heal: '自愈',
+      import: '导入',
+      schedule: '定时',
+      system: '系统',
+    } as Record<string, string>
+  )[k] || '消息'
 }
-/** 消息状态中文名 */
+/** 消息状态中文名（运行中 / 完成 / 失败 / 通知）—— 由 `status` + `level` 归一 */
 export function statusLabel(n: NoticeItem): string {
   if (n.status === 'running') return '运行中'
-  if (n.status === 'done') return '完成'
-  if (n.status === 'failed') return '失败'
-  return '通知'
+  if (n.status === 'failed' || n.level === 'error') return '失败'
+  if (n.level === 'warn') return '警告'
+  return n.kind === 'system' ? '通知' : '完成'
 }
 /** 消息时间：`MM-DD HH:mm` */
-export function fmtMsgTime(iso: string): string {
+export function fmtMsgTime(iso: string | null): string {
+  if (!iso) return '—'
   const d = new Date(iso)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/**
+ * **入参一行**：这条消息对应哪段时间范围、当时是怎么点的（只列有的项；**没有入参返回空串**）。
+ *
+ * ⚠️ 没有 `params` 就**什么都不显示**，别去猜"起始 按源水位" ——
+ * 那对"入参列上线之前产生的老消息"、以及不带入参的其他模块消息都是**编的**。
+ *
+ * 重点是**起始时间** `since`：
+ * - 有值 → `起始 2026-10-01`（就是那轮采集/巡检的时间窗下界）；
+ * - 为空时**两种语义不同**，别混着写：采集 = **按源自身水位**、巡检 = **不限**（全量校验）。
+ *
+ * 其余项（截止 / 增量全量 / 上限 / 关键字 / 前 N 话）也顺手带上 —— 复盘"当时点的是什么"。
+ * 源名不在这里重复（列表已有独立的"源："那行）。
+ */
+export function paramSummary(n: NoticeItem): string {
+  const p = n.params
+  if (!p || typeof p !== 'object' || !Object.keys(p).length) return ''
+  const obj = p as Record<string, unknown>
+  const action = String(obj.action || '')
+  const isInspect = n.kind === 'inspect' || action === 'inspect'
+  const hasWindow = n.kind === 'sync' || n.kind === 'inspect' || n.kind === 'schedule'
+  const since = obj.since ? String(obj.since).slice(0, 10) : ''
+  const until = obj.until ? String(obj.until).slice(0, 10) : ''
+
+  const parts: string[] = []
+  if (hasWindow) {
+    parts.push(since ? `起始 ${since}` : isInspect ? '起始 不限' : '起始 按源水位')
+  }
+  if (until) parts.push(`截止 ${until}`)
+  if (obj.mode) parts.push(obj.mode === 'full' ? '全量' : '增量')
+  if (obj.limit) parts.push(`上限 ${obj.limit}`)
+  if (obj.keyword) parts.push(`关键字 ${String(obj.keyword).slice(0, 16)}`)
+  if (obj.firstChapters) parts.push(`前 ${obj.firstChapters} 话`)
+  return parts.join(' · ')
+}
+
 export const useMessageStore = defineStore('message', () => {
   const notices = ref<NoticeItem[]>([])
+  const unread = ref(0)
   const toast = ref<NoticeItem | null>(null)
+  const loading = ref(false)
+  const error = ref('')
 
-  /** 未读数（运行中的任务不计未读） */
-  const unread = computed(() => notices.value.filter((n) => !n.read && n.status !== 'running').length)
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let started = false                       // 轮询循环是否已拉起（多处调 start 也只跑一个）
+  let inflight = false                      // 防重入：上一轮还没回来就跳过这次
+  // 见过"在跑"的任务：key 用 **taskId**（不是条目 id）——
+  // 同一次任务在跑的时候 id 是任务号、跑完那条消息的 id 是 `msg-<n>`，**两个 id 不同**；
+  // 只有按 taskId 才能把"跑完了"认出来，从而推送（弹结果提示）。任务号为空的条目才退回用 id。
+  const runningSeen = new Set<string>()
 
-  // 持久化：仅落「已完成」消息，running 的刷新后无意义
-  watch(
-    notices,
-    () => {
-      try {
-        const done = notices.value.filter((n) => n.status !== 'running').slice(0, MAX_NOTICES)
-        storage.set(STORAGE_KEY, JSON.stringify(done))
-      } catch {
-        /* 存储不可用则忽略 */
-      }
-    },
-    { deep: true },
-  )
+  const hasRunning = computed(() => notices.value.some((n) => n.status === 'running'))
 
-  /** 兼容历史消息：剔除摘要里已下线的「｜ 封面自愈 修复 X · 跳过 Y」片段 */
-  function pruneLegacySummary(summary: string): string {
-    if (!summary) return ''
-    return summary.replace(/\s*｜\s*封面自愈[^｜]*/g, '').trim()
-  }
-
-  /** 启动：从本地存储载入历史；刷新前仍在 running 的标记为中断 */
-  function init() {
-    try {
-      const raw = storage.get(STORAGE_KEY)
-      if (!raw) return
-      const items = JSON.parse(raw) as NoticeItem[]
-      notices.value = items.map((n) => {
-        if (n.status === 'running') {
-          return { ...n, status: 'failed' as NoticeStatus, summary: '任务已中断', read: true, detail: '' }
-        }
-        // 次要文本已下线，历史消息里的旧 detail 一并清空
-        return { ...n, summary: pruneLegacySummary(n.summary), detail: '' }
-      })
-    } catch {
-      /* 解析失败则从空开始 */
-    }
-  }
-
-  /** 轮询任务直到 done/failed，回填摘要并置为未读 + 弹 toast */
-  function pollTask(taskId: string) {
-    const step = async () => {
-      try {
-        const t = await getAdminTask(taskId)
-        const item = notices.value.find((n) => n.id === taskId)
-        if (!item) return
-        if (t.status === 'running') {
-          setTimeout(step, POLL_INTERVAL)
-          return
-        }
-        item.status = t.status
-        item.summary = t.status === 'failed' ? (t.message || '任务失败') : noticeSummary(t)
-        item.read = false
-        toast.value = item
+  /** 结束跳变 → 推送一次结果提示（无论这一轮是**谁**触发的：本机、别的机器、还是定时器） */
+  function detectFinished(list: NoticeItem[]) {
+    for (const n of list) {
+      const key = n.taskId || n.id
+      if (n.status === 'running') {
+        runningSeen.add(key)
+      } else if (runningSeen.has(key)) {
+        runningSeen.delete(key)
+        toast.value = n
         setTimeout(() => {
-          if (toast.value && toast.value.id === taskId) toast.value = null
+          if (toast.value && toast.value.id === n.id) toast.value = null
         }, TOAST_DURATION)
-      } catch {
-        // 查询失败：保留最后状态，不再重试
       }
     }
-    step()
   }
 
-  /** 触发任务后登记（占位 running，确保能检测到 running→结束 的跳变） */
-  function trackTask(
-    taskId: string,
-    kind: 'sync' | 'inspect' | 'heal',
-    source: string,
-    mode?: string,
-  ) {
-    const running =
-      kind === 'sync'
-        ? '采集进行中…'
-        : kind === 'inspect'
-          ? '巡检进行中…'
-          : '封面自愈进行中…'
-    notices.value = notices.value.filter((n) => n.id !== taskId)
-    notices.value.unshift({
-      id: taskId,
-      kind,
-      status: 'running',
-      source,
-      mode,
-      summary: running,
-      detail: '',
-      time: new Date().toISOString(),
-      read: true,
-    })
-    pollTask(taskId)
+  /** 拉一次消息（内容与未读数都来自服务端，本地不存） */
+  async function refresh() {
+    if (inflight) return
+    inflight = true
+    loading.value = notices.value.length === 0
+    try {
+      const feed = await getMessages({ limit: LIMIT })
+      notices.value = feed.items || []
+      unread.value = feed.unread || 0
+      detectFinished(notices.value)
+      error.value = ''
+    } catch (e) {
+      // 拉不到就保留上一次的结果（别清空成"暂无消息"，那会让人以为消息丢了）
+      error.value = (e as Error).message || '加载消息失败'
+    } finally {
+      inflight = false
+      loading.value = false
+    }
   }
 
-  /** 系统消息推送入口（预留：后续接后端系统通知 / 运维广播） */
-  function addSystem(text: string, detail = '') {
-    notices.value.unshift({
-      id: 'sys-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-      kind: 'system',
-      status: 'info',
-      summary: text,
-      detail,
-      time: new Date().toISOString(),
-      read: false,
-    })
+  /** 自调度轮询：有任务在跑就 5s 一次，空闲 60s 一次 */
+  function schedule() {
+    if (!started) return
+    timer = setTimeout(async () => {
+      await refresh()
+      schedule()
+    }, hasRunning.value ? POLL_RUNNING : POLL_IDLE)
   }
 
-  /** 全部标为已读（打开消息面板时调用） */
-  function markAllRead() {
+  /** 开始（幂等）：立刻拉一次并转入轮询。
+   *
+   *  由 Layout.vue 按 `isAdmin` 拉起 —— 数据源是管理台接口，普通用户既没有消息也不该打请求。
+   */
+  function start() {
+    if (started) return
+    started = true
+    refresh()
+    schedule()
+  }
+
+  /** 停止轮询（登出 / 被降权） */
+  function stop() {
+    started = false
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+
+  /** 全部标为已读（**落库**：换机器也还是已读） */
+  async function markAllRead() {
+    if (unread.value > 0) {
+      try {
+        await markAllMessagesRead()
+      } catch {
+        /* 标失败就保持未读，下次进页再试 */
+      }
+    }
     notices.value.forEach((n) => (n.read = true))
+    unread.value = 0
+  }
+
+  /** 标记单条已读（点开某条时用；列表刷新后以服务端的 `read` 为准） */
+  async function markRead(item: NoticeItem) {
+    if (item.read || item.messageId === null) return
+    try {
+      await markMessageRead(item.messageId)
+      item.read = true
+      unread.value = Math.max(0, unread.value - 1)
+    } catch {
+      /* 忽略：下次刷新以服务端为准 */
+    }
+  }
+
+  /** 本地即时提示（**唯一不进列表的消息**：权限门卫这类"被拦下"的提示）—— 只弹 toast */
+  function notify(text: string, detail = '') {
+    toast.value = {
+      id: 'local-' + Date.now(),
+      messageId: null,
+      kind: 'system',
+      level: 'warn',
+      title: text,
+      body: detail,
+      taskId: '',
+      source: '',
+      username: '',
+      status: 'done',
+      time: null,
+      read: true,
+    }
+    setTimeout(() => {
+      if (toast.value && toast.value.id.startsWith('local-')) toast.value = null
+    }, TOAST_DURATION)
   }
 
   function dismissToast() {
     toast.value = null
   }
 
-  /** 清空全部消息 */
-  function clear() {
-    notices.value = []
-    toast.value = null
+  return {
+    notices, unread, toast, loading, error,
+    start, stop, refresh, markAllRead, markRead, notify, dismissToast,
   }
-
-  return { notices, toast, unread, init, trackTask, addSystem, markAllRead, dismissToast, clear }
 })

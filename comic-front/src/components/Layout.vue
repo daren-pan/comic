@@ -46,8 +46,14 @@ function goMessages() {
 
 onMounted(() => {
   userStore.init() // 开始监听 api 层 'auth:changed' 事件，同步登录态
-  msgStore.init()  // 载入持久化的历史消息
 })
+
+// 消息中心：**面向所有登录用户**的通知中心（`message` 表，按角色/指定用户推送）。
+// 数据源 `/api/messages` 只要登录（内容由服务端按当前账号的收件范围过滤），所以：
+//   · 登录就拉起轮询、登出就停 —— 用 watch 而不是 onMounted 里判一次（登录态可能是
+//     本机缓存、也可能要等 `/api/auth/me` 回来）；
+//   · 管理员会多看到任务消息（`minRole='admin'`），普通用户只看到发给自己的。
+watch(isLoggedIn, (ok) => (ok ? msgStore.start() : msgStore.stop()), { immediate: true })
 
 onBeforeUnmount(() => {
   if (menuTimer) { clearTimeout(menuTimer); menuTimer = null } // 收起动画的定时器不能留到组件销毁之后
@@ -137,9 +143,11 @@ watch(() => route.path, () => {
             <button class="u-button" form-type="submit" aria-label="搜索">🔍</button>
           </form>
 
-          <!-- 消息中心：任务结果 + 系统消息。点铃铛进独立消息页（本端只有移动形态）。
+          <!-- 消息中心：**面向所有登录用户**的通知（任务消息、维护公告、定向通知…）。
+               点铃铛进独立消息页（本端只有移动形态）。
+               ⚠️ 登录就显示：内容由服务端按"这条消息发给谁"过滤，普通用户看到的是发给自己的那些。
                ⚠️ 窄屏消息入口**不做宽度判断**，见 <style> 里的说明。 -->
-          <view class="msg-wrap">
+          <view v-if="isLoggedIn" class="msg-wrap">
             <button class="msg-btn u-button" @click.stop="goMessages" title="消息">
               <text class="msg-icon u-span">🔔</text>
               <text v-if="msgStore.unread" class="msg-badge u-span">{{ msgStore.unread > 99 ? '99+' : msgStore.unread }}</text>
@@ -218,14 +226,14 @@ watch(() => route.path, () => {
       </view>
     </view>
 
-    <!-- 任务结果 toast：任务执行完毕提示（全站可见） -->
+    <!-- 任务结果 toast：任务执行完毕提示（全站可见）。内容来自服务端消息（见 stores/message.ts） -->
     <view v-if="msgStore.toast" class="toast" :class="msgStore.toast.status">
       <view class="toast-head">
         <text class="toast-title u-span">{{ kindLabel(msgStore.toast.kind) }} · {{ statusLabel(msgStore.toast) }}</text>
         <button class="toast-close u-button" @click="msgStore.dismissToast()">×</button>
       </view>
-      <view class="toast-text">{{ msgStore.toast.summary }}</view>
-      <view v-if="msgStore.toast.detail" class="toast-detail">{{ msgStore.toast.detail }}</view>
+      <view class="toast-text">{{ msgStore.toast.title }}</view>
+      <view v-if="msgStore.toast.body" class="toast-detail">{{ msgStore.toast.body }}</view>
     </view>
   </view>
 </template>

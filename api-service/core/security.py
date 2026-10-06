@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .db import users
@@ -142,3 +142,31 @@ def require_superadmin(user: dict = Depends(get_current_user)) -> dict:
     if not is_superadmin(user):
         raise HTTPException(status_code=403, detail="需要超级管理员权限")
     return user
+
+
+#: 进程间调用的服务令牌头名（与 `comic_core.notify.SERVICE_TOKEN_HEADER` 同名同义）
+SERVICE_TOKEN_HEADER = "X-Service-Token"
+
+
+def require_admin_or_service(
+    cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    service_token: str | None = Header(default=None, alias=SERVICE_TOKEN_HEADER),
+) -> dict:
+    """写消息的门槛：**管理员 JWT** 或 **进程间服务令牌**，二者其一。
+
+    为什么需要服务令牌：消息中心是平台级能力，独立进程 `comic-scheduler`（另一个容器）
+    也要能发消息。它没有用户账号，但和 api 共享同一个 `COMIC_JWT_SECRET`（compose 的
+    `x-app-env` 同时注入），于是用 HMAC 签一个短时效令牌即可 —— 不必新增密钥、也不必为
+    机器造一个用户账号。
+
+    返回的 dict 里多一个 `auth` 字段（`admin` / `service`），便于路由/日志区分来源。
+    """
+    from comic_core.notify import verify_service_token
+
+    if service_token and verify_service_token(service_token, _JWT_SECRET):
+        return {"id": None, "username": "service", "role": "service", "auth": "service"}
+
+    user = get_current_user(cred)   # 没有服务令牌就走原来的鉴权（未登录 401 / 无权限 403）
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="需要管理员权限（或有效的服务令牌）")
+    return {**user, "auth": "admin"}

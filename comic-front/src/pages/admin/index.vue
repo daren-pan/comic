@@ -59,6 +59,12 @@ function openLogs() {
   router.push('/admin/logs')
 }
 
+// 「定时任务」入口：跳到独立的定时任务配置页（/#/admin/schedule）
+// 语义 = 每天定点对选中的源跑一轮采集（与上面的「触发采集」同一套参数、同一个执行体）
+function openSchedule() {
+  router.push('/admin/schedule')
+}
+
 function fmtTime(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -108,8 +114,9 @@ async function runSync(vm: SourceVM) {
       since: vm.syncSince || undefined,
       limit: vm.syncLimit ? Number(vm.syncLimit) : undefined,
     }
-    const { taskId } = await startAdminSync(body)
-    msgStore.trackTask(taskId, 'sync', vm.info.name, vm.syncMode)
+    await startAdminSync(body)
+    // 任务已落库：立刻刷新消息中心（先出现一条"进行中"条目，跑完由服务端补一条结果消息）
+    msgStore.refresh()
   } catch (e) {
     alert((e as Error).message || '触发采集失败')
   } finally {
@@ -126,8 +133,8 @@ async function runInspect() {
       since: inspectSince.value || undefined,
       until: inspectUntil.value || undefined,
     }
-    const { taskId } = await startAdminInspect(body)
-    msgStore.trackTask(taskId, 'inspect', '全库')
+    await startAdminInspect(body)
+    msgStore.refresh()
   } catch (e) {
     alert((e as Error).message || '触发失效巡检失败')
   } finally {
@@ -145,8 +152,8 @@ async function runHealCovers() {
   }
   healing.value = true
   try {
-    const { taskId } = await startAdminHealCovers({ keyword })
-    msgStore.trackTask(taskId, 'heal', keyword)
+    await startAdminHealCovers({ keyword })
+    msgStore.refresh()
   } catch (e) {
     alert((e as Error).message || '触发封面自愈失败')
   } finally {
@@ -168,10 +175,13 @@ onLoad(async (options) => {
 <template>
   <Layout>
     <view v-if="ready">
-      <!-- 标题行：右侧放「运行日志」入口（跳转日志查询页） -->
+      <!-- 标题行：右侧放「定时任务」「运行日志」入口（各跳独立页） -->
       <view class="title-row">
         <view class="section-title">采集管理</view>
-        <button class="btn ghost u-button" @click="openLogs">📄 运行日志</button>
+        <view class="title-actions">
+          <button class="btn ghost u-button" @click="openSchedule">⏰ 定时任务</button>
+          <button class="btn ghost u-button" @click="openLogs">📄 运行日志</button>
+        </view>
       </view>
       <view class="lead u-p">
         手动触发各数据源的采集；关闭的源将拒绝触发采集。
@@ -293,12 +303,18 @@ onLoad(async (options) => {
         </view>
       </template>
 
+      <!-- ⚠️ 这里原来有一块「最近任务」（读 `admin_task` 的 20 条 + 只看我的）。
+           2026-10-06 **并入消息中心**：任务收尾会往 `message` 表发一条（收件范围 = 管理员及以上），
+           定时轮次在跑的时候还会以"进行中"条目临时出现在列表里 —— 所以历史与实时都在
+           顶栏铃铛 → `/#/pages/messages/index` 那一处看，不再各画一遍。
+           触发任务后本页只需 `msgStore.refresh()`（见上面三处 runXxx）。 -->
+
     </view>
   </Layout>
 </template>
 
 <style scoped>
-/* 标题行：标题 + 右侧「运行日志」入口（外层间距由本行统一控制，故标题自身 margin 归零） */
+/* 标题行：标题 + 右侧入口组（「定时任务」「运行日志」；外层间距由本行统一控制，故标题自身 margin 归零） */
 .title-row {
   display: flex;
   align-items: center;
@@ -307,7 +323,15 @@ onLoad(async (options) => {
   margin: 28px 0 6px;
 }
 .title-row .section-title { margin: 0; }
-.title-row .btn { margin-left: auto; }   /* 按钮靠右，与标题同一行 */
+.title-row .btn { margin-left: auto; }   /* 单个按钮时靠右，与标题同一行 */
+/* 多个入口：整组靠右，组内按钮不再各自吃 auto 外边距（否则会被均分撑开） */
+.title-row .title-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+.title-row .title-actions .btn { margin-left: 0; }
+.title-row .title-actions .btn + .btn { margin-left: 8px; }
 
 .lead { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
 .lead .u-b { color: var(--primary-dark); }

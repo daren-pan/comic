@@ -39,7 +39,7 @@ export async function requireRole(superOnly: boolean, fullPath: string): Promise
 
   const ok = superOnly ? userStore.isSuperAdmin : userStore.isAdmin
   if (!ok) {
-    useMessageStore().addSystem(
+    useMessageStore().notify(
       superOnly ? '需要超级管理员权限' : '需要管理员权限',
       `${fullPath} ${
         superOnly ? '仅超级管理员可访问（授权只有超级管理员能做）' : '仅管理员可访问'

@@ -4,6 +4,7 @@
 //  ├─ content.ts    内容接口（漫画/章节/分页/分类）
 //  ├─ user.ts       用户中心接口（认证/收藏/历史）
 //  ├─ admin.ts      管理台接口（采集/巡检/任务）
+//  ├─ messages.ts   消息中心（`/api/messages`：列表/未读数/标记已读）
 //  └─ ondemand.ts   源站搜索与按需导入（搜索页「其他来源」）
 //
 // 组件统一 `import { ... } from '../api'`，对外签名与 comic-web 完全一致。
@@ -13,4 +14,5 @@ export * from './request'
 export * from './content'
 export * from './user'
 export * from './admin'
+export * from './messages'
 export * from './ondemand'
