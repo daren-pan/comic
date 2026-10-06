@@ -15,6 +15,7 @@
 | `add_log_table.py` | **补 `log_record` 表**（运行日志逐条落库；DDL 从 `mysql_schema.sql` 抠出，不重抄） | 是（`CREATE TABLE IF NOT EXISTS`，可重跑；回滚 = `DROP TABLE log_record`） |
 | `add_admin_task_table.py` | **补 `admin_task` 表**（管理台后台任务落库：状态/结果/**触发账号**/入参快照；DDL 同样从 schema 抠出） | 是（`CREATE TABLE IF NOT EXISTS`，可重跑；回滚 = `DROP TABLE admin_task`） |
 | `add_message_table.py` | **补消息中心两张表 / 两个新列**：`message`（消息流，含收件范围 `to_user_id`/`min_role`）+ `message_read`（**已读按账号各一份**）；老库顺带补列、去掉废弃的 `read_at`。建表 DDL 从 schema 抠出 | 是（建表 + 先查 `information_schema` 再 `ALTER`，可重跑；回滚 = `DROP TABLE message_read`） |
+| `check_schema.py` | **体检：库里的表与 DDL 真源是否一致**（只读不写）。迁移脚本都是"按需"干活 —— 表已存在时只打印「已存在，未改动」，**看不出到底建上没有**；本脚本把 schema 里声明的表名与库里的实际表名对一遍，缺谁一目了然，缺表则退出码 1 | 是（只读；退出码 0 = 齐、1 = 缺表） |
 | `add_perf_indexes.py` | **补齐性能索引**：给已有库补上 `comic.idx_comic_sync` / `page.idx_page_cached`（新库由 `mysql_schema.sql` 直接带上） | 是（幂等可重跑；只加索引不动数据，回滚 = `DROP INDEX`） |
 | `add_user_role.py` | **补 `user.role` 列 + 定超级管理员**（角色三档：`superadmin` 管理台+日志+授权页、`admin` 普通管理员、`user` 普通用户）：加列后若库里**没有超管**，把最早的特权用户（无则最早注册的用户）提升为 `superadmin`；`--superadmin <用户名>` 可**转移**超管身份（原超管降为普通管理员） | 是（列已存在则跳过；已有超管则不动。回滚 = 撤销角色 + `DROP COLUMN role`） |
 
@@ -30,7 +31,21 @@ cd crawler-service && .venv/Scripts/python.exe ../tools/add_user_role.py
 cd crawler-service && .venv/Scripts/python.exe ../tools/add_log_table.py
 cd crawler-service && .venv/Scripts/python.exe ../tools/add_admin_task_table.py
 cd crawler-service && .venv/Scripts/python.exe ../tools/add_message_table.py
+cd crawler-service && .venv/Scripts/python.exe ../tools/check_schema.py      # 体检（只读）
 ```
+
+⚠️ **容器里跑要挂两个目录**：脚本的建表 DDL 是**从 `comic-core/sql/mysql_schema.sql` 抠出来的**
+（唯一真源，不重抄一份），而 api 镜像只装了 wheel、里面没有 `comic-core/sql` —— 少挂它，
+"真要建表/加列"时会在容器里读不到文件直接失败（表已存在时脚本早退，所以平时看不出来）：
+
+```bash
+cd deploy
+M='-v ../tools:/app/tools:ro -v ../comic-core/sql:/app/comic-core/sql:ro'
+docker compose -f docker-compose.yml run --rm $M comic-app python tools/check_schema.py
+```
+
+`bash deploy/up.sh --migrate` 就是按这个挂法把上面几个（含补 `admin_task` / `message` /
+`message_read` 三张新表）依次跑一遍，最后体检。
 
 > 归一化口径变化时：`normalize_tags.py` 管**标签**（`tag` / `comic_tag`），
 > `rebuild_fingerprint.py` 管**指纹这个观测字段**（不影响判重）。

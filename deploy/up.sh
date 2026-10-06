@@ -21,6 +21,8 @@
 #    bash deploy/up.sh --collect           # 【已废弃】定时执行器现在默认启动，加了只是兼容旧脚本
 #    bash deploy/up.sh --migrate           # 起完服务后，对**已有库**跑一遍幂等迁移脚本
 #                                          #   （老环境升级用；全新库不需要 —— 建表脚本已带全）
+#                                          #   补：admin_task / message / message_read 等新表
+#                                          #   靠它建（已有数据卷**不会**重跑 mysql 的初始化脚本）
 #    bash deploy/up.sh -h
 #
 #  说明：
@@ -214,16 +216,27 @@ step "[4/6] 启动服务（${TARGETS[*]}）"
 compose up -d "${TARGETS[@]}"
 
 # ---------- 4.5 已有库迁移（可选） ----------
+# ⚠️ 迁移命令同时挂 `../tools` 与 `../comic-core/sql`：
+#    · tools  —— 脚本本体；
+#    · sql    —— 脚本的建表 DDL 是**从 schema 文件抠出来的**（唯一真源，不重抄一份），
+#                而 api 镜像只装了 wheel、里面没有 comic-core/sql —— 不挂的话"真要建表/加列"时
+#                会在容器里读不到文件直接失败；表已存在时脚本早退，所以这个坑平时看不出来。
+MIGRATE_MOUNTS=(-v ../tools:/app/tools:ro -v ../comic-core/sql:/app/comic-core/sql:ro)
 if [ "$MIGRATE" = "1" ]; then
   step "[4.5] 迁移已有库（幂等；全新库可跳过）"
-  echo "   挂载 ../tools 到容器 /app/tools，逐个跑（都支持重复执行）"
-  for t in add_log_table.py add_perf_indexes.py drop_fingerprint_unique.py add_user_role.py; do
+  echo "   挂载 ../tools 与 ../comic-core/sql 到容器，逐个跑（都支持重复执行）"
+  for t in add_log_table.py add_perf_indexes.py drop_fingerprint_unique.py add_user_role.py \
+           add_admin_task_table.py add_message_table.py; do
     echo "   → tools/$t"
-    compose run --rm -v ../tools:/app/tools:ro comic-app python "tools/$t" \
+    compose run --rm "${MIGRATE_MOUNTS[@]}" comic-app python "tools/$t" \
       || die "tools/$t 失败 —— 单独跑它看详细输出：
-  docker compose -f deploy/docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/$t"
+  docker compose -f deploy/docker-compose.yml run --rm ${MIGRATE_MOUNTS[*]} comic-app python tools/$t"
   done
   echo "   ✅ 迁移脚本全部执行完（都是幂等的，没有改动就是已经迁过）"
+  # 迁移脚本"按需"干活：表已存在时只打印「已存在，未改动」，看不出到底建上没有 ——
+  # 补一次只读体检，缺表就当场失败（漏表的后果是运行期才炸）。
+  compose run --rm "${MIGRATE_MOUNTS[@]}" comic-app python tools/check_schema.py \
+    || die "迁移后仍缺表（见上面列出的缺哪些）—— 本地直跑复现：cd crawler-service && .venv/Scripts/python.exe ../tools/check_schema.py"
   echo "   提示：add_user_role.py 若发现库里**没有超级管理员**，会把最早的特权用户提升为 superadmin"
   echo "         （转移超管身份：tools/add_user_role.py --superadmin <用户名>）"
   echo "         （否则升级后谁都进不去管理台）；之后的授权在管理台「授权」页做"
@@ -249,6 +262,14 @@ if compose exec -T comic-app python -c \
   echo "   ✅"
 else
   die "comic-app 自检失败 —— 看日志：docker compose -f deploy/docker-compose.yml logs comic-app"
+fi
+
+# 表是否齐（老库没跑 --migrate 的典型症状：管理台任务列表 / 消息中心运行期报错）——
+# 非致命：全新库由 mysql 初始化脚本建全表，只有老库才需要补
+if compose run --rm "${MIGRATE_MOUNTS[@]}" comic-app python tools/check_schema.py >/dev/null 2>&1; then
+  echo "   表齐全（含 admin_task / message / message_read）✅"
+else
+  echo "   ⚠️ 缺表：跑一次 bash deploy/up.sh --migrate 补（已有数据卷不会重跑 mysql 的初始化脚本）"
 fi
 
 # 数据目录可写性 —— bind 挂载最容易踩的坑（能读不能写，表现为转存落盘失败）
@@ -328,7 +349,7 @@ cat <<EOF
   ⚠️ 角色三档：superadmin 超管（管理台+日志+**授权页**，全库唯一）/ admin 普通管理员
      （管理台+日志，**进不了授权页**）/ user 普通用户（无权限）。
      全新库：**第一个注册的账号自动是超管**，部署完请立刻注册；
-     已有库（老环境）记得带 --migrate 补 user.role 列并定下超管。
+     已有库（老环境）记得带 --migrate：补 user.role 列并定下超管，以及 admin_task / message / message_read 三张新表（**已有数据卷不会重跑 mysql 的初始化脚本**）。
 
   数据位置（备份就这两处）
     数据库      Docker 卷 comic_mysql_data      （备份：mysqldump）

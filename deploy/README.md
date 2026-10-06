@@ -106,7 +106,9 @@ docker compose -f deploy/docker-compose.yml up -d
 **4)** `compose up -d <所选入口>` → **5)** 自检（mysql healthy → 容器内 `/api/health` →
 数据目录可写 → 各入口 HTTP 码 + **前端身份**）。**幂等**：重复跑就是更新代码 + 重新构建 + `up -d`，不会清数据。
 加了 `--migrate` 就在 4 与 5 之间多跑一步"已有库迁移"（`add_log_table` / `add_perf_indexes` /
-`drop_fingerprint_unique` / `add_user_role`，逐个挂 `../tools` 进容器执行，都是幂等的）。
+`drop_fingerprint_unique` / `add_user_role` / `add_admin_task_table` / `add_message_table`，逐个挂
+`../tools` **与 `../comic-core/sql`** 进容器执行，都是幂等的；跑完再用 `tools/check_schema.py` 体检一遍，
+缺表就当场失败）。⚠️ **已有数据卷不会重跑 mysql 的初始化脚本** —— 新表只能靠这一步补。
 
 ### 只重建某一个前端
 
@@ -160,7 +162,8 @@ docker compose -f deploy/docker-compose.yml up -d
   并保证目录可写（`sudo chown -R 10001:10001 <dir>`，容器内进程 uid 10001）；
 - **管理台 / 日志 / 授权页要管理员角色**：管理台与日志要 `require_admin`（超管 + 普通管理员），
   **授权页要 `require_superadmin`（仅超管）**；未登录 401 / 权限不足 403。
-  全新库**首个注册用户自动成为超管**；老库升级加 `--migrate` 补 `user.role` 列；给他人授权在管理台「授权」页。
+  全新库**首个注册用户自动成为超管**；老库升级加 `--migrate` 补 `user.role` 列与 `admin_task` /
+`message` / `message_read` 三张新表；给他人授权在管理台「授权」页。
   管理台路由：comic-web 是 `/#/admin`，comic-front 是 `/#/pages/admin/index`；
 - **时区由 `COMIC_TZ` 统一（默认 `Asia/Shanghai`），别删**：基础镜像没有 TZ 就是 UTC，
   而程序里所有"当前时间"（`log_record.created_at`、`comic/chapter.sync_time`、`logs/api.log`

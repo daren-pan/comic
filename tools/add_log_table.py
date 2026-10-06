@@ -36,6 +36,13 @@ TABLE = "log_record"
 
 def _ddl() -> str:
     """从 schema 文件里抠出建表语句（唯一真源，不在这里重抄一份 DDL）。"""
+    if not SCHEMA_FILE.exists():
+        raise SystemExit(
+            f"[错误] 找不到 {SCHEMA_FILE}\n"
+            "   DDL 唯一真源是 comic-core/sql/mysql_schema.sql；容器里跑要把它挂进去：\n"
+            "     -v ../tools:/app/tools:ro -v ../comic-core/sql:/app/comic-core/sql:ro\n"
+            "   （deploy/up.sh --migrate 已带这两个挂载）"
+        )
     text = SCHEMA_FILE.read_text(encoding="utf-8")
     marker = f"CREATE TABLE IF NOT EXISTS {TABLE} ("
     try:

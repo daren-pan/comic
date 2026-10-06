@@ -185,16 +185,26 @@ docker compose -f deploy/docker-compose.yml up -d
   ```
 - **现有库升级**（不是全新初始化）时，新表/索引/去约束用 `tools/` 里的迁移脚本补。镜像里**不带**
   `tools/`（全新部署由 `mysql_schema.sql` 建全表，用不到它们），需要在容器里跑就把目录挂进去。
-  四个都是**幂等**的，可以照抄（注意 `-f` 后面的路径按你的实际位置写）：
+  这些脚本都是**幂等**的，可以照抄（注意 `-f` 后面的路径按你的实际位置写）：
   ```bash
   cd deploy    # 相对挂载路径按 compose 文件所在目录解析，服务器与 Git Bash 都成立
-  docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/add_log_table.py
-  docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/add_perf_indexes.py
-  docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/drop_fingerprint_unique.py
-  docker compose -f docker-compose.yml run --rm -v ../tools:/app/tools:ro comic-app python tools/add_user_role.py
+  # ⚠️ 两个挂载缺一不可：tools = 脚本本体；comic-core/sql = 脚本抠 DDL 的唯一真源
+  #    （api 镜像只装了 wheel，里面没有 comic-core/sql —— 少了它，真要建表/加列时会直接失败）
+  M='-v ../tools:/app/tools:ro -v ../comic-core/sql:/app/comic-core/sql:ro'
+  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_log_table.py
+  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_perf_indexes.py
+  docker compose -f docker-compose.yml run --rm $M comic-app python tools/drop_fingerprint_unique.py
+  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_user_role.py
+  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_admin_task_table.py
+  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_message_table.py
+  docker compose -f docker-compose.yml run --rm $M comic-app python tools/check_schema.py   # 体检：表齐不齐
   ```
-  懒得逐条敲就 **`bash deploy/up.sh --migrate`** —— 起完服务自动把上面四个跑一遍
-  （见 §1 的 up.sh 用法）。
+  懒得逐条敲就 **`bash deploy/up.sh --migrate`** —— 起完服务自动把上面这些跑一遍，最后体检、缺表就报错。
+
+> ⚠️ 两个前提：① **已有数据卷不会重跑 mysql 的初始化脚本**（MySQL 的规矩）—— 新表只能靠这一步补；
+> ② 迁移脚本的 DDL 是**从 `comic-core/sql/mysql_schema.sql` 抠出来的**（唯一真源，不重抄一份），
+> 而 api 镜像只装了 wheel、里面没有 `comic-core/sql` —— 所以容器里跑要把它一起挂上（见上面的 `$M`）。
+> 不挂的话"真要建表/加列"时会在容器里读不到文件直接失败；而表已存在时脚本早退，平时看不出来。
 
 ## 2. 方式 B：直接在仓库里跑（**本地开发用这个**）
 
@@ -295,7 +305,9 @@ mysql -h <host> -P <port> -u root -p < comic-core/sql/mysql_schema.sql
 
 - 脚本是 `CREATE TABLE IF NOT EXISTS` + 带 `UNIQUE KEY`，**幂等可重跑**，且**不含任何 `DROP`**；
 - 新库会自动带上 `log_record` 表、性能索引，且 `comic.fingerprint` 是**普通索引**；
-  **已有库**（老环境升级）对应补四个脚本：`add_log_table.py`（补表）、`add_perf_indexes.py`（补索引）、
+  **已有库**（老环境升级）对应补这几个脚本：`add_log_table.py`（补表）、`add_perf_indexes.py`（补索引）、
+`add_admin_task_table.py`（补 `admin_task` 表）、`add_message_table.py`（补 `message` / `message_read`
+两张表与 `message` 的新列）、
   **`drop_fingerprint_unique.py`（把 fingerprint 的唯一约束改成普通索引）**、
   **`add_user_role.py`（补 `user.role` 列，并在库里没有超管时把最早的特权用户提升为 `superadmin`；
   另支持 `--superadmin <用户名>` 转移超管身份）** ——
