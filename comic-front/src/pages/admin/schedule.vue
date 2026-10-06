@@ -27,16 +27,16 @@ import {
 import type { AdminScheduleConfig, AdminScheduleStatus, PickerOption, SourceInfo } from '../../types'
 import { useMessageStore } from '../../stores/message'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
-import { setRoute, useRouter } from '../../utils/router'
+import { setRoute } from '../../utils/router'
 import { requireRole } from '../../utils/guard'
 import { showAlert, showConfirm } from '../../utils/ui'
 
 const msgStore = useMessageStore()
 import Layout from '../../components/Layout.vue'
+import AdminTabs from '../../components/AdminTabs.vue'
 import DateInput from '../../components/DateInput.vue'
 import Picker from '../../components/Picker.vue'
 
-const router = useRouter()
 // 门卫通过前不渲染页面主体（等价 comic-web 守卫拦住时整页不出现）
 const ready = ref(false)
 const error = ref('')
@@ -276,9 +276,10 @@ onUnload(stopPolling)
 <template>
   <Layout>
     <view v-if="ready">
+      <!-- 管理台同一栏的三个选项卡（采集管理 / 定时任务 / 运行日志）—— 点选项切换，
+           "返回采集管理"就是左边的第一个选项，不再单独放返回按钮（见 components/AdminTabs.vue） -->
       <view class="title-row">
-        <view class="section-title">定时任务</view>
-        <button class="btn ghost u-button" @click="router.push('/admin')">← 返回采集管理</button>
+        <AdminTabs current="schedule" />
       </view>
       <view class="lead u-p">
         用 <text class="u-b">cron 表达式</text>决定什么时候跑（<text class="u-b">分 时 日 月 周</text> 五段）：
@@ -410,7 +411,8 @@ onUnload(stopPolling)
 </template>
 
 <style scoped>
-/* 标题行：标题 + 右侧返回入口（与日志页同构） */
+/* 顶部那一栏：管理台三个选项卡（采集管理 / 定时任务 / 运行日志，见 components/AdminTabs.vue）——
+   原来这里是"标题 + ← 返回采集管理"，返回已由选项卡的第一个选项取代 */
 .title-row {
   display: flex;
   align-items: center;
@@ -418,8 +420,6 @@ onUnload(stopPolling)
   flex-wrap: wrap;
   margin: 28px 0 6px;
 }
-.title-row .section-title { margin: 0; }
-.title-row .btn { margin-left: auto; }
 
 /* 面板 */
 .panel {

@@ -10,9 +10,10 @@ import {
 import { useMessageStore } from '../../stores/message'
 import type { PickerOption, SourceInfo } from '../../types'
 import { onLoad } from '@dcloudio/uni-app'
-import { setRoute, useRouter } from '../../utils/router'
+import { setRoute } from '../../utils/router'
 import { requireRole } from '../../utils/guard'
 import Layout from '../../components/Layout.vue'
+import AdminTabs from '../../components/AdminTabs.vue'
 import DateInput from '../../components/DateInput.vue'
 import Picker from '../../components/Picker.vue'
 
@@ -49,21 +50,8 @@ const inspecting = ref(false)
 const healing = ref(false)       // 按作品封面自愈是否正在触发
 const healKeyword = ref('')      // 漫画名称或 ID（可多个，逗号/空格/换行分隔）—— 不允许留空
 
-// 任务结果一律写入全局消息中心（顶栏 🔔 展开可见，离开本页也会继续跟踪到结束）
+// 任务结果一律写入全局消息中心（顶栏 🔔 可见，离开本页也会继续跟踪到结束）
 const msgStore = useMessageStore()
-const router = useRouter()
-
-// 「运行日志」入口：跳到独立的日志查询页（/#/admin/logs）
-// 日志已落库（log_record 表），查询页支持按级别/源站/事件/作品/任务/时间/关键字筛，故不再需要弹窗轮询
-function openLogs() {
-  router.push('/admin/logs')
-}
-
-// 「定时任务」入口：跳到独立的定时任务配置页（/#/admin/schedule）
-// 语义 = 每天定点对选中的源跑一轮采集（与上面的「触发采集」同一套参数、同一个执行体）
-function openSchedule() {
-  router.push('/admin/schedule')
-}
 
 function fmtTime(iso: string | null): string {
   if (!iso) return '—'
@@ -175,13 +163,10 @@ onLoad(async (options) => {
 <template>
   <Layout>
     <view v-if="ready">
-      <!-- 标题行：右侧放「定时任务」「运行日志」入口（各跳独立页） -->
+      <!-- 管理台同一栏的三个选项卡（采集管理 / 定时任务 / 运行日志）—— 点选项切换，
+           不再各放一个跳转按钮（那三个入口就是这几个选项，见 components/AdminTabs.vue） -->
       <view class="title-row">
-        <view class="section-title">采集管理</view>
-        <view class="title-actions">
-          <button class="btn ghost u-button" @click="openSchedule">⏰ 定时任务</button>
-          <button class="btn ghost u-button" @click="openLogs">📄 运行日志</button>
-        </view>
+        <AdminTabs current="admin" />
       </view>
       <view class="lead u-p">
         手动触发各数据源的采集；关闭的源将拒绝触发采集。
@@ -314,7 +299,9 @@ onLoad(async (options) => {
 </template>
 
 <style scoped>
-/* 标题行：标题 + 右侧入口组（「定时任务」「运行日志」；外层间距由本行统一控制，故标题自身 margin 归零） */
+/* 顶部那一栏：管理台三个选项卡（采集管理 / 定时任务 / 运行日志，见 components/AdminTabs.vue）。
+   原来这里的「⏰ 定时任务 / 📄 运行日志」两个跳转按钮已改成同一栏里的选项，
+   故不再需要"按钮靠右 / 入口组靠右"那几条规则（外层间距仍由本行统一控制）。 */
 .title-row {
   display: flex;
   align-items: center;
@@ -322,16 +309,6 @@ onLoad(async (options) => {
   flex-wrap: wrap;
   margin: 28px 0 6px;
 }
-.title-row .section-title { margin: 0; }
-.title-row .btn { margin-left: auto; }   /* 单个按钮时靠右，与标题同一行 */
-/* 多个入口：整组靠右，组内按钮不再各自吃 auto 外边距（否则会被均分撑开） */
-.title-row .title-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-}
-.title-row .title-actions .btn { margin-left: 0; }
-.title-row .title-actions .btn + .btn { margin-left: 8px; }
 
 .lead { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
 .lead .u-b { color: var(--primary-dark); }

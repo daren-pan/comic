@@ -16,16 +16,17 @@ import {
 } from '../../api'
 import type { LogRecord, PickerOption, SourceInfo } from '../../types'
 import { onLoad } from '@dcloudio/uni-app'
-import { setRoute, useRouter } from '../../utils/router'
+import { setRoute } from '../../utils/router'
 import { requireRole } from '../../utils/guard'
 import { showAlert, showConfirm } from '../../utils/ui'
 import Layout from '../../components/Layout.vue'
+// 管理台三个页面的同一栏选项卡（采集管理 / 定时任务 / 运行日志）
+import AdminTabs from '../../components/AdminTabs.vue'
 // 日期输入：uni 的 <input> 会把 type=date 强制成 text（白名单外），故用专用组件产出原生控件
 import DateInput from '../../components/DateInput.vue'
 // 下拉选择：小程序没有 <select>，统一走 uni <picker> 的封装（见该组件注释）
 import Picker from '../../components/Picker.vue'
 
-const router = useRouter()
 // 门卫通过前不渲染页面主体（等价 comic-web 守卫拦住时整页不出现）
 const ready = ref(false)
 const items = ref<LogRecord[]>([])
@@ -179,10 +180,11 @@ onLoad(async (options) => {
 <template>
   <Layout>
     <view v-if="ready">
+      <!-- 管理台同一栏的三个选项卡（采集管理 / 定时任务 / 运行日志）—— 点选项切换；
+           「清理 30 天前」是本页自己的动作，靠右放在同一栏里（见 components/AdminTabs.vue） -->
       <view class="title-row">
-        <view class="section-title">日志查询</view>
+        <AdminTabs current="logs" />
         <button class="btn ghost u-button" @click="doPurge">清理 30 天前</button>
-        <view class="btn ghost u-a" @click="router.push('/admin')">← 返回采集管理</view>
       </view>
       <view class="lead u-p">
         采集 / 巡检 / 按需导入 / 读图的运行日志（与后端 <text class="u-code">logs/api.log</text> 同一批记录，已落库）。
@@ -321,9 +323,9 @@ onLoad(async (options) => {
   flex-wrap: wrap;
   margin: 28px 0 6px;
 }
-.title-row .section-title { margin: 0; }
-.title-row .btn { text-decoration: none; }
-.title-row .btn:first-of-type { margin-left: auto; }
+/* 顶部那一栏：管理台三个选项卡（见 components/AdminTabs.vue）+ 本页的「清理 30 天前」动作；
+   动作只有一个，靠右即可（原来还有"← 返回采集管理"链接，已由选项卡的第一个选项取代） */
+.title-row .btn { margin-left: auto; }
 
 .lead { color: var(--text-2); font-size: 14px; margin: 0 0 14px; }
 .lead .u-code { background: var(--mute); border-radius: 4px; padding: 1px 5px; }

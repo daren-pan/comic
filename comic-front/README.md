@@ -50,10 +50,16 @@ comic-front/
 | `pages/messages/index` | `/messages` | 消息中心（**服务端 `message` 表，所有登录用户**，按收件范围过滤）；**顶栏铃铛的落点** |
 | `pages/login/index` | `/login` | 登录 / 注册 | JWT 登录；收藏需登录，历史**登录后归属账号、游客用浏览器匿名 id** |
 | `pages/admin/index` | `/admin` | 采集管理台 | 采集 / 巡检 / 封面自愈；**需管理员**。窄屏卡片单列铺开 |
-| `pages/admin/logs` | `/admin/logs` | 运行日志查询 | 按级别 / 源站 / 事件 / 作品 / 时间窗筛；**需管理员**。窄屏表格→卡片 + 点行展开详情 |
+| `pages/admin/schedule` | `/admin/schedule` | 定时任务配置 | cron 表达式 + 动作（采集 / 失效巡检）+ 运行状态（执行器在线、下次执行）；**需管理员** |
+| `pages/admin/logs` | `/admin/logs` | 运行日志查询 | 按级别 / 源站 / 事件 / 作品 / 任务 / 时间窗筛；**需管理员**。窄屏表格→卡片 + 点行展开详情 |
 | `pages/admin/users` | `/admin/users` | 授权管理 | 普通管理员 ⇄ 普通用户；**仅超管**。窄屏表格→卡片 |
 
-> 管理台三页**不做 H5 专属**，移动端同样可访问（顶栏入口按角色显示）。
+> 管理台各页**不做 H5 专属**，移动端同样可访问（顶栏入口按角色显示）。
+>
+> 采集管理 / 定时任务 / 运行日志三页顶部是**同一栏的三个选项卡**（`components/AdminTabs.vue`）：
+> 点选项切换，用 `replace` 导航（来回点不在页面栈里堆历史）。⚠️ 这是**导航式**选项卡、不是页内切换 ——
+> 三页各有独立状态（数据源表单 / cron 与运行态 / 日志筛选与分页），合并成一页会搅在一起，
+> 也会丢掉可直达的地址（`#/admin/schedule` 等）。原来那两个跳转按钮与「← 返回采集管理」链接都收成了这几个选项。
 
 顶栏由 `components/Layout.vue` 渲染：**每个页面都要用 `<Layout>` 包住自身内容** —— uni 没有全局路由出口，
 所以 `comic-web/App.vue` 的 `<RouterView />` 换成了 `<slot />`。
@@ -544,7 +550,8 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 两个钩子都要挂：`onHide` 覆盖「从抽屉菜单 / 底栏 push 到别的页」（本页只隐藏、不销毁），
 `onUnload` 覆盖「返回 / redirectTo」（本页被销毁），漏一个就会角标残留。
 
-- ⚠️ 独立页**必须自带返回入口**：`navigationStyle: custom` 没有原生返回箭头（`login` / `admin/logs` / `reader` 同理）。
+- ⚠️ 独立页**必须自带返回入口**：`navigationStyle: custom` 没有原生返回箭头（`login` / `reader` 同理）。
+  管理台的采集管理 / 定时任务 / 运行日志三页**不用另加返回链接** —— 顶部那栏选项卡里就有「采集管理」这一项。
 
 ## 基础命令
 
@@ -689,8 +696,11 @@ chokidar（Vite 的 watcher）会去 watch **正被写者锁住**的那个临时
 **多端红线（违反即在小程序端整块渲染不出来）**
 
 - **不要用 HTML 标签**：模板只用 `view` / `text` / `image` / `button` / `input` / `textarea` / `form`，
-  外加 `components/Picker.vue`（下拉）、`components/DateInput.vue`（日期）。
+  外加 `components/Picker.vue`（下拉）、`components/DateInput.vue`（日期）、
+  `components/AdminTabs.vue`（管理台同一栏的三个选项卡）。
   `div`/`span`/`p`/`a`/`img`/`select`/`table` 在**小程序端整块渲染不出来**。
+  ⚠️ 自建组件**必须 import**：漏了 import 时 uni 只把它当未知标签、**静默渲染成空**（不报错）——
+  2026-10-06 的 `AdminTabs` 就踩过（日志页选项卡整条不见）。
 - **CSS 只写类选择器**：不要写 `view {}` / `.card a {}` 这类元素选择器 —— uni 在 H5 下渲染成
   `uni-view`/`uni-text`，元素选择器能否命中取决于编译器改写；需要时用 `u-<原标签>` 工具类。
 - **不要绕过兼容层**：禁止直接 `import` vue-router、直接用 `localStorage`、用 `window.dispatchEvent`
