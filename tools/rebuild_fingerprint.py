@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "crawler-servic
 import pymysql  # noqa: E402
 
 from comic_crawler.fingerprint import build_fingerprint  # noqa: E402
-from comic_crawler.storage.mysql import MySQLStorage  # noqa: E402
+from comic_core.storage.mysql import MySQLStorage  # noqa: E402
 
 BACKUP_DIR = Path(__file__).resolve().parents[1] / "backup"
 

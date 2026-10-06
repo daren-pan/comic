@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 
 from ..sources.base import CrawlerAdapter
-from ..storage.base import Storage
+from comic_core.storage.base import Storage
 
 from .heal import inspect_sync
 from .sync import full_sync, incremental_sync

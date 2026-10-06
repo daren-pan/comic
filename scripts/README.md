@@ -7,7 +7,7 @@ Windows（`.bat`）与 Unix（`.sh`）各一份，内容等价。
 
 | 脚本 | 作用 | 说明 |
 |---|---|---|
-| `init_mysql.bat` / `.sh` | 按 `crawler-service/sql/mysql_schema.sql` 建库建表 | 一般**不用跑**：本项目独占的 `comic-mysql` 容器首次启动会自动建。脚本幂等且**不含 `DROP`、不会清空数据**；口令自动读 `deploy/.env` |
+| `init_mysql.bat` / `.sh` | 按 `comic-core/sql/mysql_schema.sql` 建库建表 | 一般**不用跑**：本项目独占的 `comic-mysql` 容器首次启动会自动建。脚本幂等且**不含 `DROP`、不会清空数据**；口令自动读 `deploy/.env` |
 | `start_mysql.bat` / `.sh` | 本地开发：启动站点到 `:8000`（读 MySQL） | 依赖数据库容器 `comic-mysql` 可达（默认 `127.0.0.1:3309`，参数自动读 `deploy/.env`） |
 | `check.bat` / `.sh` | **一键自检**：crawler 单测 + api 分层守卫 + 前端 `tsc --noEmit` | 提交前跑一次；可软链进 `.git/hooks/pre-commit` 自动拦截 |
 | `package.bat` / `.sh` | **打包部署产物**到 `build/deploy`（部署时才生成，不入库） | 需要先 `npm run build` 出 `comic-web/dist` |
@@ -39,17 +39,21 @@ ln -sf ../../scripts/check.sh .git/hooks/pre-commit
 ./scripts/package.bat                # Windows 等价
 ```
 
-产出结构与开发态**同构**，因此图库根解析（`comic_crawler.paths.SERVICE_ROOT`）两种形态一致：
+产出结构与开发态**同构**，因此图库根解析（`comic_core.paths.SERVICE_ROOT`）两种形态一致：
 
 ```
 build/deploy/
 ├── main.py  core/  routers/  services/  schemas.py  serializers.py   # HTTP 层
+├── src/comic_core/                                                  # 公共内核（领域模型/存储/图库/标签）
 ├── src/comic_crawler/                                               # 采集包
 ├── dist/                                                            # 前端产物（同源托管）
 ├── sql/mysql_schema.sql
-├── requirements.txt                                                 # api + crawler 依赖合并去重
+├── requirements.txt                                                 # core + crawler + api 依赖合并去重
 └── README-DEPLOY.md
 ```
+
+> ⚠️ 上面 `core/`（api 的 HTTP 分层包）与 `src/comic_core/`（公共内核）**同名不同物**，别混。
+> 两个包都放 `src/` 下是为了让 data 目录仍解析到 `<bundle>/data/`。
 
 用法示例：
 

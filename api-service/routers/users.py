@@ -21,7 +21,8 @@ from core.db import db, users
 from core.responses import ok
 from core.security import get_current_user, get_optional_user
 from schemas import HistoryPut
-from serializers import attach_tags, to_comic
+from serializers import to_comic
+from services.tags import attach_tags
 
 router = APIRouter(tags=["users"])
 
@@ -50,7 +51,7 @@ def favorites(user_id: UserId, user: dict = Depends(get_current_user)):
     # 一次取回全部作品行（投影同 get_comic）；逐条 get_comic 会让接口随收藏数线性变慢
     mapping = db.get_comics_by_ids(ids)
     rows = [mapping[i] for i in ids if i in mapping]   # 按收藏顺序；作品已不存在则跳过
-    attach_tags(rows)                     # 批量注入 tags（见 serializers.attach_tags）
+    attach_tags(rows)                     # 批量注入 tags（见 services.tags.attach_tags）
     return ok([to_comic(r) for r in rows])
 
 

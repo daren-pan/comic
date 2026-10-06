@@ -21,8 +21,8 @@ from typing import Callable
 
 import httpx
 
-from ..storage.base import Storage
-from .store import ImageStore
+from comic_core.images.store import ImageStore
+from comic_core.storage.base import Storage
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 把 crawler-service/sql/mysql_schema.sql 导进目标 MySQL（建库 + 建表）。
+# 把 comic-core/sql/mysql_schema.sql 导进目标 MySQL（建库 + 建表）。
 #
 # 幂等：CREATE DATABASE IF NOT EXISTS + 建表全是 CREATE TABLE IF NOT EXISTS，
 # 且 schema 里**没有任何 DROP** —— 所以**不会清空已有数据**，任何时候重跑都安全。
@@ -32,5 +32,5 @@ echo "Importing schema into mysql://$HOST:$PORT/$DB ..."
 MYSQL_PWD="$PW" mysql -h"$HOST" -P"$PORT" -uroot \
     -e "CREATE DATABASE IF NOT EXISTS \`$DB\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci"
 MYSQL_PWD="$PW" mysql -h"$HOST" -P"$PORT" -uroot --default-character-set=utf8mb4 "$DB" \
-    < crawler-service/sql/mysql_schema.sql
+    < comic-core/sql/mysql_schema.sql
 echo "Done. $DB 建库建表完成（幂等，未删除任何已有数据）。"

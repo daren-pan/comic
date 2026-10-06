@@ -1,9 +1,12 @@
 httpx>=0.27
 parsel>=1.9
-pymysql>=1.1
-# MySQL 8.0 的默认认证插件是 caching_sha2_password：PyMySQL 没有它会在握手时报
-# "cryptography package is required for sha256_password or caching_sha2_password"。
-# 留在这里而不是改用 mysql_native_password，是因为后者在 8.0 已废弃、8.4 移除。
-cryptography>=42
-# 繁转简（跨源指纹去重 + 标签归一）—— 纯 Python 实现，无需编译工具链。
-zhconv>=1.4
+
+# ⚠️ 这里**只列第三方依赖**。`comic_core` 是仓库内的本地包（PyPI 上不存在，实测 404），
+#    不能写进 requirements.txt，否则 `pip install -r requirements.txt` 会解析失败。
+#    它的获取方式看场景：
+#      · 开发态   —— 仓库布局本身（crawler-service/src 与 comic-core/src 都在，靠 PYTHONPATH / editable 安装）
+#      · 镜像/wheel —— 由 pyproject.toml 的 dependencies 声明，pip 从本地 wheel 目录解析
+#      · 源码包   —— scripts/package.* 把三个包的 requirements 合并成一份（含 comic-core 的）
+#
+# 另：pymysql / cryptography / zhconv 已随「存储与标签归一」下沉到 comic-core
+#     （见 comic-core/requirements.txt），本包不再直接使用，故不重复声明。

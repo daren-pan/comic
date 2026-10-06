@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import logging
 
+from comic_core.storage.base import Storage
+
 from ..sources.base import CrawlerAdapter
-from ..storage.base import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ def inspect_sync(
     返回统计：{checked, transferred, verified, recovered, invalid}
     """
     if image_store is None:
-        from ..images.store import LocalImageStore
+        from comic_core.images.store import LocalImageStore
 
         image_store = LocalImageStore()
 
@@ -151,7 +152,7 @@ def heal_covers(
     返回统计：{checked, healed, failed, skipped}
     """
     if image_store is None:
-        from ..images.store import LocalImageStore
+        from comic_core.images.store import LocalImageStore
 
         image_store = LocalImageStore()
 
@@ -249,8 +250,9 @@ def heal_covers(
 
 def _refetch_cover_url(adapter: CrawlerAdapter, row: dict) -> str:
     """回源站重抓详情，取其封面外链（本地封面文件丢失、DB 只存相对 key 时用）。"""
+    from comic_core.models import ComicBrief
+
     from ..images.transfer import comic_label
-    from ..models import ComicBrief
 
     brief = ComicBrief(
         source=str(row.get("source") or ""),

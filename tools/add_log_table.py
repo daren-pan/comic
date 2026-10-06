@@ -1,10 +1,10 @@
 """一次性迁移：为已有库补上 `log_record` 表（运行日志逐条落库）。
 
 背景：运行日志原先只写文件 `logs/api.log`，管理台靠"读文件末尾 N 行"展示（前端还要每 4 秒轮询）。
-现在改为**落库**：日志由 `comic_crawler.storage.mysql.log_handler` 在打日志时批量写进
+现在改为**落库**：日志由 `comic_core.storage.mysql.log_handler` 在打日志时批量写进
 `log_record`，管理台「日志查询」页按条件筛（级别 / 源站 / 作品 / 章节 / 任务 / 关键字 / 时间窗）。
 
-**DDL 唯一真源是 `crawler-service/sql/mysql_schema.sql`** —— 本脚本从那里**抠出**
+**DDL 唯一真源是 `comic-core/sql/mysql_schema.sql`** —— 本脚本从那里**抠出**
 `CREATE TABLE IF NOT EXISTS log_record` 语句执行，不复制一份 DDL（避免两处漂移）。
 新库用 `scripts/init_mysql.sh` 建库时本来就会带上这张表，本脚本只为已有库补。
 
@@ -13,7 +13,7 @@
     DROP TABLE log_record;
 
 用法（在 comic 仓库根目录）：
-    cd crawler-service && PYTHONPATH=src python ../tools/add_log_table.py
+    cd crawler-service && .venv/Scripts/python.exe ../tools/add_log_table.py
 连接参数用环境变量 `COMIC_MYSQL_*` 覆盖（默认兜底读仓库根 `deploy/.env`：宿主 `127.0.0.1:3309`）。
 """
 
@@ -23,12 +23,14 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "crawler-service", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "comic-core", "src"))
 
-from comic_crawler.storage.mysql import MySQLStorage  # noqa: E402
+from comic_core.storage.mysql import MySQLStorage  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_FILE = REPO_ROOT / "crawler-service" / "sql" / "mysql_schema.sql"
+# ⚠️ 这是**运行时读取**的真实路径（下方 _ddl() 会 read_text）——
+#    schema 已随存储域迁到公共内核，不再是 crawler-service/sql/。
+SCHEMA_FILE = REPO_ROOT / "comic-core" / "sql" / "mysql_schema.sql"
 TABLE = "log_record"
 
 

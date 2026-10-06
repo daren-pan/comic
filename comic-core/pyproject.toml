@@ -1,0 +1,29 @@
+# 公共内核打包描述（存储域）—— 相当于 Java 那边的公共 module。
+#
+# 产物：python -m pip wheel --no-deps -w dist .
+#       → dist/comic_core-<版本>-py3-none-any.whl
+# `comic-crawler` 与 `comic-api` 都把它列进 dependencies（见各自 pyproject.toml）——
+# 两个服务之间**没有代码依赖**，共享的东西全部下沉到这里。
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comic-core"
+version = "1.0.0"
+description = "漫画聚合平台 · 公共内核（领域模型 / 存储契约与 MySQL 实现 / 图库读写 / 标签归一）"
+requires-python = ">=3.10"
+dependencies = [
+    "pymysql>=1.1",
+    "cryptography>=42",   # MySQL 8.0 的 caching_sha2_password 认证（PyMySQL 需要）
+    "zhconv>=1.4",        # 繁转简（标签归一），纯 Python 无需编译
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["comic_core*"]
+
+# ⚠️ 词表必须随包分发：taxonomy.py 用 `Path(__file__).with_name("data")` 读它，
+#    漏掉会直接 FileNotFoundError（不是降级，是崩）。
+[tool.setuptools.package-data]
+comic_core = ["data/*.json"]

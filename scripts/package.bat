@@ -4,6 +4,11 @@ rem ============================================================
 rem  Package a deployable bundle (generated on demand; NOT committed).
 rem  Usage:  package.bat [output-dir]     (default: build\deploy)
 rem
+rem  ⚠️ comic_core 与 comic_crawler 两个包都放 src\ 下（刻意保持与开发树同形，
+rem     好让 data 目录仍解析到 <bundle>\data\）。运行时**不用设 PYTHONPATH** ——
+rem     main.py 导入 core.bootstrap 时会自动把 <bundle>\src 注入 sys.path。
+rem     注意别和 %OUT%\core\（api 的 HTTP 分层包）搞混。
+rem
 rem  Refresh policy: 纯覆盖，**本脚本不做任何删除**（与 scripts/package.sh 一致）。
 rem  代价："上一版有、这一版没有"的文件会留在输出目录里 —— 末尾做遗留检查并列出（只报告）。
 rem  See scripts/package.sh header for the full output layout.
@@ -22,14 +27,17 @@ copy /y "%ROOT%\api-service\serializers.py"  "%OUT%\" >nul
 rem robocopy 原生排除缓存目录/字节码 —— 复制阶段就排除，无需事后扫描删除
 robocopy "%ROOT%\api-service" "%OUT%" core routers services /E /XD __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
 
+echo -^> copy shared kernel -^> src\comic_core
+robocopy "%ROOT%\comic-core\src" "%OUT%\src" comic_core /E /XD __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
+
 echo -^> copy crawler package -^> src\comic_crawler
 robocopy "%ROOT%\crawler-service\src" "%OUT%\src" comic_crawler /E /XD __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
 
-echo -^> merge requirements (api + crawler, dedup)
-type "%ROOT%\api-service\requirements.txt" "%ROOT%\crawler-service\requirements.txt" | sort /unique > "%OUT%\requirements.txt"
+echo -^> merge requirements (core + crawler + api, dedup)
+type "%ROOT%\comic-core\requirements.txt" "%ROOT%\crawler-service\requirements.txt" "%ROOT%\api-service\requirements.txt" | sort /unique > "%OUT%\requirements.txt"
 
 echo -^> copy schema
-copy /y "%ROOT%\crawler-service\sql\mysql_schema.sql" "%OUT%\sql\" >nul
+copy /y "%ROOT%\comic-core\sql\mysql_schema.sql" "%OUT%\sql\" >nul
 
 if exist "%ROOT%\comic-web\dist" (
   echo -^> copy frontend dist\
@@ -44,9 +52,10 @@ set "LEFT="
 call :leftovers "%OUT%\core"              "%ROOT%\api-service\core"
 call :leftovers "%OUT%\routers"           "%ROOT%\api-service\routers"
 call :leftovers "%OUT%\services"          "%ROOT%\api-service\services"
+call :leftovers "%OUT%\src\comic_core"    "%ROOT%\comic-core\src\comic_core"
 call :leftovers "%OUT%\src\comic_crawler" "%ROOT%\crawler-service\src\comic_crawler"
 call :leftovers "%OUT%\dist"              "%ROOT%\comic-web\dist"
-call :leftovers "%OUT%\sql"               "%ROOT%\crawler-service\sql"
+call :leftovers "%OUT%\sql"               "%ROOT%\comic-core\sql"
 if not defined LEFT echo     无遗留文件
 
 echo.

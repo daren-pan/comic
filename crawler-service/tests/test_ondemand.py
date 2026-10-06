@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-from comic_crawler.models import ChapterBrief, ComicDetail, PageInfo
+from comic_core.models import ChapterBrief, ComicDetail, PageInfo
 from comic_crawler.scheduling.ondemand import (
     ComicNotFound,
     ComicRestricted,
@@ -18,7 +18,7 @@ from comic_crawler.scheduling.ondemand import (
     resolve_brief,
 )
 from comic_crawler.sources.base import CrawlerAdapter
-from comic_crawler.storage.base import Storage
+from comic_core.storage.base import Storage
 
 
 class FakeStorage(Storage):
@@ -197,7 +197,7 @@ class TestResolveBrief(unittest.TestCase):
 
     def test_ref_falls_back_to_keyword(self):
         """链接解析不出来时，退化为关键词搜索（而不是直接失败）。"""
-        from comic_crawler.models import ComicBrief
+        from comic_core.models import ComicBrief
 
         ad = FakeAdapter(hits=[ComicBrief(source="fake", source_comic_id="55", title="搜到的")])
         brief = resolve_brief(ad, ref="随手写的东西")
@@ -349,7 +349,7 @@ class TestImportComic(unittest.TestCase):
         self.assertEqual(db.page_writes, 0)
 
     def test_keyword_import_uses_first_hit(self):
-        from comic_crawler.models import ComicBrief
+        from comic_core.models import ComicBrief
 
         db = FakeStorage()
         ad = FakeAdapter(

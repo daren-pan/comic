@@ -145,23 +145,28 @@ function fmtTime(iso: string): string {
 </template>
 
 <style scoped>
+/* ⚠️ 本端只保留移动形态（2026-09-23）：原桌面态（封面 190×253 + 大标题 + 24px 间距）
+   已删除，原 `@media (max-width: 700px)` 的移动规则**提升为基础态**，断点整体移除。
+   卡片仍是**横向**的（封面左上、明细右上），只是整体缩小 —— 不是上下堆叠：
+   堆叠会把封面下的空间全浪费掉，横向布局一屏能多露出半屏章节。 */
 .hero {
   display: flex;
-  gap: 24px;
+  align-items: flex-start;
+  gap: 12px;
   background: var(--card);
   border-radius: 16px;
-  padding: 22px;
+  padding: 14px;
   box-shadow: var(--shadow);
 }
-.hero-cover { width: 190px; height: 253px; border-radius: 10px; object-fit: cover; flex-shrink: 0; box-shadow: 0 6px 18px rgba(0,0,0,0.18); }
+.hero-cover { width: 96px; height: 128px; border-radius: 8px; object-fit: cover; flex-shrink: 0; box-shadow: 0 6px 18px rgba(0,0,0,0.18); }
 .hero-info { flex: 1; min-width: 0; }
-.hero-info .u-h1 { margin: 0 0 10px; font-size: 26px; }
-.hero-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+.hero-info .u-h1 { margin: 0 0 6px; font-size: 17px; }
+.hero-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 6px; }
 /* 状态徽标：底色与文字都取主题变量 —— 写死浅底会在夜间变成「浅底 + 浅字」 */
 .chip.done { background: var(--mute); color: var(--text-2); }
 .chip.hot { background: var(--primary-soft); color: var(--primary-dark); }
 .tag { font-size: 12px; color: var(--text-2); }
-.hero-line { margin: 4px 0; color: var(--text-2); font-size: 14px; }
+.hero-line { margin: 2px 0; color: var(--text-2); font-size: 12px; }
 .sources .u-em {
   font-style: normal;
   background: var(--mute);
@@ -171,7 +176,8 @@ function fmtTime(iso: string): string {
   margin-right: 6px;
   color: var(--text-2);
 }
-.actions { display: flex; gap: 10px; margin-top: 16px; }
+.actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.actions .btn { padding: 7px 12px; font-size: 13px; }
 .fav-notice {
   margin-top: 10px;
   font-size: 13px;
@@ -185,66 +191,36 @@ function fmtTime(iso: string): string {
 .desc {
   background: var(--card);
   border-radius: 12px;
-  padding: 14px 18px;
-  margin: 16px 0 0;
+  padding: 10px 12px;
+  margin: 12px 0 0;
   color: var(--text-2);
-  font-size: 14px;
-  line-height: 1.8;
+  font-size: 13px;
+  line-height: 1.7;
   border-left: 4px solid var(--primary);
 }
 
+/* 章节：每行 4 个。列宽只剩 ~80px，序号徽标要占掉一半宽度 → 隐藏，只留标题
+   （标题本身就是「第 12 话」这样的短语），居中排布。 */
 .chapters {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
 }
 .chapter {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 10px 14px;
+  padding: 9px 4px;
   cursor: pointer;
   transition: all 0.15s;
-  text-align: left;
-  font-size: 14px;
+  text-align: center;
+  font-size: 12px;
+  gap: 0;
 }
 .chapter:hover { border-color: var(--primary); background: var(--primary-soft); transform: translateY(-1px); }
-.no {
-  width: 22px; height: 22px;
-  border-radius: 6px;
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-weight: 700;
-  font-size: 12px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text); }
-
-/* ---- 移动端（≤700px）----
-   布局与桌面端「同构、只缩放」：卡片保持横向，封面挪到左上、明细与按钮在右上，
-   卡片下面紧接章节网格。**不改成上下堆叠**（旧实现是封面居中 + 文字居中，浪费大半屏）。 */
-@media (max-width: 700px) {
-  .hero { padding: 14px; gap: 12px; align-items: flex-start; }
-  .hero-cover { width: 96px; height: 128px; border-radius: 8px; }
-  .hero-info .u-h1 { font-size: 17px; margin-bottom: 6px; }
-  .hero-meta { gap: 6px; margin-bottom: 6px; }
-  .hero-line { font-size: 12px; margin: 2px 0; }
-  .actions { gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-  .actions .btn { padding: 7px 12px; font-size: 13px; }
-
-  .desc { padding: 10px 12px; margin-top: 12px; font-size: 13px; line-height: 1.7; }
-
-  .section-title { font-size: 17px; margin: 20px 0 10px; }
-  .section-title::before { height: 17px; }
-  /* 章节：每行 4 个。列宽只剩 ~80px，序号徽标要占掉一半宽度 → 窄屏隐藏，
-     只留标题（标题本身就是「第 12 话」这样的短语），居中排布。 */
-  .chapters { grid-template-columns: repeat(4, 1fr); gap: 8px; }
-  .chapter { justify-content: center; padding: 9px 4px; font-size: 12px; gap: 0; }
-  .chapter .no { display: none; }
-  .name { flex: 1 1 auto; text-align: center; }
-}
+.chapter .no { display: none; }
+.name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text); text-align: center; }
 </style>

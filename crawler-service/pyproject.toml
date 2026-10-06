@@ -13,20 +13,17 @@ version = "1.0.0"
 description = "漫画聚合平台 · 采集服务（源站适配 / 存储 / 调度 / 图库）"
 requires-python = ">=3.10"
 dependencies = [
+    # 公共内核：领域模型 / 存储契约与 MySQL 实现 / 图库读写 / 标签归一。
+    # pymysql、cryptography、zhconv 由它传递 —— 本包已不直接使用（存储与归一都搬过去了）。
+    "comic-core>=1.0.0",
     "httpx>=0.27",
     "parsel>=1.9",
-    "pymysql>=1.1",
-    "cryptography>=42",   # MySQL 8.0 的 caching_sha2_password 认证（PyMySQL 需要）
-    "zhconv>=1.4",        # 繁转简（跨源指纹去重 + 标签归一），纯 Python 无需编译
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["comic_crawler*"]
 
-# ⚠️ 词表必须随包分发：taxonomy.py 用 `Path(__file__).with_name("data")` 读它，
-#    漏掉会直接 FileNotFoundError（不是降级，是崩）。
-# 其余非 .py 文件**故意不带** —— 各源 README.md 是文档、guazi/fixtures/*.html 是测试夹具，
-# 都不属于运行产物；guazi/ 没有 __init__.py，setuptools 本就不会把它当包收进来。
-[tool.setuptools.package-data]
-comic_crawler = ["data/*.json"]
+# ⚠️ `data/tag_synonyms.json` 已随标签归一一起搬去公共内核（见 comic-core/pyproject.toml
+#    的 package-data）—— 本包不再有需要随包分发的数据文件，故不声明 package-data。
+#    各源 README.md 是文档、`fixtures/*.html` 是测试夹具，都不属于运行产物。

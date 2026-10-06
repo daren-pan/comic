@@ -308,6 +308,18 @@ class MySQLStorage(Storage):
                 views = cur.fetchone()["v"]
         return {"comics": comics, "chapters": chapters, "pages": pages, "views": int(views)}
 
+    def count_comics_by_source(self) -> dict[str, int]:
+        """按源统计作品数（覆写契约里"分页遍历 + 内存计数"的默认实现）。
+
+        一条 `GROUP BY source` 就够：管理台「数据源」列表原先用
+        `list_comics(page_size=10000)` 拉整批行再计数，代价随作品数线性增长且会截断。
+        """
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT source AS s, COUNT(*) AS c FROM comic GROUP BY source")
+                rows = list(cur.fetchall())
+        return {row["s"]: row["c"] for row in rows}
+
     # ------------------------------------------------------------------
     # 图片转存 / 失效巡检支持
     # ------------------------------------------------------------------

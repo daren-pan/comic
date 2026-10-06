@@ -25,10 +25,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+from comic_core.models import ComicBrief, ComicDetail, SyncStats
+from comic_core.storage.base import Storage
+
 from ..fingerprint import build_fingerprint
-from ..models import ComicBrief, ComicDetail, SyncStats
 from ..sources.base import CrawlerAdapter
-from ..storage.base import Storage
 from .sync import _upsert_detail
 
 logger = logging.getLogger(__name__)

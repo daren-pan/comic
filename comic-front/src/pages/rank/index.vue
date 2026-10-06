@@ -175,8 +175,9 @@ onReachBottom(loadMore)
 
 .lead { color: var(--text-2); font-size: 14px; margin: -8px 0 16px; }
 
-.rank { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 14px; }
-@media (max-width: 760px) { .rank { grid-template-columns: 1fr; } }
+/* 单列榜单（本端只保留移动形态，2026-09-23；原桌面是 2 列）。
+   PAGE_SIZE = 20 与列数无关（行式列表不分页填格），故无需同步改。 */
+.rank { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: 1fr; gap: 8px 14px; }
 
 .item {
   display: flex;

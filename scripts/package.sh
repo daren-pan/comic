@@ -4,14 +4,16 @@
 #
 #  Output layout <out>/ (default: build/deploy, override via $1):
 #    main.py  core/  routers/  services/  schemas.py  serializers.py   <- HTTP layer (api-service)
+#    src/comic_core/                                                    <- shared kernel
 #    src/comic_crawler/                                                 <- crawler package
-#                                                                         (same shape as dev tree,
-#                                                                          so the data dir resolves to
-#                                                                          <bundle>/data/)
 #    dist/                                                              <- frontend build output
 #    sql/mysql_schema.sql                                               <- schema bootstrap
-#    requirements.txt                                                   <- api + crawler deps (merged)
+#    requirements.txt                                                   <- core + crawler + api deps (merged)
 #    README-DEPLOY.md
+#
+#  ⚠️ 两个包都放 `src/` 下、且**保持和开发树一样的形状**（`src/comic_core/`、`src/comic_crawler/`）——
+#     这样 data 目录仍解析到 <bundle>/data/（见 comic-core/src/comic_core/paths.py 的推导）。
+#     注意别和上面 api 层的 `core/` 目录搞混：那是 api-service 的 HTTP 分层包，与 comic_core 无关。
 #
 #  Usage: ./scripts/package.sh [output-dir]
 #
@@ -40,14 +42,19 @@ copy_tree() {  # copy_tree <源根目录> <目标目录> <要复制的相对路�
 echo "-> copy HTTP layer (api-service)"
 copy_tree "$ROOT/api-service" "$OUT" main.py schemas.py serializers.py core routers services
 
+echo "-> copy shared kernel -> src/comic_core"
+copy_tree "$ROOT/comic-core/src" "$OUT/src" comic_core
+
 echo "-> copy crawler package -> src/comic_crawler"
 copy_tree "$ROOT/crawler-service/src" "$OUT/src" comic_crawler
 
-echo "-> merge requirements (api + crawler, dedup)"
-sort -u "$ROOT/api-service/requirements.txt" "$ROOT/crawler-service/requirements.txt" > "$OUT/requirements.txt"
+echo "-> merge requirements (core + crawler + api, dedup)"
+sort -u "$ROOT/comic-core/requirements.txt" \
+        "$ROOT/crawler-service/requirements.txt" \
+        "$ROOT/api-service/requirements.txt" > "$OUT/requirements.txt"
 
 echo "-> copy schema"
-cp "$ROOT/crawler-service/sql/mysql_schema.sql" "$OUT/sql/"
+cp "$ROOT/comic-core/sql/mysql_schema.sql" "$OUT/sql/"
 
 if [ -d "$ROOT/comic-web/dist" ]; then
   echo "-> copy frontend dist/"
@@ -66,11 +73,12 @@ cat > "$OUT/README-DEPLOY.md" <<'EOF'
 
 | 路径 | 内容 |
 |---|---|
-| `main.py` · `core/` · `routers/` · `services/` · `schemas.py` · `serializers.py` | HTTP 服务（api-service 分层代码） |
+| `main.py` · `core/` · `routers/` · `services/` · `schemas.py` · `serializers.py` | HTTP 服务（api-service 分层代码）。⚠️ 这里的 `core/` 是 api 的 HTTP 分层包，与 `src/comic_core/` 无关 |
+| `src/comic_core/` | 公共内核（领域模型 / 存储契约与 MySQL 实现 / 图库读写 / 标签归一） |
 | `src/comic_crawler/` | 采集服务包（适配器 / 存储 / 调度 / CLI） |
 | `dist/` | 前端构建产物（同源托管） |
 | `sql/mysql_schema.sql` | 建库脚本 |
-| `requirements.txt` | api + crawler 依赖合并 |
+| `requirements.txt` | core + crawler + api 依赖合并 |
 
 ## 运行
 
@@ -80,6 +88,11 @@ export COMIC_MYSQL_HOST=... COMIC_MYSQL_PORT=3309 COMIC_MYSQL_USER=root \
        COMIC_MYSQL_PASSWORD=... COMIC_IMAGE_ROOT=/srv/comic/data/image_store COMIC_JWT_SECRET=<强随机值>
 python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+
+- **不用设 `PYTHONPATH`**：`comic_core` / `comic_crawler` 放在 `src/` 下（刻意与开发树同构，
+  好让 data 目录仍解析到 `<部署目录>/data/`），`main.py` 导入 `core.bootstrap` 时会自动把
+  `<部署目录>/src` 注入 `sys.path`（见 api-service/core/bootstrap.py 的候选路径第 4 条）。
+- ⚠️ 别把 `core/`（api 的 HTTP 分层包）和 `src/comic_core/`（公共内核）搞混，两者同名不同物。
 
 - 首次部署先建库：`mysql -h <host> -P <port> -u root -p < sql/mysql_schema.sql`
 - 运行时数据默认落在 `<部署目录>/data/`（图库 `data/image_store` + 源开关 `data/source_state.json`）；可用 `COMIC_IMAGE_ROOT` / `COMIC_STATE_FILE` 覆盖为共享目录（**须填绝对路径**，相对路径/`none` 之类的哨兵值会被忽略并告警）
@@ -96,9 +109,10 @@ leftovers="$(
     "core:$ROOT/api-service/core" \
     "routers:$ROOT/api-service/routers" \
     "services:$ROOT/api-service/services" \
+    "src/comic_core:$ROOT/comic-core/src/comic_core" \
     "src/comic_crawler:$ROOT/crawler-service/src/comic_crawler" \
     "dist:$ROOT/comic-web/dist" \
-    "sql:$ROOT/crawler-service/sql"
+    "sql:$ROOT/comic-core/sql"
   do
     sub="${pair%%:*}"; src="${pair#*:}"
     [ -d "$OUT/$sub" ] && [ -d "$src" ] || continue
@@ -119,4 +133,5 @@ fi
 echo
 echo "OK  bundle ready: $OUT"
 echo "    cd $OUT && python -m pip install -r requirements.txt"
+echo "    python -m uvicorn main:app --host 0.0.0.0 --port 8000"
 echo "    python -m uvicorn main:app --host 0.0.0.0 --port 8000"

@@ -28,7 +28,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from comic_crawler.images.transfer import _host_allowed  # noqa: E402
-from comic_crawler.models import ChapterBrief, ComicBrief, ComicDetail  # noqa: E402
+from comic_core.models import ChapterBrief, ComicBrief, ComicDetail  # noqa: E402
 from comic_crawler.sources.copymanga.adapter import CopymangaAdapter  # noqa: E402
 
 # ---------------------------------------------------------------------------

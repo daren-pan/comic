@@ -55,11 +55,15 @@ _zmh_probe/
 deploy/.env
 
 # ---- 部署产物（由 deploy/build.sh 生成，不入库）----
-#   crawler/api = 构建出的 wheel；web = 前端 dist 的复制品
-deploy/api/dist/
+#   core = comic-core 的 wheel（纯库，无镜像，只作命名构建上下文）；
+#   crawler/api = 构建出的 wheel；web/front = 前端 dist 的复制品
+# 注意 deploy/core/README.md 是**入库**的（见该文件说明：全新 clone 时需要它保证目录存在）
+deploy/core/dist/
 deploy/crawler/dist/
+deploy/api/dist/
 deploy/mysql/sql/
 deploy/web/dist/
+deploy/front/dist/
 
 # ---- 编辑器 / 系统 ----
 .idea/

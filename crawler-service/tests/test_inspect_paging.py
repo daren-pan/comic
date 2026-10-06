@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from comic_crawler.scheduling.heal import SCAN_BATCH, inspect_sync  # noqa: E402
-from comic_crawler.storage.base import Storage  # noqa: E402
+from comic_core.storage.base import Storage  # noqa: E402
 
 
 class FakeStore:

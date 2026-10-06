@@ -297,7 +297,7 @@ class TestWeebCentralAdapter(unittest.TestCase):
         """按需导入只给 source_comic_id（无 detail_url）时，自行拼 /series/{ulid}。"""
         fake = _FakeSelector({"series": SERIES_HTML, "full-chapter-list": FULL_CHAPTER_HTML})
         self.ad._fetch_selector = fake
-        from comic_crawler.models import ComicBrief
+        from comic_core.models import ComicBrief
 
         detail = self.ad.fetch_comic_detail(
             ComicBrief(source="weebcentral", source_comic_id="01J76XYD3Q2Q7HYYMB3FSDPSKC", title="")
@@ -339,7 +339,7 @@ class TestWeebCentralAdapter(unittest.TestCase):
             "series": SERIES_HTML,
         })
         self.ad._fetch_selector = fake
-        from comic_crawler.models import ComicBrief
+        from comic_core.models import ComicBrief
 
         brief = ComicBrief(
             source="weebcentral",
@@ -367,7 +367,7 @@ class TestWeebCentralAdapter(unittest.TestCase):
 
     def test_fetch_chapter_pages(self):
         self.ad._fetch_selector = _FakeSelector({"images": IMAGES_HTML})
-        from comic_crawler.models import ChapterBrief, ComicDetail
+        from comic_core.models import ChapterBrief, ComicDetail
 
         detail = ComicDetail(source="weebcentral", source_comic_id="s1", title="x", chapters=[])
         chapter = ChapterBrief(

@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from comic_crawler.storage.mysql import build_filters  # noqa: E402
+from comic_core.storage.mysql import build_filters  # noqa: E402
 
 
 class TestBuildFilters(unittest.TestCase):
