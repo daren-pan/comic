@@ -170,3 +170,95 @@ CREATE TABLE IF NOT EXISTS log_record (
     KEY idx_log_task (task_id),
     KEY idx_log_comic (comic_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ---------------------------------------------------------------------------
+-- 管理台「后台任务」表：一次**手动触发**（采集 / 巡检 / 封面自愈 / 按需导入）= 一行。
+-- 写入方：api-service 的 `services/tasks.py`（触发时插 running，结束时改 done/failed）；
+-- 读取方：同文件的 `recent()` / `get()` → 管理台任务列表与前端 `taskId` 轮询。
+-- ⚠️ 这张表以前是**进程内 dict**（api 一重启任务就没了、也答不出"是谁点的"）。落库之后：
+--    ① 重启不丢 —— 残留的 running 由 `tasks.reap_stale()` 标成"服务重启，任务中断"；
+--    ② 与**触发账号**绑定（user_id + username 冗余一份），可追溯。
+-- `result` / `params` 用 JSON：前者是给前端的原始 payload，后者是入参快照（复盘用）。
+-- ⚠️ 采集的**业务明细**不在本表：每源统计看 `sync_log`，逐条日志看 `log_record`（按 task_id 关联）。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS admin_task (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    task_id VARCHAR(64) NOT NULL,
+    task_type VARCHAR(16) NOT NULL DEFAULT '',
+    status VARCHAR(16) NOT NULL DEFAULT 'running',
+    message VARCHAR(500) NOT NULL DEFAULT '',
+    result JSON NULL,
+    params JSON NULL,
+    -- 触发账号：user 表被删/改名后也还能看懂是谁点的，所以 username 冗余存一份
+    user_id INT NULL,
+    username VARCHAR(64) NOT NULL DEFAULT '',
+    started_at DATETIME NOT NULL,
+    finished_at DATETIME NULL,
+    UNIQUE KEY uk_task_id (task_id),
+    KEY idx_task_started (started_at),
+    KEY idx_task_user_started (user_id, started_at),
+    KEY idx_task_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ---------------------------------------------------------------------------
+-- 消息中心（`message` 表）：**平台级的消息流** —— 顶栏铃铛、消息页读的就是它。
+-- 面向**所有登录用户**（2026-10-06 从"仅管理员"改成按角色/指定用户可见），
+-- 所以每条消息都带**收件范围**（见下面 `to_user_id` / `min_role` 两列）。
+-- 写入方**只走 HTTP `POST /api/messages`**（见 api-service/routers/messages.py）：
+--   · api 自己：任务收尾时发一条（services/tasks.py，进程内直调；收件范围 = 管理员及以上）；
+--   · 独立进程 `comic-scheduler`：一轮跑完发一条（**服务令牌**鉴权，见 comic_core/notify.py）；
+--   · 将来的外部系统 / 运维脚本（同一个接口，可指定 `toUserId` / `minRole`）。
+-- 读取方：api 的 services/messages.py —— 列表 + 未读数 + 标记已读（**都按当前账号过滤/记账**）。
+-- ⚠️ 为什么不直接读 `admin_task`：任务只是消息的**来源之一** —— 消息中心要能被别的模块写入
+--    （运维通知、源站异常、将来的"你收藏的作品更新了"…），所以独立成表。而"**正在跑**的任务"
+--    还没有消息，由读取接口在返回时**临时并进来**（见 `services/messages.feed`）—— 跑完再由任务侧
+--    发那条消息。这样同一件事**不会**在任务表与消息表里各存一份状态（两份迟早不一致）。
+-- ⚠️ **已读按账号各一份**（`message_read` 关联表）：同一条广播消息，A 读过不该让 B 的角标消失。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS message (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    -- 任务消息 = 任务类型（sync/inspect/heal/import/schedule）；其余写者自定义（system/notice…）
+    kind VARCHAR(16) NOT NULL DEFAULT '',
+    -- info / warn / error —— 前端据此显示 完成 / 警告 / 失败（**同时承载任务成败**，不另设 status 列）
+    level VARCHAR(8) NOT NULL DEFAULT 'info',
+    title VARCHAR(255) NOT NULL DEFAULT '',
+    body TEXT,
+    -- **入参快照**（触发时的关键参数：`since`/`until`/`mode`/`limit`/`sources`/`action`/`keyword`…）。
+    -- 用途：一眼看出"这条消息说的是哪段时间范围内的数据"（`since` 就是起始时间；为空 = 按源自身水位），
+    -- 以及复现"当时点的是什么"。与 `admin_task.params` 同源，但**消息自带一份** ——
+    -- 消息是独立记录（别的模块也能写），不该反过来依赖任务表还在不在。
+    params JSON NULL,
+    task_id VARCHAR(64) NOT NULL DEFAULT '',
+    source VARCHAR(64) NOT NULL DEFAULT '',
+    -- **触发人**（谁干的）：系统/定时轮次为空；username 冗余一份，账号改名删号后仍看得懂
+    user_id INT NULL,
+    username VARCHAR(64) NOT NULL DEFAULT '',
+    -- **收件范围**（两个条件同时成立才可见）：
+    --   to_user_id：定向发给某个人（NULL = 不限人）
+    --   min_role  ：最低角色要求（'' = 所有登录用户；'user' < 'admin' < 'superadmin'，
+    --               即 min_role='admin' 时**超管也能看到** —— 超管是管理员的超集）
+    to_user_id INT NULL,
+    min_role VARCHAR(16) NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL,
+    KEY idx_msg_created (created_at),
+    KEY idx_msg_kind_created (kind, created_at),
+    KEY idx_msg_task (task_id),
+    KEY idx_msg_to_user (to_user_id, created_at),
+    KEY idx_msg_role_created (min_role, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ---------------------------------------------------------------------------
+-- 消息的**已读记账**：一行 = "某账号读过某条消息"。
+-- 为什么不把 read_at 放在 message 上：消息是**广播**的（一条给所有人看），已读必须按人算 ——
+-- 否则 A 点开消息页就把 B 的未读角标也清了。
+-- 未读数 = 可见消息数 − 本人在本表里的行数（见 `message_store.unread_count`）。
+-- ⚠️ 没有 FOREIGN KEY：与本项目其它表一致（关联关系由代码保证，避免删除顺序耦合）。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS message_read (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    message_id INT NOT NULL,
+    user_id INT NOT NULL,
+    read_at DATETIME NOT NULL,
+    UNIQUE KEY uk_msg_read (message_id, user_id),
+    KEY idx_msg_read_user (user_id, read_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
