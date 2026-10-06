@@ -236,7 +236,7 @@ echo "   [PyPI 源] $PIP_INDEX"
 
 build_img() {  # build_img <模块目录> <镜像名> [额外的 docker build 参数...]
   local dir="$1" tag="$2"; shift 2
-  docker build --no-cache --build-arg "PIP_INDEX=$PIP_INDEX" "$@" -t "$tag" "$dir"
+  docker buildx build --load --build-arg "PIP_INDEX=$PIP_INDEX" "$@" -t "$tag" "$dir"
 }
 
 build_img mysql   comic-mysql:1.0.0
@@ -244,16 +244,16 @@ build_img mysql   comic-mysql:1.0.0
 #    脚本开了 set -e，条件为假时整个 AND 列表返回非 0，会让脚本在建镜像阶段直接退出
 #    （症状：只跑 --front 时建完 mysql 就没了；只跑 --web 时建完 api 就没了）。
 if [ "$BUILD_WEB" = "1" ]; then build_img web comic-web:1.0.0; fi
-build_img crawler comic-crawler:1.0.0 --build-context "core=./core"
-# api 要读**两个**上游 wheel 产物 → 挂两个命名上下文：
-#   · core    —— 公共内核（deploy/core/dist/），Dockerfile 里 `COPY --from=core dist/`
-#   · crawler —— 采集层（deploy/crawler/dist/），Dockerfile 里 `COPY --from=crawler dist/`
-# **都不是镜像依赖**，所以顺序不是硬约束，只要两个 wheel 已生成即可（步骤 1 已保证）。
-# 这里的相对路径按当前目录（= deploy/）解析。
-build_img api     comic-api:1.0.0 --build-context "crawler=./crawler" --build-context "core=./core"
-# scheduler 同样要读两个上游 wheel（采集层里有 cron 引擎与一轮执行，内核里有路径与存储），
-# 所以挂同样的两个命名上下文。它**不是** api 的衍生镜像 —— 两者平级，各自独立启停。
-build_img scheduler comic-scheduler:1.0.0 --build-context "crawler=./crawler" --build-context "core=./core"
+# crawler、api、scheduler 无镜像依赖，并行构建以节省时间
+( build_img crawler comic-crawler:1.0.0 --build-context "core=./core" ) &
+CRAWLER_PID=$!
+( build_img api     comic-api:1.0.0 --build-context "crawler=./crawler" --build-context "core=./core" ) &
+API_PID=$!
+( build_img scheduler comic-scheduler:1.0.0 --build-context "crawler=./crawler" --build-context "core=./core" ) &
+SCHEDULER_PID=$!
+wait $CRAWLER_PID   || { echo "!! comic-crawler 构建失败" >&2; exit 1; }
+wait $API_PID       || { echo "!! comic-api 构建失败" >&2; exit 1; }
+wait $SCHEDULER_PID || { echo "!! comic-scheduler 构建失败" >&2; exit 1; }
 if [ "$BUILD_FRONT" = "1" ]; then build_img front comic-front:1.0.0; fi
 
 echo

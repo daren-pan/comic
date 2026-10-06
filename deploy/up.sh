@@ -185,8 +185,15 @@ else
       echo "   网页端：npm install（首次）"
       ( cd "$ROOT/comic-web" && npm install )
     fi
-    echo "   网页端：npm run build"
-    ( cd "$ROOT/comic-web" && npm run build )
+    WEB_HASH="$(find "$ROOT/comic-web/src" "$ROOT/comic-web/package.json" "$ROOT/comic-web/vite.config.*" -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1 || true)"
+    WEB_HASH_FILE="$WEB_DIST/.build_hash"
+    if [ -d "$WEB_DIST" ] && [ -f "$WEB_HASH_FILE" ] && [ "$(cat "$WEB_HASH_FILE" 2>/dev/null)" = "$WEB_HASH" ]; then
+      echo "   网页端：源码未变更，跳过构建（强制重建：删除 $WEB_DIST）"
+    else
+      echo "   网页端：npm run build"
+      ( cd "$ROOT/comic-web" && npm run build )
+      echo "$WEB_HASH" > "$WEB_HASH_FILE"
+    fi
     [ -d "$WEB_DIST" ] || die "网页端构建后仍然没有 $WEB_DIST"
   fi
   if [ "$WANT_FRONT" = "1" ]; then
@@ -194,8 +201,15 @@ else
       echo "   移动端：npm install（首次）"
       ( cd "$ROOT/comic-front" && npm install )
     fi
-    echo "   移动端：npm run build:h5"
-    ( cd "$ROOT/comic-front" && npm run build:h5 )
+    FRONT_HASH="$(find "$ROOT/comic-front/src" "$ROOT/comic-front/package.json" "$ROOT/comic-front/vite.config.*" -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1 || true)"
+    FRONT_HASH_FILE="$FRONT_DIST/.build_hash"
+    if [ -d "$FRONT_DIST" ] && [ -f "$FRONT_HASH_FILE" ] && [ "$(cat "$FRONT_HASH_FILE" 2>/dev/null)" = "$FRONT_HASH" ]; then
+      echo "   移动端：源码未变更，跳过构建（强制重建：删除 $FRONT_DIST）"
+    else
+      echo "   移动端：npm run build:h5"
+      ( cd "$ROOT/comic-front" && npm run build:h5 )
+      echo "$FRONT_HASH" > "$FRONT_HASH_FILE"
+    fi
     [ -d "$FRONT_DIST" ] || die "移动端构建后仍然没有 $FRONT_DIST"
   fi
 fi
@@ -253,7 +267,7 @@ for i in $(seq 1 40); do
     break
   fi
   [ "$i" = "40" ] && die "comic-mysql 迟迟不 healthy —— 看日志：docker compose -f deploy/docker-compose.yml logs comic-mysql"
-  sleep 3
+  sleep 1
 done
 
 # 应用能否连上库：在容器内打自己的接口（不依赖宿主机有没有 curl）

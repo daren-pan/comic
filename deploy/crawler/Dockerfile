@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 # crawler 模块 —— 采集层（可单独用：docker run --rm comic-crawler:1.0.0 python -m comic_crawler.cli list）
 # 产物：deploy/build.sh 用 crawler-service/pyproject.toml 构建 wheel 到本目录 dist/
 #
@@ -29,7 +30,7 @@ COPY --from=core dist/ /tmp/wheels/core/
 COPY dist/ /tmp/wheels/
 # pip 装 comic-crawler 时会读它 METADATA 里由 dependencies 生成的 Requires-Dist，
 # 解析出 comic-core → 从 --find-links 指的本地目录取；其余第三方依赖仍走 PIP_INDEX。
-RUN pip install --no-cache-dir --index-url "$PIP_INDEX" \
+RUN --mount=type=cache,target=/root/.cache/pip pip install --index-url "$PIP_INDEX" \
         --find-links /tmp/wheels/core \
         "$(ls -t /tmp/wheels/*.whl | head -1)"
 

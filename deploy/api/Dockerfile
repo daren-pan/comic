@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 # api 模块 —— 接口层（**纯 API**，不托管前端）
 #
 # 产物：deploy/build.sh 用 api-service/pyproject.toml 构建 wheel 到本目录 dist/
@@ -53,7 +54,7 @@ ARG PIP_INDEX=https://mirrors.aliyun.com/pypi/simple
 COPY --from=core dist/ /tmp/wheels/core/
 COPY --from=crawler dist/ /tmp/wheels/crawler/
 COPY dist/ /tmp/wheels/api/
-RUN pip install --no-cache-dir --index-url "$PIP_INDEX" \
+RUN --mount=type=cache,target=/root/.cache/pip pip install --index-url "$PIP_INDEX" \
         --find-links /tmp/wheels/core \
         --find-links /tmp/wheels/crawler \
         "$(ls -t /tmp/wheels/api/*.whl | head -1)"
