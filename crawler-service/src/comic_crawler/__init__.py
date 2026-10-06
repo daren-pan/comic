@@ -19,12 +19,11 @@
 - **加一个源站** → 复制 `sources/zaimanhua/` 为模板，改 `source_name` 与三个解析方法，
   在 `sources/__init__.py` 的 `_SOURCE_PACKAGES` 加一项（不用碰 `config.py`）；
 - **换存储后端** → 在 `storage/` 下新增实现 `storage.base` 两个契约的子包；
-- **调采集节奏 / 封面自愈** → `scheduling/`；
-- **跑一次 / 常驻** → `cli.py`。
+- **调采集节奏** → `scheduling/`（cron 解析、定时配置与运行态、一轮执行）；
+- **运维/排障命令** → `cli.py`（`list` / `show` / `inspect` / `transfer-images`）。
 
-```bash
-PYTHONPATH=src python -m comic_crawler.cli run --source zaimanhua
-```
+⚠️ **采集本身不在这里**（2026-10-06 起）：只有两条路 —— 管理台「触发采集」（手动，api 进程内）
+与 `comic-scheduler`（定时，独立进程，读管理台配的 cron）。原来的 `cli run` / `cli serve` 已删除。
 """
 
 __version__ = "1.0.0"
