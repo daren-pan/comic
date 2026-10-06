@@ -5,11 +5,12 @@
 
 能力：列出数据源 / 开关采集 / 手动触发采集 / 手动触发**失效巡检**（转存未转存页 + 全表校验
 已转存对象、缺失则恢复 + 全库封面自愈）/ 手动触发**按作品**封面自愈（填漫画名称或 ID，
-强制回源重下覆盖）/ 按需导入单部作品 / 查询运行日志（`log_record` 表，支持条件筛选与分页）。
+强制回源重下覆盖）/ 按需导入单部作品 / **配置并触发「定时任务」**（每日定点跑一轮，
+参数与「触发采集」同一套）/ 查询运行日志（`log_record` 表，支持条件筛选与分页）。
 
 本层只做「校验入参 → 派发任务 → 返回 `taskId`」；任务的**实际动作**（采集编排、封面自愈、
-巡检、按需导入）在 `services.admin_jobs`。耗时动作统一交给 `services.tasks` 后台线程执行，
-前端轮询 `taskId` 取结果。
+巡检、按需导入、定时执行）在 `services.admin_jobs` / `services.scheduler`。耗时动作统一交给
+`services.tasks` 后台线程执行，前端轮询 `taskId` 取结果。
 
 ⚠️ **独立的「触发转存」入口已删除（2026-09-21）**：巡检第 1 步本就是 `lazy_transfer`
 （转存未转存页），单独按钮是它的子集、无独立价值；原挂在转存上的「全库封面自愈」
@@ -25,9 +26,10 @@ from schemas import (
     AdminHealBody,
     AdminImportBody,
     AdminInspectBody,
+    AdminScheduleBody,
     AdminSyncBody,
 )
-from services import admin_jobs, logs, sources, tasks
+from services import admin_jobs, logs, scheduler, sources, tasks
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -43,20 +45,65 @@ def admin_toggle_source(name: str):
 
 
 @router.post("/api/admin/sync")
-def admin_sync(body: AdminSyncBody):
-    """手动触发采集（后台线程执行，返回 `taskId` 供前端轮询）。动作见 `admin_jobs.sync_job`。"""
+def admin_sync(body: AdminSyncBody, user: dict = Depends(require_admin)):
+    """手动触发采集（后台线程执行，返回 `taskId` 供前端轮询）。动作见 `admin_jobs.sync_job`。
+
+    任务**落库**（`admin_task`）并与触发账号绑定：api 重启后任务不丢，也能看出是谁点的。
+    """
     if not sources.is_enabled(body.source):
         raise HTTPException(status_code=400, detail=f"源 {body.source} 已关闭采集")
     task_id = tasks.new_task_id("sync")
     tasks.run_task(
         task_id, "sync",
         lambda: admin_jobs.sync_job(body.source, body.mode, body.limit, body.since),
+        user=user,
+        params={"source": body.source, "mode": body.mode, "limit": body.limit, "since": body.since},
     )
     return ok({"taskId": task_id})
 
 
+@router.get("/api/admin/schedule")
+def admin_get_schedule():
+    """「定时任务」当前配置 + 运行态（下次执行时刻 / 最近一次结果 / 是否在跑）。
+
+    配置落盘在运行时数据目录 `<data>/schedule.json`（读写归 crawler 的
+    `scheduling/schedule.py`）；进程内执行器见 `services.scheduler`。
+    """
+    return ok(scheduler.status())
+
+
+@router.put("/api/admin/schedule")
+def admin_put_schedule(body: AdminScheduleBody):
+    """保存「定时任务」配置。
+
+    形状校验在 `schemas.AdminScheduleBody`（非空、长度上限、`mode` 收口成两个字面量）；
+    **cron 的语义校验**（5 段、取值范围、步长）在 `services.scheduler.update()` 里用
+    `parse_cron` 做，非法在这里转成 **400**，消息里带段名与原因，可直接展示给用户。
+
+    未注册的源名会被丢弃并记 warning —— 所以**返回值才是实际生效的配置**。
+    """
+    try:
+        return ok(scheduler.update(body.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/api/admin/schedule/run-now")
+def admin_schedule_run_now(user: dict = Depends(require_admin)):
+    """请求立即执行一轮（不等 cron 命中）。
+
+    ⚠️ 采集**不在本进程**跑：这里只写一条触发请求（`schedule_run_now.json`），
+    独立进程 `comic-scheduler` 在下一个 tick（≤5s）内看到就跳一轮。所以返回的是
+    "已请求"，**不是 `taskId`** —— 结果看 `GET /api/admin/schedule` 的
+    `running` / `lastRunAt` / `lastMessage`，以及**任务表** `admin_task`
+    （`task_type=schedule`，会记下点按钮的是谁）。
+    上一轮还在跑时执行器会跳过（不排队、不重入）。
+    """
+    return ok(scheduler.run_now(user))
+
+
 @router.post("/api/admin/heal-covers")
-def admin_heal_covers(body: AdminHealBody):
+def admin_heal_covers(body: AdminHealBody, user: dict = Depends(require_admin)):
     """封面自愈（**按作品**）：填漫画名称或 ID（可多个），**强制**回源重抓封面并覆盖。
 
     用于修复「封面文件在、但内容是错的」—— 普通自愈只看文件在不在，永远修不到错图；
@@ -71,12 +118,14 @@ def admin_heal_covers(body: AdminHealBody):
     tasks.run_task(
         task_id, "heal",
         lambda: admin_jobs.heal_covers_job(body.source, comic_ids, title_like),
+        user=user,
+        params={"source": body.source, "keyword": body.keyword},
     )
     return ok({"taskId": task_id})
 
 
 @router.post("/api/admin/inspect")
-def admin_inspect(body: AdminInspectBody):
+def admin_inspect(body: AdminInspectBody, user: dict = Depends(require_admin)):
     """失效巡检（**全库维护的唯一入口**）：转存未转存页 + **全表**校验已转存对象 + 全库封面自愈。
 
     三步做什么、为什么定时巡检不含第 3 步，见 `services.admin_jobs.inspect_job`。
@@ -85,12 +134,14 @@ def admin_inspect(body: AdminInspectBody):
     tasks.run_task(
         task_id, "inspect",
         lambda: admin_jobs.inspect_job(body.source, body.since, body.until),
+        user=user,
+        params={"source": body.source, "since": body.since, "until": body.until},
     )
     return ok({"taskId": task_id})
 
 
 @router.post("/api/admin/import")
-def admin_import(body: AdminImportBody):
+def admin_import(body: AdminImportBody, user: dict = Depends(require_admin)):
     """按需导入一部作品（后台线程执行，返回 `taskId` 供前端轮询）。
 
     与「采集」的区别：采集只能碰到源站「最近更新」榜上的作品；本接口按用户
@@ -107,13 +158,23 @@ def admin_import(body: AdminImportBody):
         lambda: admin_jobs.import_job(
             body.source, body.keyword, body.ref, body.source_comic_id, body.first_chapters
         ),
+        user=user,
+        params={
+            "source": body.source, "keyword": body.keyword, "ref": body.ref,
+            "sourceComicId": body.source_comic_id, "firstChapters": body.first_chapters,
+        },
     )
     return ok({"taskId": task_id})
 
 
 @router.get("/api/admin/tasks")
-def admin_tasks():
-    return ok(tasks.recent(30))
+def admin_tasks(limit: int = 30, mine: bool = False, user: dict = Depends(require_admin)):
+    """最近的后台任务（**读库** `admin_task`，按 id 倒序 = 时间倒序）。
+
+    `mine=true` 只看**自己触发的**（任务已与触发账号绑定）；任务里带 `userId`/`username`，
+    所以"这条是谁点的"一眼可见。
+    """
+    return ok(tasks.recent(limit, user_id=user.get("id") if mine else None))
 
 
 @router.get("/api/admin/tasks/{task_id}")

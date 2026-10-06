@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import asdict
 
 from core import bootstrap  # noqa: F401  —— 先完成 sys.path 引导（使 comic_crawler 可导入）
 from services import ondemand
@@ -24,16 +23,15 @@ _TOKEN_SPLIT = re.compile(r"[,，、;；\s]+")
 
 
 def sync_job(source: str, mode: str, limit: int | None = None, since=None) -> dict:
-    """采集一个源（`mode` = full 全量 / 其它为增量），返回统计 + 库内总量。"""
-    from comic_crawler.facade import MySQLStorage, create_adapter, full_sync, incremental_sync
+    """采集一个源（`mode` = full 全量 / 其它为增量），返回统计 + 库内总量。
 
-    storage = MySQLStorage()
-    adapter = create_adapter(source)
-    if mode == "full":
-        stats = full_sync(adapter, storage, limit=limit, since=since)
-    else:
-        stats = incremental_sync(adapter, storage, limit=limit, since=since)
-    return {"stats": asdict(stats), "summary": stats.summary(), "db": storage.stats()}
+    ⚠️ 实际动作走采集层的 `sync_source` —— 与**定时执行器**（独立进程 `comic-scheduler`）
+    用的是**同一个函数**，所以「手动触发」与「定时触发」的采集语义是**构造上一致**的
+    （2026-10-06 收口；此前两边各写一遍同样的三行）。
+    """
+    from comic_crawler.facade import sync_source
+
+    return sync_source(source, mode, limit, since)
 
 
 def parse_heal_keyword(keyword: str | None) -> tuple[list[int], list[str]]:
