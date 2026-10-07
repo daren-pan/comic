@@ -27,6 +27,35 @@ _COMIC_COLS = (
     f"{heat_sql()} AS heat"
 )
 
+#: `upsert_comic` 判定"内容变化"时比较的字段（列名 → `ComicDetail` 上的取值函数名）。
+#: ⚠️ **刻意不含 `cover_url`**：库里存的是落盘后的**本地 key**（`covers/{id}.jpg`，
+#: 见 `images/transfer.ensure_cover_local`），而 `detail.cover_url` 是**源站外链** ——
+#: 两者永远不相等，参与比较就会"每轮都算变化"、`sync_time` 白刷。
+_CHANGE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("title", "title"),
+    ("author", "author"),
+    ("status", "status"),
+    ("category", "category"),
+    ("description", "description"),
+    ("latest_chapter_title", "latest_chapter_title"),
+)
+
+
+def _same(a: object, b: object) -> bool:
+    """宽松相等：都按"去掉首尾空白后的字符串"比 —— 源站偶尔多一个空格不该算内容变化。"""
+    return str(a or "").strip() == str(b or "").strip()
+
+
+def _content_changed(row: dict, detail: ComicDetail, fingerprint: str) -> bool:
+    """库里那一行与本次抓到的详情，**内容**是否变了（`upsert_comic` 用它决定要不要写行/刷 `sync_time`）。
+
+    纯函数（不碰连接），便于单测。比较字段见 `_CHANGE_FIELDS` + `fingerprint`。
+    """
+    for col, attr in _CHANGE_FIELDS:
+        if not _same(row.get(col), getattr(detail, attr, "")):
+            return True
+    return not _same(row.get("fingerprint"), fingerprint)
+
 
 class MySQLStorage(Storage):
     """MySQL 实现（Storage 契约）。每个调用使用独立连接（线程安全），autocommit 提交。"""
@@ -107,8 +136,8 @@ class MySQLStorage(Storage):
                 (comic_id, row["id"]),
             )
 
-    def upsert_comic(self, detail: ComicDetail, fingerprint: str) -> tuple[int, bool]:
-        """收录/更新一部作品 → `(comic_id, is_new)`。
+    def upsert_comic(self, detail: ComicDetail, fingerprint: str) -> tuple[int, bool, bool]:
+        """收录/更新一部作品 → `(comic_id, is_new, changed)`。
 
         **判重只看 `(source, source_comic_id)`**（走 `uk_source_comic`）→ 命中即更新该行，
         未命中即新增一行。
@@ -119,31 +148,43 @@ class MySQLStorage(Storage):
 
         章节归属由 `comic.source` 推导（`chapter` 表**没有** source 列），而一行只属于一个源，
         所以读图时用哪个适配器始终是确定的。
+
+        **`changed` 与 `sync_time`**（2026-10-07 改）：`sync_time` 的语义是
+        「**内容最近变化**的时刻」—— 最近更新页的角标与 `sort=updated` 都取它，
+        所以**扫到但没变化就不再刷新它**（此前"每次扫到都刷"，角标因此总显示"刚刚"）。
+        判定见 `_content_changed()`（**不含 `cover_url`**，理由写在那）。
+        **没变化时连行都不写**（省一次 UPDATE）；标签仍照常对齐（见下）。
         """
         now = _now()
         tags = self._tags_from(detail)
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id FROM comic WHERE source=%s AND source_comic_id=%s",
+                    """SELECT id, title, author, status, category, description, fingerprint,
+                              latest_chapter_title
+                         FROM comic WHERE source=%s AND source_comic_id=%s""",
                     (detail.source, detail.source_comic_id),
                 )
                 row = cur.fetchone()
                 if row:
-                    cur.execute(
-                        """UPDATE comic SET title=%s, author=%s, cover_url=%s, status=%s,
-                           category=%s, description=%s, fingerprint=%s,
-                           latest_chapter_title=%s, sync_time=%s WHERE id=%s""",
-                        (
-                            detail.title, detail.author, detail.cover_url, detail.status,
-                            detail.category, detail.description, fingerprint,
-                            detail.latest_chapter_title, now, row["id"],
-                        ),
-                    )
+                    changed = _content_changed(row, detail, fingerprint)
+                    if changed:
+                        cur.execute(
+                            """UPDATE comic SET title=%s, author=%s, cover_url=%s, status=%s,
+                               category=%s, description=%s, fingerprint=%s,
+                               latest_chapter_title=%s, sync_time=%s WHERE id=%s""",
+                            (
+                                detail.title, detail.author, detail.cover_url, detail.status,
+                                detail.category, detail.description, fingerprint,
+                                detail.latest_chapter_title, now, row["id"],
+                            ),
+                        )
+                    # 标签**每次都对齐**：标签不在 `_content_changed` 的比较里（免得为比标签多查一次），
+                    # 但"源站补了标签"这种变化不该被漏掉。
                     self._sync_tags(cur, row["id"], tags)
-                    return int(row["id"]), False
+                    return int(row["id"]), False, changed
 
-                # 首次收录：addtime 与 sync_time 均为当前时刻；后续增量只刷新 sync_time（见上方 UPDATE）
+                # 首次收录：addtime 与 sync_time 均为当前时刻（新收录必然算"变化"）
                 cur.execute(
                     """INSERT INTO comic (title, author, cover_url, status, category,
                            description, fingerprint, source, source_comic_id,
@@ -157,7 +198,16 @@ class MySQLStorage(Storage):
                 )
                 comic_id = int(cur.lastrowid)
                 self._sync_tags(cur, comic_id, tags)
-                return comic_id, True
+                return comic_id, True, True
+
+    def touch_comic_sync_time(self, comic_id: int, when: datetime | None = None) -> None:
+        """把 `comic.sync_time` 刷成 `when`（默认现在）—— 见 `Storage.touch_comic_sync_time`。"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE comic SET sync_time=%s WHERE id=%s",
+                    (when or _now(), comic_id),
+                )
 
     def upsert_chapter(self, comic_id: int, chapter: ChapterBrief) -> tuple[int, bool]:
         now = _now()

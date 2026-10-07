@@ -22,8 +22,13 @@ CREATE TABLE IF NOT EXISTS comic (
     -- views: 累计浏览次数（详情页每次访问 +1，落库）。
     -- 热度不落库，由 (1000 + views*1 + 收藏数*2) 实时计算，见 storage/mysql/_util.py 的 HEAT_* / heat_sql()。
     views INT NOT NULL DEFAULT 0,
+    -- sync_time: **内容最近变化的时刻** —— 标题/作者/状态/分类/简介/最新章节标题 任一变化，
+    --            或来了新章节时刷新；**扫到但没变化不刷**（2026-10-07 改的口径）。
+    --            「最近更新」列表（sort=updated）与卡片右上角角标取的就是它，
+    --            所以它表示"源站这部作品最近什么时候真有变化"，而不是"我们最近什么时候扫过它"。
+    --            ⚠️ 增量同步的水位**不看这一列**，那是 sync_log.finished_at。
     sync_time DATETIME NOT NULL,
-    -- addtime: 首次收录时间（第一次同步写入，之后不再更新）；sync_time 为最近一次同步时间
+    -- addtime: 首次收录时间（第一次同步写入，之后不再更新）
     addtime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- 判重只看 uk_source_comic（同源精确判重）。fingerprint 是"这几行可能是同一部作品"的
     -- 观测标记（归一化标题 + 作者），**刻意不是唯一键**：不同源 / 不同译本（繁简、中日英）

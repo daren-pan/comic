@@ -83,7 +83,7 @@
 
 | 表 | 关键字段 | 说明 |
 |---|---|---|
-| comic 作品 | PK id, title, author, cover_url, status, category, **fingerprint(普通索引，仅观测不判重)**, source, source_comic_id, latest_chapter_title, sync_time | 作品主表（`(source, source_comic_id)` 唯一；一行=一个源） |
+| comic 作品 | PK id, title, author, cover_url, status, category, **fingerprint(普通索引，仅观测不判重)**, source, source_comic_id, latest_chapter_title, sync_time | 作品主表（`(source, source_comic_id)` 唯一；一行=一个源）。⚠️ `sync_time` = **内容最近变化的时刻**（扫到但没变化不刷），「最近更新」按它倒序 |
 | chapter 章节 | PK id, comic_id FK, chapter_no, title, source_chapter_id, page_count, **content_hash**, sync_time | comic+no 联合唯一 |
 | page 分页 | PK id, chapter_id FK, page_no, source_url, **oss_url**, cached_status | 图片不落库，只存 URL |
 | source 源站 | PK id, name, base_url, robots_allowed, priority, parser_type, crawl_interval, status | 采集配置中心 |

@@ -39,6 +39,8 @@ class PagingStorage(Storage):
     """内存存储：`total` 页，`list_pages` 严格实现键集分页语义。"""
 
     def __init__(self, total: int, cached: bool = True, source: str = "zaimanhua") -> None:
+        #: `touch_comic_sync_time` 被调过的 comic_id（本类只用来满足契约，断言在别处）
+        self.touched: list[int] = []
         self.pages = [
             {
                 "page_id": i,
@@ -87,7 +89,10 @@ class PagingStorage(Storage):
         return None
 
     def upsert_comic(self, detail, fingerprint: str):
-        return 0, True
+        return 0, True, True          # (comic_id, is_new, changed)：新收录必然算"变化"
+
+    def touch_comic_sync_time(self, comic_id: int, when=None) -> None:
+        self.touched.append(comic_id)
 
     def upsert_chapter(self, comic_id: int, chapter):
         return 0, True

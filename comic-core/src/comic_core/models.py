@@ -75,7 +75,15 @@ class ComicListResult:
 
 @dataclass(slots=True)
 class SyncStats:
-    """一次同步任务的统计结果。"""
+    """一次同步任务的统计结果。
+
+    ⚠️ 口径（2026-10-07 改）：
+    - `total_seen`：源站列表里被处理的**条目数**（受 `limit` 截断）；
+    - `new_comics`：**首次收录**的作品数；
+    - `updated_comics`：**本次真有新章节**的已有作品数 —— 扫到但没新章节**不计**
+      （同一时间窗内第二次触发自然是 0，不再把"命中已有行"算成更新）；
+    - `new_chapters` / `failed` 同字面意思。
+    """
 
     source: str
     mode: str = "incremental"

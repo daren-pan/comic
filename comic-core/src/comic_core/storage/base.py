@@ -33,8 +33,24 @@ class Storage(ABC):
         """
 
     @abstractmethod
-    def upsert_comic(self, detail: ComicDetail, fingerprint: str) -> tuple[int, bool]:
-        """写入/更新作品，返回 (comic_id, is_new)。"""
+    def upsert_comic(self, detail: ComicDetail, fingerprint: str) -> tuple[int, bool, bool]:
+        """写入/更新作品，返回 `(comic_id, is_new, changed)`。
+
+        `changed` = **内容真的变了**（标题 / 作者 / 状态 / 分类 / 简介 / 指纹 /
+        最新章节标题 任一变化；新收录恒为 `True`）。
+        **没变化时不写行、也不动 `sync_time`** —— `comic.sync_time` 的语义是
+        「内容最近变化的时刻」（最近更新页的角标就取它），不是"最近被扫到的时刻"。
+        ⚠️ 判定**不含 `cover_url`**：库里存的是落盘后的本地 key，源站给的是外链，
+        两者永远不相等（见 `MySQLComicStore.upsert_comic`）。
+        """
+
+    @abstractmethod
+    def touch_comic_sync_time(self, comic_id: int, when: datetime | None = None) -> None:
+        """把 `comic.sync_time` 刷成 `when`（默认现在）。
+
+        给"行本身没变、但内容变了"的情形用 —— 目前唯一调用点是采集：**来了新章节**
+        但元数据没变（`upsert_comic` 那条 UPDATE 不会走），此时仍要让角标前进。
+        """
 
     @abstractmethod
     def upsert_chapter(self, comic_id: int, chapter: ChapterBrief) -> tuple[int, bool]:

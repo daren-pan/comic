@@ -164,12 +164,9 @@ def _upsert_detail(
     `cached_status=未转存`），随后读图由穿透兜底 `images/transfer.fetch_page_bytes` 按需转存。
     这样避免首采整卷逐章请求源站（258 话 = 258 次），既慢又易触发源站风控。
     """
-    comic_id, is_new = storage.upsert_comic(detail, fp)
-    # 新增 / 更新的记账只在这里做一次（调用方不再各记一遍）
-    if is_new:
-        stats.new_comics += 1
-    else:
-        stats.updated_comics += 1
+    comic_id, is_new, changed = storage.upsert_comic(detail, fp)
+    # ⚠️ 记账挪到"章节写完"之后（见下）：**更新 = 本次真有新章节**，
+    #    扫到但没新章节不算 —— 所以不能在这里就按 is_new 二选一记账。
 
     # 外链封面落盘为图库内相对 key（入库即落盘；失败仅告警，下次同步自愈）
     try:
@@ -203,7 +200,22 @@ def _upsert_detail(
     # 章节**整批**写库：逐章调 upsert_chapter 会变成「N 次建连接」，按需导入整卷时纯属浪费
     # （见 AGENTS.md「硬性约定·性能」）。返回与 sampled 同序。
     written = storage.upsert_chapters(comic_id, sampled)
-    stats.new_chapters += sum(1 for _, is_new in written if is_new)
+    added = sum(1 for _, is_new_ch in written if is_new_ch)
+    stats.new_chapters += added
+
+    # ---- 记账（2026-10-07 改口径）----
+    # 新增 = 首次收录；**更新 = 本次真有新章节**的已有作品。
+    # 于是"同一时间窗内第二次触发、没有新章节"自然显示 更新 0 ——
+    # 不再把"命中了已有行"（内容一字未变）算成更新。
+    if is_new:
+        stats.new_comics += 1
+    elif added:
+        stats.updated_comics += 1
+
+    # `sync_time` = **内容最近变化**的时刻（最近更新页角标 / `sort=updated` 取它）：
+    # 新行与"元数据变了"的情形已由 `upsert_comic` 刷过；这里补"元数据没变、但来了新章节"。
+    if not is_new and added and not changed:
+        storage.touch_comic_sync_time(comic_id)
 
     # 页清单**不在这里登记**（2026-09-21 用户决策）：只入漫画行 + 章节行。
     # 页清单 + 图片字节都等用户打开那一话时才处理（ensure_chapter_pages → fetch_page_bytes），

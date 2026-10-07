@@ -31,6 +31,7 @@ class FakeStorage(Storage):
         self.page_writes = 0                       # upsert_pages 被调用次数
         self.batch_writes = 0                      # upsert_chapters 被调用次数（应为 1，不是 N）
         self.last_batch: list = []                 # 最后一次批量写入的章节号
+        self.touched: list = []                    # touch_comic_sync_time 被调过的 comic_id
 
     # --- 判重（唯一入口：跨源不合并） ---
     def get_comic_id_by_source(self, source, source_comic_id):
@@ -50,10 +51,17 @@ class FakeStorage(Storage):
 
     # --- 写入 ---
     def upsert_comic(self, detail, fingerprint):
-        """判重只看 (源, 源作品 ID)：同源已收录 → 更新原行；否则新增一行（指纹不参与）。"""
+        """判重只看 (源, 源作品 ID)：同源已收录 → 更新原行；否则新增一行（指纹不参与）。
+
+        返回 `(comic_id, is_new, changed)`；`changed` 由存储层比内容字段得出，
+        这里给最小实现：已收录 = 没变化（新收录必然算变化）。
+        """
         if self.same_source_id is not None:
-            return self.same_source_id, False
-        return 999, True
+            return self.same_source_id, False, False
+        return 999, True, True
+
+    def touch_comic_sync_time(self, comic_id, when=None) -> None:
+        self.touched.append(comic_id)
 
     def upsert_chapter(self, comic_id, chapter):
         self.upserted_chapters.append(chapter)
