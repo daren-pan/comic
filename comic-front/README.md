@@ -137,6 +137,7 @@ comic-front/
 | `pages/me/index.vue` | `.fav-grid` 基础态 6 列 → **3 列**；`.row-actions` 竖排提升为基础态；删 900px 断点 |
 | `pages/rank/index.vue` | `.rank` 基础态 2 列 → **1 列**；删 760px 断点 |
 | `pages/comic/index.vue` | hero 提升为移动态（封面 96×128 左上 + 明细右上，横向卡片）；章节 4 列并隐藏序号徽标；删 700px 断点 |
+| `pages/comic/index.vue` hero 信息行 | 去掉「章节：N 话」与「热度 X」，只留「更新 时间」（2026-10-07 用户要求）—— 章节数下面「章节列表（N）」本来就有，hero 里重复；热度保留在排行页 |
 
 **改这里时别踩的坑**
 

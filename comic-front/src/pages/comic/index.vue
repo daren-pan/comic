@@ -110,7 +110,9 @@ function fmtTime(iso: string): string {
             <text class="tag u-span" v-for="t in comic.tags" :key="t">#{{ t }}</text>
           </view>
           <view class="hero-line u-p">作者：{{ comic.author }}</view>
-          <view class="hero-line u-p">章节：{{ chapterCount }} 话 · 热度 {{ comic.heat.toLocaleString() }} · 更新 {{ fmtTime(comic.updatedAt) }}</view>
+          <!-- 2026-10-07 用户要求：这行去掉「章节：N 话」与「热度 X」，只留更新时间
+               （章节数在下面「章节列表（N）」里本来就有，不必在 hero 重复） -->
+          <view class="hero-line u-p">更新 {{ fmtTime(comic.updatedAt) }}</view>
           <view class="hero-line sources u-p">数据来源：<text class="u-em">{{ comic.source }}</text></view>
           <view class="actions">
             <button class="btn u-button" @click="onPrimaryRead">
