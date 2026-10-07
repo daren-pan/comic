@@ -1,4 +1,4 @@
-# 漫阅 · 漫画聚合平台（comic-platform）
+# 聚漫画 · 漫画聚合平台（comic-platform）
 
 面向演示的漫画聚合平台：**多源采集 → 同源判重入库 → REST API → 前端同源托管** 全链路代码。
 存储唯一方案为 **MySQL**（`MySQLStorage` 单实现，`Storage` 抽象作为契约保留），图片统一为**图库内相对 key**。

@@ -97,8 +97,8 @@ onLoad((options) => {
       <view class="auth-card">
         <button class="back u-button" @click="onBack">← 返回</button>
         <view class="brand">
-          <text class="brand-mark u-span">漫</text>
-          <text class="brand-text u-span">漫阅<text class="u-em">COMIC</text></text>
+          <text class="brand-mark u-span">聚</text>
+          <text class="brand-text u-span">聚漫画<text class="u-em">COMIC</text></text>
         </view>
         <view class="title u-h1">{{ mode === 'login' ? '登录' : '注册' }}</view>
         <view class="sub u-p">{{ mode === 'login' ? '登录后可同步收藏到云端' : '创建账号，收藏多端同步' }}</view>

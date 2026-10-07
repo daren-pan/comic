@@ -1,5 +1,5 @@
 {
-  "name": "漫阅",
+  "name": "聚漫画",
   "appid": "",
   "description": "漫画聚合阅读平台",
   "versionName": "0.1.0",
@@ -24,7 +24,7 @@
     "usingComponents": true
   },
   "h5": {
-    "title": "漫阅 · 漫画聚合阅读平台",
+    "title": "聚漫画 · 漫画聚合阅读平台",
     "router": { "base": "./", "mode": "hash" }
   },
   "vueVersion": "3"

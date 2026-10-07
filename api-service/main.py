@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
 # ⚠️ lifespan 里**没有**任何常驻执行器：管理台「定时任务」的**采集**由独立进程
 #    `comic-scheduler` 执行（2026-10-06 从 api 进程里搬出去，见 services/scheduler.py）——
 #    所以 api 重启/重部署不会中断定时采集。上面那个 lifespan 只做一次性残留清理。
-app = FastAPI(title="漫阅 Comic API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="聚漫画 Comic API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )

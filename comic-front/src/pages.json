@@ -17,7 +17,7 @@
   "globalStyle": {
     "navigationStyle": "custom",
     "navigationBarTextStyle": "black",
-    "navigationBarTitleText": "漫阅",
+    "navigationBarTitleText": "聚漫画",
     "navigationBarBackgroundColor": "#ffffff",
     "backgroundColor": "#f6f4f0"
   }

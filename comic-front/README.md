@@ -434,6 +434,14 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 `views` → `heat DESC`；`favorites` → `favorite_count DESC, heat DESC, sync_time DESC`；其余 → `sync_time DESC`。
 排序键都带 `c.sync_time DESC, c.id DESC` 兜底，保证**同分时顺序稳定**（否则翻页会重复 / 漏条）。
 
+## 品牌名：聚漫画
+
+2026-10-07 用户要求**全站改名**「漫阅」→「**聚漫画**」（暂定名）。已改到的位置：
+`index.html` 标题、`pages.json` 的 `navigationBarTitleText`、`manifest.json` 的 `name`/`title`、
+`static/favicon.svg` 的徽标字（漫 → 聚）、登录页品牌（`.brand-mark` + `.brand-text`）、
+抽屉菜单品牌（`.mm-brand`）、首页站标，以及后端 `api-service/main.py` 的 FastAPI 标题（`/docs` 上可见）。
+⚠️ **`comic-web/`（冻结的参考实现）与 `.workbuddy/` 历史日志刻意没改** —— 前者按约定"约定与逻辑一律不动"。
+
 ## 首页区块（每块 3 部 + 「全部」链接）
 
 首页**三类区块一律只放排名最前的 3 部**（`index/index.vue` 的 `TOP_N = 3`）：🔥 热门榜单、⚡ 最新更新、

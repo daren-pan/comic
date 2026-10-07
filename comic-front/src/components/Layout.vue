@@ -178,7 +178,7 @@ watch(() => route.path, () => {
     <view v-if="showMenu" class="menu-mask" :class="{ closing: menuClosing }" @click="closeMenu"></view>
     <view v-if="showMenu" class="mobile-menu" :class="{ closing: menuClosing }" @click.stop>
       <view class="mm-head">
-        <text class="mm-brand u-span">漫阅 <text class="mm-brand-en u-span">COMIC</text></text>
+        <text class="mm-brand u-span">聚漫画 <text class="mm-brand-en u-span">COMIC</text></text>
         <button class="mm-close u-button" @click="closeMenu" aria-label="关闭菜单">×</button>
       </view>
 
