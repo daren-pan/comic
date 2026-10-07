@@ -366,7 +366,10 @@ onUnload(stopPolling)
           <view v-if="form.action === 'sync'" class="form-row">
             <text class="u-label">采集模式</text>
             <Picker class="u-select" :model-value="form.mode" :options="modeOptions" @update:model-value="onMode" />
-            <text class="hint u-span">全量 = 扫榜单全部；增量 = 只取新更新的</text>
+            <text class="hint u-span">
+              全量 = 不看时间窗、从头翻；增量 = 只取新更新的。
+              ⚠️ <text class="u-b">每轮最多翻 5 页（约 100 部）</text>，两种模式一样 —— 要收更多就分批多跑几轮
+            </text>
           </view>
 
           <view v-if="form.action === 'sync'" class="form-row">
@@ -472,7 +475,8 @@ onUnload(stopPolling)
 /* cron 表达式要比时间宽些（要放得下五位星号那种写法）；等宽字体便于对齐五段 */
 .w-cron { width: 210px; font-family: ui-monospace, Menlo, Consolas, monospace; }
 .chips-tight { margin-top: 2px; }
-.hint { color: #8a8175; font-size: 12px; }
+/* 提示行：用主题变量而不是硬编码灰 —— 硬编码在暗色模式下会偏暗看不清 */
+.hint { color: var(--text-2); font-size: 12px; }
 .sw { transform: scale(0.85); }
 
 /* 数据源多选：点一下切换（避免引入自定义组件 + v-model 的多端坑） */

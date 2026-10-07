@@ -280,6 +280,11 @@ onLoad(async (options) => {
                   <input class="u-input" v-model="vm.syncLimit" type="number" min="1" placeholder="不限" />
                 </view>
               </view>
+              <!-- 翻页安全阀（`MAX_PAGES_PER_SYNC = 5`）对增量与全量一视同仁，页面得说清，
+                   否则「全量」会被误读成"扫全库"（2026-10-07 用户反馈） -->
+              <text class="hint u-span">
+                每轮最多翻 <text class="u-b">5 页（约 100 部）</text>，全量 / 增量一样 —— 要收更多就分批多跑几轮
+              </text>
               <button class="btn u-button" :disabled="vm.running || !vm.info.enabled" @click="runSync(vm)">
                 {{ vm.running ? '运行中…' : '触发采集' }}
               </button>
@@ -312,6 +317,9 @@ onLoad(async (options) => {
 
 .lead { color: var(--text-2); font-size: 14px; margin: 0 0 16px; }
 .lead .u-b { color: var(--primary-dark); }
+/* 表单下方的提示行（与定时任务页同构：小字、弱色；`.u-b` 只作加重） */
+.hint { color: var(--text-2); font-size: 12px; }
+.hint .u-b { color: var(--text); }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
 

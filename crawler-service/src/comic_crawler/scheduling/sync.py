@@ -1,7 +1,9 @@
 """采集主流程：增量轮询 / 全量扫描（架构方案 §2.2、§4.4）。
 
 - 增量轮询：抓「最近更新」列表 → 逐部抓详情 → 按 (源, 源作品 ID) 判重入库（新行 or 更新）；
-- 全量扫描：逐页翻完整个源站，兜底校正遗漏与失效（与增量同代码路径，差别只在时间水位）。
+- 全量扫描：不看时间水位、从头翻列表，兜底校正遗漏与失效（与增量同代码路径，差别只在时间水位）。
+  ⚠️ 两者都受 `MAX_PAGES_PER_SYNC`（当前 5 页）约束 —— 全量**不等于**「扫完整个源站」，
+  单轮只覆盖最近更新的前几页；要覆盖更多就分批多跑几轮。
 
 调度**触发**（cron / 轮询 / 分布式锁）不在这里，见 `scheduler.py` 与部署层；
 本模块是「一次同步」的执行逻辑。
@@ -20,7 +22,10 @@ from ..sources.base import CrawlerAdapter
 
 logger = logging.getLogger(__name__)
 
-MAX_PAGES_PER_SYNC = 50  # 单轮同步最多翻页数，防止失控
+#: 单轮同步最多翻几页（安全阀）。2026-10-07 由 50 降到 **5**：一页约 20 部，5 页 ≈ 100 部，
+#: 而每部都要抓详情 + 补齐缺失章节（一部可能几百章），再大就容易一轮跑很久、也更容易撞源站风控。
+#: ⚠️ 这是**硬上限**，对增量与全量一视同仁；要收更多就分批（把 `since` 定早一点、多跑几轮）。
+MAX_PAGES_PER_SYNC = 5
 FIRST_CHAPTERS = None    # 章节采样上限：None = 补齐库内缺失的全部章节（首采收全目录）；页面仍懒下载
 
 
@@ -88,7 +93,11 @@ def incremental_sync(
                 break
             page += 1
             if page > MAX_PAGES_PER_SYNC:
-                logger.warning("已达最大翻页数 %d，提前终止", MAX_PAGES_PER_SYNC)
+                logger.warning(
+                    "已达最大翻页数 %d，提前终止（窗口内可能还有未处理的作品，"
+                    "下一轮请把 since 定早一些分批收）",
+                    MAX_PAGES_PER_SYNC,
+                )
                 break
     finally:
         adapter.post_fetch()
