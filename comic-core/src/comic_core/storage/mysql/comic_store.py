@@ -507,7 +507,11 @@ class MySQLStorage(Storage):
             # 收藏数优先，同数再按热度、再按更新时间 —— 保证排序稳定可分页
             sql += " ORDER BY favorite_count DESC, heat DESC, c.sync_time DESC, c.id DESC"
         else:
-            sql += " ORDER BY c.sync_time DESC"
+            # ⚠️ 必须带 `c.id DESC` 兜底（2026-10-07 补）：`sync_time` 精度到秒，一次采集 /
+            # 一轮定时任务里大量作品会**共享同一秒**（本地 19 部就有 2 组并列）。没有唯一键时
+            # MySQL 对并列行的返回顺序不作保证 → LIMIT/OFFSET 翻页可能重复或漏项，
+            # 前端触底追加就表现为"某页内容插到了列表中间"。
+            sql += " ORDER BY c.sync_time DESC, c.id DESC"
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) AS c FROM (" + sql + ") AS t", params)
