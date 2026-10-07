@@ -40,7 +40,7 @@ comic-front/
 
 | uni 页面路径 | 对应 web 路由 | 页面 | 说明 |
 |---|---|---|---|
-| `pages/index/index` | `/` | 首页 | Banner + 热门榜单 + 最新更新 + 分类精选 |
+| `pages/index/index` | `/` | 首页 | 顶栏（站标「聚漫画」+ 图片轮播播报）+ 热门榜单 + 最新更新 + 分类精选 |
 | `pages/search/index` | `/search` | 分类浏览 / 搜索 | 关键词 + `FilterBar`（标签下拉 + 排序）+ 分页（每页 18 条）；站内搜不到时**搜源站并导入** |
 | `pages/latest/index` | `/latest` | 最近更新 | 卡片网格（`sort=updated`，每页 18 条），带相对时间角标 |
 | `pages/rank/index` | `/rank` | 排行 | **一整条全库榜单**（默认热度降序）+ `FilterBar`；触底追加下一页 |
@@ -441,6 +441,24 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 `static/favicon.svg` 的徽标字（漫 → 聚）、登录页品牌（`.brand-mark` + `.brand-text`）、
 抽屉菜单品牌（`.mm-brand`）、首页站标，以及后端 `api-service/main.py` 的 FastAPI 标题（`/docs` 上可见）。
 ⚠️ **`comic-web/`（冻结的参考实现）与 `.workbuddy/` 历史日志刻意没改** —— 前者按约定"约定与逻辑一律不动"。
+
+## 首页顶栏（站标 + 图片轮播播报）
+
+2026-10-07 用户要求换掉原来的「聚合全网好漫画」hero，改成两栏：
+
+1. **站标**：CSS 徽标（`聚` 方块，与登录页 `.brand-mark` 同构）+ 名称「**聚漫画**」（暂定名）。
+   ⚠️ 没用 `static/favicon.svg` —— 那个图标里是「漫」字，与暂定名不一致；换图片资源时只改这一段。
+2. **播报**：uni 内置 `<swiper autoplay>` 做的**图片轮播**（PPT 式逐张切换，4 秒一张、循环、带指示点），
+   轮番展示「最近更新」的**前 5 部**，点一张进它的详情页。每张两层图（B 方案，2026-10-07 用户选定）：
+   - `.bc-bg`：**同图模糊铺底**（`filter: blur(20px) brightness(0.55)` + `scale(1.15)` 盖住模糊边缘）——
+     竖版封面放进横条时两侧不留白；⚠️ 小程序端若不支持 `filter` 就退化成"未模糊的铺底图"（能看、不报错）；
+   - `.bc-fg`：**完整封面居中**（`mode="aspectFit"`，不裁切）+ 底部渐变文案「《标题》更新至 第 N 话」。
+   ⚠️ 定位用 `top/left/right/bottom` 而不是 `inset`（小程序端 CSS 支持面更稳）。
+
+要点：
+- 数据复用一次请求：`getComics({ sort: 'updated', pageSize: 5 })` → 播报取 5 条，下面「最新更新」区块再 `slice(0, TOP_N)`（3 部），省一次往返；
+- **不用自己写定时器**（`<swiper autoplay>` 自带），自动播由 `pageVisible` 控制：`onShow` 开、`onHide`/`onUnload` 停；
+- ⚠️ 别用"百分比位移"做文字滚动条：`translateY(-100%)` 的 100% 是**轨道自身**高度，一步就滚过全部条目、视口里空白（当天实测踩到，才改成 swiper）。
 
 ## 首页区块（每块 3 部 + 「全部」链接）
 
