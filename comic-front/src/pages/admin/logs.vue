@@ -243,6 +243,8 @@ onLoad(async (options) => {
         <view class="u-table">
           <view class="u-thead">
             <view class="u-tr">
+              <!-- 第一列是展开/收起（只有它可点，见 .c-toggle 与模板注释） -->
+              <view class="c-toggle u-th"></view>
               <view class="c-time u-th">时间</view>
               <view class="c-level u-th">级别</view>
               <view class="c-event u-th">事件</view>
@@ -255,7 +257,18 @@ onLoad(async (options) => {
           </view>
           <view class="u-tbody">
             <template v-for="row in items" :key="row.id">
-              <view class="row u-tr" :class="{ open: expandedId === row.id }" @click="toggle(row)">
+              <!-- ⚠️ **只有第一列这个按钮可点**（原来整行 @click）：
+                   ① 其余列要能**拖选复制**日志文本，整行可点会"一拖就展开/收起"；
+                   ② 不给不可点的地方手型光标。
+                   箭头用字符画（uni 下不要用图标字体/图片）。 -->
+              <view class="row u-tr" :class="{ open: expandedId === row.id }">
+                <view
+                  class="c-toggle u-td"
+                  :title="expandedId === row.id ? '收起详情' : '展开详情'"
+                  @click.stop="toggle(row)"
+                >
+                  <text class="u-span">{{ expandedId === row.id ? '▴' : '▾' }}</text>
+                </view>
                 <view class="c-time mono u-td">{{ row.createdAt }}</view>
                 <view class="c-level u-td"><text class="badge u-span" :class="row.level.toLowerCase()">{{ row.level }}</text></view>
                 <view class="c-event mono u-td">{{ row.event || '—' }}</view>
@@ -390,9 +403,29 @@ onLoad(async (options) => {
   background: var(--surface-2);
 }
 .u-thead .u-th { background: var(--surface-2); color: var(--text-2); font-weight: 600; white-space: nowrap; }
-.row { cursor: pointer; }
+/* ⚠️ 整行**不再**是"可点"的（原来 `.row { cursor: pointer }` + 整行 @click）：
+   可点区域收进第一列的 `.c-toggle`，其余列保持普通光标 —— 否则拖选日志文本时会误触展开/收起。 */
 .row:hover { background: var(--surface-2); }
 .row.open { background: var(--primary-soft); }
+/* 第一列：展开/收起按钮（唯一可点处） */
+.c-toggle {
+  flex: 0 0 30px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--text-2);
+}
+.c-toggle:hover { color: var(--primary); }
+/* 日志是给人看和抄的 → 允许选中复制。uni 在 H5 下默认给整页 `user-select: none`，
+   不显式打开的话拖选不出选区（2026-10-07 用户反馈"想复制粘贴却用不了"）。 */
+.row .u-td, .detail-row, .detail .kv, .trace {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* ⚠️ 必须写在上面那条之后：`.row .u-td` 特异性更高，否则箭头也会变成可选中 */
+.row .u-td.c-toggle {
+  -webkit-user-select: none;
+  user-select: none;
+}
 .mono { font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace; }
 /* 展开行与空态行只有一格 → 让它占满整行（等价原版的 colspan="8"） */
 .u-tr > .empty { flex: 1; }
@@ -468,25 +501,16 @@ onLoad(async (options) => {
   /* ② 表头无意义 —— 卡片每段自带语义 */
   .u-thead { display: none; }
 
-  /* ③ 行 → 可换行卡片；右侧留出展开箭头的位置 */
+  /* ③ 行 → 可换行卡片；展开按钮是第一列的 `.c-toggle`（不再用绝对定位的箭头） */
   .row {
     flex-wrap: wrap;
     align-items: center;
     gap: 4px 8px;
-    padding: 10px 30px 10px 12px;
+    padding: 10px 12px;
     position: relative;
     border-bottom: 1px solid var(--border);
   }
-  /* 展开态指示：绝对定位，不参与 flex 布局（`.row` 已 position:relative） */
-  .row::after {
-    content: '▾';
-    position: absolute;
-    top: 9px;
-    right: 11px;
-    font-size: 11px;
-    color: var(--text-2);
-  }
-  .row.open::after { content: '▴'; }
+  .c-toggle { flex: 0 0 22px; }
 
   .u-th, .u-td { padding: 0; border-bottom: 0; }
   /* ⚠️ 必须重置列宽：桌面的 `flex: 0 0 148px` 是**主轴**方向的基准，卡片主轴仍是横向，
