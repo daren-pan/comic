@@ -287,10 +287,22 @@ let lastSeekEvent: unknown = null
 /** 拖动在"测量回来之前"就结束了 → 测量回调里要立刻补提交，否则会提交到旧页号 */
 let seekEndedPending = false
 
+/**
+ * 取拖动/点击的横坐标。⚠️ **触摸优先**：`touchstart/touchmove` 的坐标在 `touches[0].clientX`，
+ * 事件本身没有 `clientX` —— 只用 `eventX()` 的话手机端每次都算出 0、只能跳到第 1 页
+ * （2026-10-07 用户反馈「手机端没法拖拽只能点击」就是这个原因）。
+ */
+function seekX(e: unknown): number {
+  const t = touchPoint(e)
+  return t ? t.x : eventX(e)
+}
+
 function beginSeek(e: unknown) {
   seeking.value = true
   seekEndedPending = false
   lastSeekEvent = e
+  // 拖动期间别让两根栏按 2.6s 计时自己滑走（松手后 commitSeek 会重新计时）
+  clearTimeout(hideTimer)
   // 桌面鼠标拖动：move/up 可能跑到轨道外面，所以挂到 window 上
   // （触摸不需要 —— touchmove/touchend 会一直投递给 touchstart 的目标元素）
   if (typeof document !== 'undefined') {
@@ -320,7 +332,7 @@ function applyTrackRect(r: { left: number; width: number }) {
 function updateSeek(e: unknown) {
   lastSeekEvent = e
   if (!trackRect || !total.value) return
-  const x = eventX(e)
+  const x = seekX(e)
   const ratio = Math.min(1, Math.max(0, (x - trackRect.left) / trackRect.width))
   seekPage.value = Math.min(total.value, Math.max(1, Math.round(ratio * total.value)))
 }
@@ -349,6 +361,7 @@ function commitSeek() {
   trackRect = null
   lastSeekEvent = null
   goPage(seekPage.value)
+  pokeBar() // 恢复两根栏的自动隐藏计时（beginSeek 里暂停过）
 }
 
 function onKey(e: KeyboardEvent) {
@@ -627,9 +640,8 @@ onBeforeUnmount(() => {
 .reader {
   --reader-bg: #141210;
   --reader-text: #fff;
-  /* 两根栏的占位高度（实测：顶栏 56px、底栏 45px；阅读器没有 safe-area 处理）——
-     图片区让出这两段，栏显示时也不会压到图上。见 `.stage` 的注释。 */
-  --tb-h: 56px;
+  /* 悬浮底栏的高度（实测 45px；阅读器没有 safe-area 处理）。图片满幅、栏盖在图上，
+     这个值只用于**给内容留出不被栏压住的边距**（竖排收尾块的下边距）。 */
   --bb-h: 45px;
   position: fixed;
   top: 0; right: 0; bottom: 0; left: 0;
@@ -659,7 +671,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: linear-gradient(rgba(0,0,0,0.55), transparent);
+  /* 透明化悬浮：只留一层很淡的渐变保证文字可读，漫画从下面透出来（原 0.55 偏重，看着像一块横条） */
+  background: linear-gradient(rgba(0,0,0,0.34), rgba(0,0,0,0));
   z-index: 5;
   transition: opacity 0.25s, transform 0.25s;
 }
@@ -787,14 +800,15 @@ onBeforeUnmount(() => {
 .menu-item:hover { background: var(--primary-soft); }
 .menu-item.on { background: var(--primary); color: #fff; }
 
-/* 阅读区：**夹在两根栏之间**（2026-10-07 用户要求：顶栏/底栏不能遮住漫画图片）。
-   原来是 `.stage { height: 100% }` + 两根栏 `position: fixed` 浮在上面 —— 实测栏显示时
-   顶栏盖住图片上方 36px、底栏盖住下方 25px。现在图片区让出 `--tb-h` / `--bb-h` 这两段。
-   ⚠️ 栏自动隐藏时**不收回**占位：保持图片尺寸稳定，避免每 2.6s 自动隐藏时图片忽大忽小。 */
+/* 阅读区：**吃满全高**，两根栏以半透明形式悬浮在图片之上（2026-10-07 用户要求
+   「顶栏和底栏的背景做成悬浮在漫画上的透明化显示，否则看起来突出一块不美观」）。
+   早先为了"不遮住图片"改成让位（图片夹在两根栏之间）→ 图片变小、两根栏像两块突出的横条；
+   现在改为：图片满幅 + 栏背景透明化（栏里只有文字/按钮/进度条，图片从下面透出来）。
+   `--bb-h` 仍用于竖排收尾块的下边距，避免按钮压在悬浮底栏下面。 */
 .stage {
   position: absolute;
-  top: var(--tb-h);
-  bottom: var(--bb-h);
+  top: 0;
+  bottom: 0;
   left: 0;
   right: 0;
 }
@@ -840,9 +854,9 @@ onBeforeUnmount(() => {
   display: block;
   /* 满幅：手机竖屏下图片按**宽度**铺满，左右不留黑边（原 92vw 会各留 4vw ≈ 16px）。
      桌面等「高度受限」的场景仍由 min() 第二项决定宽度，行为不变。
-     可用高度 = 视口 − 顶栏 − 底栏（原写死 40px，底栏那 45px 没算，所以会被盖住）。 */
-  width: min(100vw, calc((100vh - var(--tb-h) - var(--bb-h)) * 0.705));
-  height: calc(100vh - var(--tb-h) - var(--bb-h));
+     高度直接吃满视口 —— 上下那两段由**半透明悬浮栏**盖着，图片能透出来。 */
+  width: min(100vw, calc(100vh * 0.705));
+  height: 100vh;
   border-radius: 4px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
@@ -870,9 +884,8 @@ onBeforeUnmount(() => {
 .reader.light .zone-hint { color: #1a1a1a; background: rgba(0,0,0,0.06); }
 
 /* ---- 竖排模式：一连串图片 ---- */
-/* 顶部避让改由 `.stage` 的 `top: var(--tb-h)` 负责，这里不再叠一层 padding（否则会空出双份） */
 .vertical-stage { padding-top: 0; overflow: visible; }
-/* 竖排连播的滚动容器：absolute 铺满 stage（stage 本身已让开两根栏）。
+/* 竖排连播的滚动容器：absolute 铺满 stage（stage 已是全高，两根悬浮栏盖在上面）。
    小程序里普通 view 不能滚，滚动必须交给 scroll-view。 */
 .pages-scroll { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
 /* 隐掉滚动条：uni 的 scroll-view 内层在桌面 Chrome 下**会实占 8px 宽**，
@@ -926,7 +939,8 @@ onBeforeUnmount(() => {
   bottom: auto;
   left: auto;
   transform: none;
-  padding: 20px 0 26px;
+  /* 下边距留出悬浮底栏的高度，否则「上一章/下一章」会压在底栏下面点不到 */
+  padding: 20px 0 calc(26px + var(--bb-h));
 }
 .reader.light .end-bar { color: #555; }
 .end-bar .u-p { margin: 0 0 10px; font-size: 14px; letter-spacing: 2px; }
@@ -945,7 +959,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   padding: 10px 16px 14px;
-  background: linear-gradient(transparent, rgba(0,0,0,0.6));
+  /* 同顶栏：透明化悬浮，漫画透出来（原 0.6 偏重） */
+  background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.34));
   z-index: 5;
   transition: opacity 0.25s, transform 0.25s;
 }
@@ -955,7 +970,8 @@ onBeforeUnmount(() => {
   flex: 1;
   height: 5px;
   border-radius: 3px;
-  background: rgba(255,255,255,0.22);
+  /* 悬浮在图上，底色比原来略实一点保证看得见（原 0.22 在浅色漫画上几乎看不见） */
+  background: rgba(255,255,255,0.3);
   cursor: pointer;
   /* 拖动热区放大：5px 高的轨道太细，手指按不准 —— 用伪元素把上下各撑 10px（视觉不变） */
   position: relative;
@@ -990,8 +1006,8 @@ onBeforeUnmount(() => {
   background: linear-gradient(90deg, var(--primary), var(--accent));
   transition: width 0.15s;
 }
-.page-no { color: #fff; font-size: 13px; min-width: 60px; text-align: right; }
-.reader.light .page-no { color: #1a1a1a; }
+.page-no { color: #fff; font-size: 13px; min-width: 60px; text-align: right; text-shadow: 0 1px 3px rgba(0,0,0,0.75); }
+.reader.light .page-no { color: #1a1a1a; text-shadow: none; }
 
 /* 两个弹层（设置 / 目录）的出现动画 —— 原来用 `<transition name="fade">`，
    而**小程序不支持 transition 组件**，改用 CSS 动画（视觉效果一致，离开时直接移除）。 */
