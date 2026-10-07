@@ -41,7 +41,8 @@ const chapterIdx = computed(() => chapters.value.findIndex((c) => c.id === chapt
 const hasPrev = computed(() => chapterIdx.value > 0)
 const hasNext = computed(() => chapterIdx.value >= 0 && chapterIdx.value < chapters.value.length - 1)
 const total = computed(() => pages.value.length)
-const progress = computed(() => (total.value ? Math.round((pageNo.value / total.value) * 100) : 0))
+// 进度条百分比：跟随 `shownPage`（拖动中即预览值），定义见下方「底部进度条」一节
+const progress = computed(() => (total.value ? Math.round((shownPage.value / total.value) * 100) : 0))
 const isVertical = computed(() => mode.value === 'vertical')
 
 // 横向模式懒加载：仅当前页与前后各一页真实渲染
@@ -271,15 +272,83 @@ function onTapZone(e: unknown) {
   else if (x > 0.75) goPage(pageNo.value + 1)
 }
 
-/** 点进度条跳页：原来直接读 `e.clientX` 与 `currentTarget.getBoundingClientRect()`（H5 专有），
- *  这里改成**点击时按需量一次轨道位置**（不是热路径，不必缓存）。 */
-function onSeek(e: unknown) {
+// ---------------- 底部进度条：点击 + **拖动**跳页 ----------------
+// 2026-10-07 用户要求「下方滑动条能够手动滑动到对应页数」——原来只有 `@click` 点击跳页。
+// 拖动中只更新**预览值**（进度条与页码跟着动），**松手才真正翻页**：
+// 竖排模式的 goPage 会滚动定位，若每次 move 都提交会一路狂滚。
+const seeking = ref(false)
+const seekPage = ref(1)
+/** 进度条上显示/驱动的页号：拖动中显示预览值，否则就是真实页号 */
+const shownPage = computed(() => (seeking.value ? seekPage.value : pageNo.value))
+/** 轨道位置缓存：拖动开始时量一次，之后每次 move 同步换算 */
+let trackRect: { left: number; width: number } | null = null
+/** 拖动中最后一次事件（异步测量回来后要拿它补算一次） */
+let lastSeekEvent: unknown = null
+/** 拖动在"测量回来之前"就结束了 → 测量回调里要立刻补提交，否则会提交到旧页号 */
+let seekEndedPending = false
+
+function beginSeek(e: unknown) {
+  seeking.value = true
+  seekEndedPending = false
+  lastSeekEvent = e
+  // 桌面鼠标拖动：move/up 可能跑到轨道外面，所以挂到 window 上
+  // （触摸不需要 —— touchmove/touchend 会一直投递给 touchstart 的目标元素）
+  if (typeof document !== 'undefined') {
+    document.addEventListener('mousemove', onDocMove)
+    document.addEventListener('mouseup', onDocUp)
+  }
+  // H5 直接同步量：`uni.createSelectorQuery` 是异步的，**快速点击**会在测量回来之前就 mouseup，
+  // 于是提交到上一次的页号（实测点 25% 处停在了上一次拖到的 51/73）。
+  const el = typeof document !== 'undefined' ? document.querySelector('#progress-track') : null
+  if (el) {
+    const r = el.getBoundingClientRect()
+    applyTrackRect({ left: r.left, width: r.width })
+  } else {
+    // 小程序等没有 document 的端：走 uni 的异步测量，并在回调里补算 / 补提交
+    measureOne('#progress-track', (r) => {
+      if (r && r.width) applyTrackRect(r)
+    })
+  }
+}
+
+function applyTrackRect(r: { left: number; width: number }) {
+  trackRect = { left: r.left, width: r.width }
+  if (lastSeekEvent) updateSeek(lastSeekEvent)
+  if (seekEndedPending) commitSeek()
+}
+
+function updateSeek(e: unknown) {
+  lastSeekEvent = e
+  if (!trackRect || !total.value) return
   const x = eventX(e)
-  measureOne('#progress-track', (r) => {
-    if (!r || !r.width) return
-    const ratio = Math.min(1, Math.max(0, (x - r.left) / r.width))
-    goPage(Math.max(1, Math.round(ratio * total.value)))
-  })
+  const ratio = Math.min(1, Math.max(0, (x - trackRect.left) / trackRect.width))
+  seekPage.value = Math.min(total.value, Math.max(1, Math.round(ratio * total.value)))
+}
+
+function onDocMove(e: MouseEvent) {
+  if (seeking.value) updateSeek(e)
+}
+
+function onDocUp() {
+  endSeek()
+}
+
+function endSeek() {
+  if (!seeking.value) return
+  seeking.value = false
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('mousemove', onDocMove)
+    document.removeEventListener('mouseup', onDocUp)
+  }
+  if (trackRect) commitSeek()
+  else seekEndedPending = true // 测量还没回来：等 applyTrackRect 补提交
+}
+
+function commitSeek() {
+  seekEndedPending = false
+  trackRect = null
+  lastSeekEvent = null
+  goPage(seekPage.value)
 }
 
 function onKey(e: KeyboardEvent) {
@@ -434,8 +503,8 @@ onBeforeUnmount(() => {
           <view class="main u-p">该话在源站暂无内容</view>
           <view class="sub u-p">源站这一话没有图片数据，换一话看看</view>
           <view class="empty-btns">
-            <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
-            <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
+            <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">上一章</button>
+            <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章</button>
           </view>
         </view>
         <!-- 竖排连播的滚动容器：**小程序里普通 view 不能滚**，必须用 scroll-view
@@ -475,11 +544,13 @@ onBeforeUnmount(() => {
             </view>
           </view>
 
+          <!-- 竖排模式的收尾块：**排在滚动流末尾**（CSS 里 `.vertical-stage .end-bar` 覆盖掉 fixed），
+               否则浮层会盖住最后一页（实测重叠 90px）。按钮不带左右箭头，靠宽度保证文字一行显示全。 -->
           <view v-if="pageNo === total" class="end-bar">
             <view class="u-p">— 本章完 —</view>
             <view class="end-btns">
-              <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
-              <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
+              <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">上一章</button>
+              <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章</button>
             </view>
           </view>
         </scroll-view>
@@ -492,8 +563,8 @@ onBeforeUnmount(() => {
           <view class="main u-p">该话在源站暂无内容</view>
           <view class="sub u-p">源站这一话没有图片数据，换一话看看</view>
           <view class="empty-btns">
-            <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
-            <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
+            <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">上一章</button>
+            <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章</button>
           </view>
         </view>
         <template v-else>
@@ -515,22 +586,38 @@ onBeforeUnmount(() => {
           <view class="zone-hint prev" :class="{ show: pageNo > 1 }">‹</view>
           <view class="zone-hint next" :class="{ show: pageNo < total }">›</view>
 
+          <!-- 横向模式：无滚动可排，收尾块仍是浮层（底栏之上），按钮同样去掉箭头 -->
           <view v-if="pageNo === total" class="end-bar">
             <view class="u-p">— 本章完 —</view>
             <view class="end-btns">
-              <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">← 上一章</button>
-              <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章 →</button>
+              <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">上一章</button>
+              <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章</button>
             </view>
           </view>
         </template>
       </view>
 
-      <!-- 底部进度条 -->
+      <!-- 底部进度条：可点击、也可**拖动**跳页（拖动中显示预览页号，松手才翻页）。
+           ⚠️ 只绑 touch + mouse：uni 的模板编译器**不认 `@pointerdown` 这类 pointer 事件**（静默丢弃，
+              实测处理器根本不触发；根节点上那套 pointer 翻页绑定同理是死的）。
+              触摸覆盖移动端 / 小程序，鼠标覆盖 H5 桌面端。
+           ⚠️ 每个事件都要 `.stop`：否则会冒泡到根节点，触发阅读器自己的点击显隐/左右滑动翻页。 -->
       <view class="bottombar" :class="{ hide: !showBar }" @click.stop>
-        <view id="progress-track" class="progress-track" @click="onSeek">
+        <view
+          id="progress-track"
+          class="progress-track"
+          :class="{ seeking }"
+          @touchstart.stop="beginSeek"
+          @touchmove.stop="updateSeek"
+          @touchend.stop="endSeek"
+          @touchcancel.stop="endSeek"
+          @mousedown.stop="beginSeek"
+        >
           <view class="progress-fill" :style="{ width: progress + '%' }"></view>
+          <!-- 拖动手柄：给个明确的"可以拖"的视觉提示 -->
+          <view class="progress-thumb" :style="{ left: progress + '%' }"></view>
         </view>
-        <text class="page-no u-span">{{ pageNo }} / {{ total }}</text>
+        <text class="page-no u-span">{{ shownPage }} / {{ total }}</text>
       </view>
     </view>
   </Layout>
@@ -540,6 +627,10 @@ onBeforeUnmount(() => {
 .reader {
   --reader-bg: #141210;
   --reader-text: #fff;
+  /* 两根栏的占位高度（实测：顶栏 56px、底栏 45px；阅读器没有 safe-area 处理）——
+     图片区让出这两段，栏显示时也不会压到图上。见 `.stage` 的注释。 */
+  --tb-h: 56px;
+  --bb-h: 45px;
   position: fixed;
   top: 0; right: 0; bottom: 0; left: 0;
   background: var(--reader-bg);
@@ -667,12 +758,17 @@ onBeforeUnmount(() => {
 .chapter-menu {
   position: fixed;
   top: 0; right: 0; bottom: 0;
-  width: min(320px, 85vw);
+  /* 收窄（2026-10-07 用户反馈「几乎把整个页面都占掉」）：原来 min(320px, 85vw) 在 393px
+     视口下就是 320px = **占屏 81%**；现在 min(240px, 66vw) → 240px ≈ 61%，
+     仍是抽屉形态，长标题（如「1. 第2回官方人气投票结果」）放不下就换行。 */
+  width: min(240px, 66vw);
   background: var(--card);
-  padding: 18px 14px;
+  padding: 18px 10px;
   overflow-y: auto;
   z-index: 7;
+  box-shadow: -8px 0 24px rgba(0,0,0,0.35);
 }
+.reader.light .chapter-menu { box-shadow: -8px 0 24px rgba(0,0,0,0.12); }
 .chapter-menu .u-h3 { margin: 0 0 12px; font-size: 16px; }
 .menu-item {
   display: flex;
@@ -691,8 +787,17 @@ onBeforeUnmount(() => {
 .menu-item:hover { background: var(--primary-soft); }
 .menu-item.on { background: var(--primary); color: #fff; }
 
-/* 阅读区 */
-.stage { height: 100%; position: relative; }
+/* 阅读区：**夹在两根栏之间**（2026-10-07 用户要求：顶栏/底栏不能遮住漫画图片）。
+   原来是 `.stage { height: 100% }` + 两根栏 `position: fixed` 浮在上面 —— 实测栏显示时
+   顶栏盖住图片上方 36px、底栏盖住下方 25px。现在图片区让出 `--tb-h` / `--bb-h` 这两段。
+   ⚠️ 栏自动隐藏时**不收回**占位：保持图片尺寸稳定，避免每 2.6s 自动隐藏时图片忽大忽小。 */
+.stage {
+  position: absolute;
+  top: var(--tb-h);
+  bottom: var(--bb-h);
+  left: 0;
+  right: 0;
+}
 .horizontal-stage {
   display: flex;
   align-items: center;
@@ -734,9 +839,10 @@ onBeforeUnmount(() => {
 .horizontal-stage .page-img {
   display: block;
   /* 满幅：手机竖屏下图片按**宽度**铺满，左右不留黑边（原 92vw 会各留 4vw ≈ 16px）。
-     桌面等「高度受限」的场景仍由 min() 第二项决定宽度，行为不变。 */
-  width: min(100vw, calc((100vh - 40px) * 0.705));
-  height: calc(100vh - 40px);
+     桌面等「高度受限」的场景仍由 min() 第二项决定宽度，行为不变。
+     可用高度 = 视口 − 顶栏 − 底栏（原写死 40px，底栏那 45px 没算，所以会被盖住）。 */
+  width: min(100vw, calc((100vh - var(--tb-h) - var(--bb-h)) * 0.705));
+  height: calc(100vh - var(--tb-h) - var(--bb-h));
   border-radius: 4px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
@@ -764,10 +870,11 @@ onBeforeUnmount(() => {
 .reader.light .zone-hint { color: #1a1a1a; background: rgba(0,0,0,0.06); }
 
 /* ---- 竖排模式：一连串图片 ---- */
-.vertical-stage { padding-top: 40px; overflow: visible; }
-/* 竖排连播的滚动容器：absolute 铺满 stage（top:40px 与 .vertical-stage 的 padding-top 对齐，
-   避开固定顶栏）。小程序里普通 view 不能滚，滚动必须交给 scroll-view。 */
-.pages-scroll { position: absolute; top: 40px; left: 0; right: 0; bottom: 0; }
+/* 顶部避让改由 `.stage` 的 `top: var(--tb-h)` 负责，这里不再叠一层 padding（否则会空出双份） */
+.vertical-stage { padding-top: 0; overflow: visible; }
+/* 竖排连播的滚动容器：absolute 铺满 stage（stage 本身已让开两根栏）。
+   小程序里普通 view 不能滚，滚动必须交给 scroll-view。 */
+.pages-scroll { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
 /* 隐掉滚动条：uni 的 scroll-view 内层在桌面 Chrome 下**会实占 8px 宽**，
    于是竖排图片被挤到 382px、右边露出一条黑边（实测 offsetWidth - clientWidth = 8）。
    阅读区是全幅暗色层，滚动条没有意义 —— 进度由底部进度条反映。 */
@@ -811,9 +918,24 @@ onBeforeUnmount(() => {
   color: #ddd;
   z-index: 4;
 }
+/* ⚠️ 竖排连播：收尾块必须**排进滚动流**（覆盖上面的 fixed）——
+   浮层会压在最后一页图片上（实测重叠 90px，2026-10-07 用户反馈）。
+   横排没有滚动空间可排，仍保持浮层（在底栏之上）。 */
+.vertical-stage .end-bar {
+  position: static;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  padding: 20px 0 26px;
+}
 .reader.light .end-bar { color: #555; }
 .end-bar .u-p { margin: 0 0 10px; font-size: 14px; letter-spacing: 2px; }
 .end-btns { display: flex; gap: 10px; justify-content: center; }
+/* 按钮：加宽 + 不换行，保证「上一章 / 下一章」一行显示完整（原来 94×58 = 被挤成两行） */
+.end-btns .btn {
+  min-width: 140px;
+  white-space: nowrap;
+}
 
 /* 底部进度 */
 .bottombar {
@@ -835,7 +957,32 @@ onBeforeUnmount(() => {
   border-radius: 3px;
   background: rgba(255,255,255,0.22);
   cursor: pointer;
+  /* 拖动热区放大：5px 高的轨道太细，手指按不准 —— 用伪元素把上下各撑 10px（视觉不变） */
+  position: relative;
+  touch-action: none;
 }
+.progress-track::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+  left: 0;
+  right: 0;
+}
+/* 拖动手柄：平时半透明小圆点，拖动中放大 —— 让人一眼看出这条能拖 */
+.progress-thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  transition: transform 0.15s;
+}
+.progress-track.seeking .progress-thumb { transform: scale(1.35); }
 .reader.light .progress-track { background: rgba(0,0,0,0.15); }
 .progress-fill {
   height: 100%;

@@ -111,6 +111,9 @@ comic-front/
 | 14 | 页脚 | **整块删除**（品牌行 + 「● 已连接采集服务」状态标签 + 「仅收录…」版权提示）；给底栏清障的 `padding-bottom: 84px` 从 `.footer` **搬到 `.page`** | 用户要求；窄屏下和固定底栏一起挤，一屏剩不下多少内容。⚠️ 清障高度不能跟着页脚一起消失，否则最后一排卡片被底栏压住 |
 | 15 | 管理台三页（≤860px） | 日志页 / 授权页的 flex 表格 → **纵向卡片**（日志页带伸缩展开：点行看全部字段）；采集页 `.grid`/`.maint-row` 的 `minmax(360px,1fr)` → `1fr` | 用户要求「采集和日志页面也要适配移动端，表格列太多可以换成伸缩展开的模式，点击之后可以查看每个日志的详情，**不允许出现横向滑动条**」；详见下文「窄屏不许横向滚动条」 |
 | 16 | 桌面端适配 | **整体删除** —— 桌面专属元素（logo / 顶栏主导航 / 用户胶囊 / 退出 / 登录链接 / 消息下拉浮层 / 页脚）与桌面断点（860 / 900 / 760 / 700px）全部移除，移动态提升为基础态 | 用户要求「comic-front 适配桌面端删掉，移动端启动这个端口、网页端启动 comic-web 端口，端口区分开、改成两个 docker 镜像」；详见下文「桌面端适配已删除」 |
+| 17 | 阅读器顶/底栏遮挡 + 进度条拖动（2026-10-07） | ① 阅读区改为**夹在两根栏之间**（`.stage { top: var(--tb-h); bottom: var(--bb-h) }`，图片高度 `calc(100vh - 顶栏 - 底栏)`）—— 原来 `.stage` 满屏 + 两根栏 `fixed` 浮在上面，实测栏显示时顶栏盖住图片上方 **36px**、底栏盖住下方 **25px**；② 底部进度条由「只能点击」改为**可拖动**（拖动中显示预览页号、松手才 `goPage`，另加拖动手柄） | 用户要求「下方滑动条能够手动滑动到对应页数，顶栏和底栏不能遮住漫画图片」 |
+| 18 | 阅读器竖排收尾块（2026-10-07） | ① `.end-bar` 原是 `position: fixed; bottom: 56px` 的**浮层**，竖排滚到末页会压在最后一页图上（实测重叠 **90px**）→ 用 `.vertical-stage .end-bar { position: static }` 让它**排进滚动流**（横排无滚动空间可排，仍是浮层）；② 两个按钮去掉 `←`/`→`、加 `min-width: 140px` + `white-space: nowrap`（原来 94×58 = 文字被挤成两行） | 用户要求「竖排连播到最后一页按钮还是会挡住最后的图片；简化按钮、加宽让文字显示完整、不需要左右标记」 |
+| 19 | 阅读器章节目录抽屉宽度（2026-10-07） | `min(320px, 85vw)` → **`min(240px, 66vw)`**（393px 视口下 320px = 占屏 **81%** → 240px ≈ **61%**），并加左侧投影区分抽屉边界 | 用户要求「章节目录列表缩窄一些，现在几乎把整个页面都占掉了」 |
 
 ### 桌面端适配已删除（2026-09-23）
 
@@ -199,7 +202,7 @@ H5 与小程序（mp-weixin）共用同一份源码，靠**条件编译 + 只用
 
 | H5 专属 API → 跨端等价物 | 影响面 |
 |---|---|
-| `PointerEvent` → 保留 pointer（H5 桌面拖拽）**+ 新增 touch**，靠 `active` 守卫去重 | 阅读器滑动翻页 |
+| `PointerEvent` → **改用 touch + mouse**（⚠️ 见下条：uni 模板编译器会丢弃 pointer 事件） | 阅读器滑动翻页、进度条拖动 |
 | `requestAnimationFrame` → `setTimeout` 节流 | 竖排连播的当前页推导 |
 | `element.scrollTo` → `scroll-view` 的 `scroll-into-view` | 阅读器跳页 / 切章 |
 | `getBoundingClientRect` → `uni.createSelectorQuery().boundingClientRect` | 当前页推导、进度条跳页 |
@@ -208,6 +211,13 @@ H5 与小程序（mp-weixin）共用同一份源码，靠**条件编译 + 只用
 | `e.clientX` → `eventX()`（H5 取 `clientX`、小程序取 `detail.x`） | 点击热区、进度条 |
 | `@click.self` → **`@click.stop`（遮罩上关闭 + 面板自身 `@click.stop` 拦冒泡）** | 阅读器两个弹层（目录 / 设置） |
 | `<transition>` → CSS `@keyframes` | 消息面板 / toast / 弹层 / 移动端菜单抽屉（小程序不支持 transition 组件） |
+
+⚠️ **uni 的模板编译器会静默丢弃 `@pointerdown` / `@pointermove` / `@pointerup` 这类 pointer 事件**
+（2026-10-07 实测：给进度条绑 pointer 事件后处理器**一次都不触发**，而同一元素的 touch/mouse 绑定正常；
+`uni.createSelectorQuery` 与原生 `PointerEvent` 本身都没问题）。所以阅读器根节点上原有的
+`@pointerdown/@pointerup` 滑动翻页在 H5 桌面端**其实是死的**（触摸端靠 `@touchstart/@touchend` 正常）。
+需要鼠标支持就绑 `@mousedown` 并在拖动期间把 `mousemove/mouseup` 挂到 `document` 上（进度条就是这么做的，
+否则鼠标拖出轨道后松手会卡住）。
 | `window.alert/confirm` → `utils/ui.ts` | 日志页清理确认 |
 | `document` 点击关面板 → 保留 H5 分支 + `#ifndef H5` 透明遮罩 | 顶栏消息中心 |
 | `aspect-ratio` → padding-bottom 比例盒 / 写死高度 | 卡片、书架、缩略图 |
