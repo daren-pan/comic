@@ -23,12 +23,19 @@ import { useTheme } from '../utils/theme'
 const route = useRoute()
 const router = useRouter()
 
+// 顶栏「返回上一层」按钮的显隐：底栏那三个 tab 是**根页面**（没有上一层可回），
+// 其余路由（/comic/:id 详情、/rank、/me、/messages、/admin*…）都是被 push 进来的二级页。
+// ⚠️ 这份列表必须与下方 `tabs` 保持一致（同一个"根页面"概念，分两处写是历史原因）。
+const ROOT_PATHS = ['/', '/latest', '/search']
+const canGoBack = computed(() => !ROOT_PATHS.includes(route.path))
+
 // 主题：模板根 `.app-shell` 挂 `.theme-dark`，整棵子树的 CSS 变量随之切换
-const { isDark, toggleTheme } = useTheme()
+// `setTheme` 供抽屉里的「背景主题」分段控件使用（顶栏那个切换键已于 2026-10-07 移除）
+const { isDark, setTheme } = useTheme()
 
 const keyword = ref('')
 const showMenu = ref(false)      // 菜单是否挂载（v-if）
-const menuClosing = ref(false)   // 是否正在播放「滑回左侧」的收起动画
+const menuClosing = ref(false)   // 是否正在播放「滑回右侧」的收起动画
 
 // 登录态：全局唯一来源 = Pinia user store（登录/登出/401 后自动同步）
 const userStore = useUserStore()
@@ -90,7 +97,7 @@ function tabIcon(path: string, on: boolean): string {
 // 左上角 ☰ 打开。菜单是 fixed 覆盖层、**不占文档流**，所以不会把下面的页面挤下去
 // （旧实现是 .nav 里的普通块级元素，展开会把整页顶下去，已废弃）。
 //
-// 进场/收起都走 CSS 动画（从左侧滑出，见 <style> 里的 drawer-in / drawer-out）：
+// 进场/收起都走 CSS 动画（从**右侧**滑出，见 <style> 里的 drawer-in / drawer-out）：
 // 不用 `<transition>` 组件 —— **小程序不支持**，会被当成未知组件。
 const MENU_ANIM_MS = 240 // 必须与 .mobile-menu / .menu-mask 的 animation-duration 一致
 let menuTimer: ReturnType<typeof setTimeout> | null = null
@@ -154,19 +161,25 @@ watch(() => route.path, () => {
             </button>
           </view>
 
-          <!-- 主题切换：明亮 ↔ 夜间（选择存本地，未选过时跟随系统，见 utils/theme.ts） -->
-          <button
-            class="theme-btn u-button"
-            :class="{ on: isDark }"
-            :title="isDark ? '切换到明亮模式' : '切换到夜间模式'"
-            :aria-label="isDark ? '切换到明亮模式' : '切换到夜间模式'"
-            @click="toggleTheme"
-          >
-            <text class="theme-icon u-span">{{ isDark ? '☀️' : '🌙' }}</text>
-          </button>
+          <!-- 主题切换已**移进抽屉菜单**（2026-10-07 用户要求）：顶栏腾出位置，
+               且「主题」属于设置项而非高频操作。见下方 `.mm-row`。 -->
 
-          <!-- 菜单按钮：左上角 ☰。本端只保留移动形态，故恒显示（不再是窄屏专属）。
-               靠 flex order 排到顶栏最左。 -->
+          <!-- 返回上一层：只在**非底栏 tab 页**显示（漫画详情 / 排行 / 我的 / 消息 / 管理台…）。
+               底栏那三个 tab（首页 / 最近更新 / 分类）是根页面，没有"上一层"可回。
+               `router.back()` 自带兜底（无历史时 redirectTo 首页），直接打开详情链接也不会卡住。
+               ⚠️ 靠 flex order 排到最前（order:0），别改 DOM 顺序 —— 顶栏整体依赖 order 排版。
+               图标用 `❮`（U+276E 重角引号）：同形状但**笔画更粗更醒目** —— 普通 `<` 在 19px 下
+               又细又小（2026-10-07 用户反馈「有点小看着别扭」）。它不是 emoji 码位，按文本字形渲染。 -->
+          <button
+            v-if="canGoBack"
+            class="back-btn u-button"
+            @click="router.back()"
+            aria-label="返回上一层"
+          >❮</button>
+
+          <!-- 菜单按钮：☰。本端只保留移动形态，故恒显示。
+               ⚠️ 2026-10-07 用户要求「顶栏左上方的菜单移到右上方」→ `order: 5`（排在铃铛之后、
+               成为顶栏最右），靠 flex order 定位，DOM 顺序不动。 -->
           <button class="menu-btn u-button" :class="{ on: showMenu }" @click="openMenu" aria-label="菜单">☰</button>
         </view>
       </view>
@@ -194,6 +207,16 @@ watch(() => route.path, () => {
           <button class="mm-login-btn u-button" @click="onLogout(); closeMenu()">退出登录</button>
         </template>
         <button v-else class="mm-login-btn wide u-button" @click="goFromMenu('/login')">登录</button>
+      </view>
+
+      <!-- 背景主题：从顶栏移进抽屉（2026-10-07 用户要求）。选择存本地，
+           未选过时跟随系统，见 utils/theme.ts。用分段控件而不是单个切换键 —— 当前态一眼可见。 -->
+      <view class="mm-row">
+        <text class="mm-row-label u-span">背景主题</text>
+        <view class="mm-seg">
+          <button class="mm-seg-btn u-button" :class="{ on: !isDark }" @click="setTheme('light')">☀️ 明亮</button>
+          <button class="mm-seg-btn u-button" :class="{ on: isDark }" @click="setTheme('dark')">🌙 夜间</button>
+        </view>
       </view>
 
       <view class="mm-list">
@@ -276,8 +299,13 @@ watch(() => route.path, () => {
 /* 按钮固定 28×28 不被压缩，圆形图标居中 —— 否则窄容器下会被 flex 压成扁椭圆 */
 .search-box .u-button { border: none; background: var(--primary); color: #fff; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 999px; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; line-height: 1; padding: 0; }
 
-/* 菜单按钮：恒显示（本端只保留移动形态），靠 order 排到顶栏最左 */
-.menu-btn { display: inline-flex; align-items: center; justify-content: center; order: 1; flex-shrink: 0; border: none; background: none; font-size: 21px; line-height: 1; cursor: pointer; color: var(--text); padding: 0 2px; }
+/* 返回上一层：只在二级页出现，靠 order 排到最前（顶栏最左）。
+   字形用 ❮（重角引号）而不是 < —— 同样方向但笔画粗、视觉尺寸更大，不会显得又细又小；
+   字号取 21px 与 ☰ 一致（❮ 自带较多边距，同字号下比 < 更小，所以不能沿用 19px）。 */
+.back-btn { display: inline-flex; align-items: center; justify-content: center; order: 0; flex-shrink: 0; border: none; background: none; font-size: 21px; line-height: 1; cursor: pointer; color: var(--text); padding: 0 8px 0 0; }
+
+/* 菜单按钮：恒显示（本端只保留移动形态），靠 order 排到顶栏**最右**（铃铛之后） */
+.menu-btn { display: inline-flex; align-items: center; justify-content: center; order: 5; flex-shrink: 0; border: none; background: none; font-size: 21px; line-height: 1; cursor: pointer; color: var(--text); padding: 0 2px; }
 .menu-btn.on { color: var(--primary); }
 
 /* ---- 移动端菜单：二级页面（全屏覆盖层）。
@@ -315,14 +343,20 @@ watch(() => route.path, () => {
 /* 未登录时账号区只有一个按钮，让它照旧占满整条 */
 .mm-login-btn.wide { flex: 1 1 auto; font-size: 14px; padding: 9px 0; }
 .mm-login-btn:hover { background: var(--primary-dark); }
-.mm-list { display: flex; flex-direction: column; padding: 8px 0 0; }
-.mm-list .u-a { padding: 11px 8px; border-radius: 8px; font-weight: 600; color: var(--text-2); }
+
+/* 抽屉里的「背景主题」行（2026-10-07 从顶栏搬进来）：左侧标签 + 右侧分段控件 */
+.mm-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 2px; border-bottom: 1px solid var(--border); }
+.mm-row-label { font-size: 13px; font-weight: 600; color: var(--text-2); }
+.mm-seg { display: flex; gap: 6px; }
+.mm-seg-btn { border: 1px solid var(--border); background: var(--card); color: var(--text-2); font-size: 12px; line-height: 1.2; padding: 6px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.mm-seg-btn.on { border-color: var(--primary); background: var(--primary); color: #fff; }
+.mm-list { display: flex; flex-direction: column; padding: 8px 0 0; }.mm-list .u-a { padding: 11px 8px; border-radius: 8px; font-weight: 600; color: var(--text-2); }
 .mm-list .u-a.on { color: var(--primary); background: var(--primary-soft); }
 
 /* ---- 消息中心 ---- */
 .msg-wrap { position: relative; flex-shrink: 0; }
-/* 顶栏圆形图标按钮：消息铃铛与主题切换**共用同一外形**（要改就改这一处） */
-.msg-btn, .theme-btn {
+/* 顶栏圆形图标按钮（消息铃铛；主题切换已于 2026-10-07 移进抽屉菜单） */
+.msg-btn {
   position: relative;
   width: 36px; height: 36px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -332,14 +366,12 @@ watch(() => route.path, () => {
   cursor: pointer;
   transition: all 0.15s;
 }
-.msg-btn:hover, .msg-btn.on, .theme-btn:hover, .theme-btn.on { border-color: var(--primary); background: var(--primary-soft); }
-.theme-btn { flex-shrink: 0; order: 4; }
+.msg-btn:hover, .msg-btn.on { border-color: var(--primary); background: var(--primary-soft); }
 /* ⚠️ 本端只有移动形态 → 铃铛恒为「跳独立消息页」，**没有**下拉浮层那一套
    （原 .wide-only / .narrow-only 二选一、.msg-panel 浮层、.msg-mask 遮罩、
    以及只服务浮层的 .msg-head/.msg-item 等样式，已随桌面端一并删除）。
    消息条目的样式在 pages/messages/index.vue 里自带一份（scoped）。 */
 .msg-wrap { order: 3; }
-.theme-icon { font-size: 15px; line-height: 1; }
 .msg-icon { font-size: 16px; line-height: 1; }
 .msg-badge {
   position: absolute; top: -4px; right: -4px;
@@ -415,12 +447,12 @@ watch(() => route.path, () => {
 /* 移动端菜单的「滑出 / 滑回」关键帧。
    时长与脚本里的 MENU_ANIM_MS 保持一致 —— 改一处要改两处。 */
 @keyframes drawer-in {
-  from { transform: translateX(-100%); }
+  from { transform: translateX(100%); }
   to { transform: translateX(0); }
 }
 @keyframes drawer-out {
   from { transform: translateX(0); }
-  to { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
 }
 @keyframes mask-in {
   from { opacity: 0; }
@@ -432,7 +464,7 @@ watch(() => route.path, () => {
 }
 
 /* ---- 移动端菜单：全屏覆盖层（二级页面）。fixed 定位，不占文档流 ----
-   抽屉从屏幕**左侧滑出**（而不是原地淡入/弹出）：进场 translateX(-100%) → 0，
+   抽屉从屏幕**右侧滑出**（而不是原地淡入/弹出）：进场 translateX(100%) → 0，
    收起再滑回 -100%，遮罩同步淡入淡出。
    ⚠️ 不用 `<transition>`：小程序不支持该组件；这里用 CSS 动画表达。 */
 .menu-mask {
@@ -447,13 +479,16 @@ watch(() => route.path, () => {
 .mobile-menu {
   display: flex;
   position: fixed;
-  top: 0; bottom: 0; left: 0;
+  /* 2026-10-07 用户要求：抽屉改为**从右侧**移入移出（与 ☰ 挪到顶栏最右一致）。
+     原先是 left: 0 + 向左的投影。 */
+  top: 0; bottom: 0; right: 0;
   z-index: 190;
   width: 76vw;
   max-width: 300px;
   flex-direction: column;
   background: var(--card);
-  box-shadow: 2px 0 18px rgba(60, 40, 20, 0.16);
+  /* 投影朝左（抽屉贴右边缘），原来是朝右的 2px */
+  box-shadow: -2px 0 18px rgba(60, 40, 20, 0.16);
   padding: calc(14px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom));
   overflow-y: auto;
   /* forwards 让收起动画停在屏幕外，等定时器卸载时不会闪一下回到屏内 */
