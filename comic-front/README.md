@@ -138,6 +138,7 @@ comic-front/
 | `pages/rank/index.vue` | `.rank` 基础态 2 列 → **1 列**；删 760px 断点 |
 | `pages/comic/index.vue` | hero 提升为移动态（封面 96×128 左上 + 明细右上，横向卡片）；章节 4 列并隐藏序号徽标；删 700px 断点 |
 | `pages/comic/index.vue` hero 信息行 | 去掉「章节：N 话」与「热度 X」，只留「更新 时间」（2026-10-07 用户要求）—— 章节数下面「章节列表（N）」本来就有，hero 里重复；热度保留在排行页 |
+| `pages/comic/index.vue` hero 标签 | **去掉 `comic.category` 那个 chip**（它是「魔法, 校园」这种原始串，与 tags 是同一批信息、并排会重复）→ **每个标签一个可点 chip**；标签与作者名都可点，跳 `/search?keyword=<词>`（2026-10-07 用户要求）。⚠️ 走 `keyword` 而不是 `category`：后端 keyword 同时匹配 标题/作者/分类/**标签名**，而 `category` 是精确等于某标签名、且搜索页会拿分类下拉校验，非顶层标签会被丢掉 |
 
 **改这里时别踩的坑**
 

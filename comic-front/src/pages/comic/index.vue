@@ -66,6 +66,19 @@ function gotoLogin() {
   router.push({ path: '/login', query: { redirect: route.fullPath } })
 }
 
+/**
+ * 点标签 / 作者 → 搜索页按该条件筛。
+ *
+ * 走 `keyword` 而不是 `category`：后端 `list_comics` 的 keyword 同时匹配
+ * **标题 / 作者 / 分类 / 标签名**（`t.name LIKE`），所以标签和作者都能直达；
+ * 而 `category` 是"精确等于某个标签名"，且搜索页 `applyQuery` 会拿分类下拉的选项校验，
+ * 非顶层分类的标签会被丢掉 —— 所以统一用 keyword 最稳。
+ */
+function goSearch(kw: string) {
+  const k = String(kw || '').trim()
+  if (k) router.push({ path: '/search', query: { keyword: k } })
+}
+
 /** 新标签页打开阅读器：详情页保留在当前标签页（H5 开新标签，其他端退化为同页跳转） */
 function openReader(chapterId: number) {
   openNewTab(`/reader/${comicId}/${chapterId}`)
@@ -104,12 +117,26 @@ function fmtTime(iso: string): string {
         <view class="hero-info">
           <view class="u-h1">{{ comic.title }}</view>
           <view class="hero-meta u-p">
-            <text class="chip u-span">{{ comic.category }}</text>
+            <!-- ⚠️ 这里**不再**放 `comic.category` 那个 chip：它是"魔法, 校园"这种原始串，
+                 与下面的 tags 是同一批信息（tags 就是从它拆出来的），并排显示会重复。
+                 现在**每个标签一个 chip**、都可点 → 搜索页按该标签筛。 -->
             <text class="chip done u-span" v-if="comic.status === '已完结'">{{ comic.status }}</text>
             <text class="chip hot u-span" v-else>{{ comic.status }}</text>
-            <text class="tag u-span" v-for="t in comic.tags" :key="t">#{{ t }}</text>
+            <text
+              class="tag u-span"
+              v-for="t in comic.tags"
+              :key="t"
+              :title="`搜索「${t}」`"
+              @click="goSearch(t)"
+            >{{ t }}</text>
           </view>
-          <view class="hero-line u-p">作者：{{ comic.author }}</view>
+          <view class="hero-line u-p">
+            作者：<text
+              class="u-a author-link"
+              :title="`搜索作者「${comic.author}」`"
+              @click="goSearch(comic.author)"
+            >{{ comic.author }}</text>
+          </view>
           <!-- 2026-10-07 用户要求：这行去掉「章节：N 话」与「热度 X」，只留更新时间
                （章节数在下面「章节列表（N）」里本来就有，不必在 hero 重复） -->
           <view class="hero-line u-p">更新 {{ fmtTime(comic.updatedAt) }}</view>
@@ -164,10 +191,25 @@ function fmtTime(iso: string): string {
 .hero-info { flex: 1; min-width: 0; }
 .hero-info .u-h1 { margin: 0 0 6px; font-size: 17px; }
 .hero-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 6px; }
+/* 作者名是链接（点了进搜索页）：只加**下划线**做可点提示（2026-10-07 用户明确要求：
+   不要改主题色/加粗/箭头，下划线就够）；颜色随正文，指针仍是手型。 */
+.author-link {
+  text-decoration: underline;
+  cursor: pointer;
+}
 /* 状态徽标：底色与文字都取主题变量 —— 写死浅底会在夜间变成「浅底 + 浅字」 */
 .chip.done { background: var(--mute); color: var(--text-2); }
 .chip.hot { background: var(--primary-soft); color: var(--primary-dark); }
-.tag { font-size: 12px; color: var(--text-2); }
+.tag {
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  cursor: pointer;
+}
+.tag:hover { color: var(--primary-dark); border-color: var(--primary); }
 .hero-line { margin: 2px 0; color: var(--text-2); font-size: 12px; }
 .sources .u-em {
   font-style: normal;
