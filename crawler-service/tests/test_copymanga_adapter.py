@@ -29,7 +29,7 @@ if str(SRC) not in sys.path:
 
 from comic_crawler.images.transfer import _host_allowed  # noqa: E402
 from comic_core.models import ChapterBrief, ComicBrief, ComicDetail  # noqa: E402
-from comic_crawler.sources.copymanga.adapter import CopymangaAdapter  # noqa: E402
+from comic_crawler.sources.copymanga.adapter import CopymangaAdapter, sort_page_urls  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # fixture：列表 /api/v3/comics（列表行没有 status；theme 实测恒为空数组）
@@ -339,6 +339,64 @@ class TestCopymangaAdapter(unittest.TestCase):
         self.assertEqual([p.page_no for p in pages], [1, 2])  # 空 url 项被跳过
         self.assertTrue(pages[0].source_url.endswith(".c1500x.jpg"))  # 正文图不剥后缀
         self.assertEqual(pages[0].cached_status, "未转存")
+
+    # ------------------------------------------------------------------
+    # 页序：源站 contents[] 顺序不保证是页序（2026-10-07 用户反馈「尾页跑到中间」）
+    def test_sort_page_urls_by_filename_number(self):
+        """乱序的 contents -> 按文件名首位数字升序（实测线上的乱序形态）。"""
+        base = "https://s.mangafunb.fun/d/x/0f432/"
+        # 末尾几页的时间戳忽高忽低，正是线上观察到的样子
+        given = [
+            base + "1695144936580006.jpg.c1500x.jpg",
+            base + "1695144937860037.jpg.c1500x.jpg",
+            base + "1695144995220028.jpg.c1500x.jpg",
+            base + "1695144993470035.jpg.c1500x.jpg",
+            base + "1695144988300050.jpg.c1500x.jpg",
+        ]
+        got = sort_page_urls(given)
+        self.assertEqual(
+            [u.rsplit("/", 1)[-1][:16] for u in got],
+            ["1695144936580006", "1695144937860037", "1695144988300050",
+             "1695144993470035", "1695144995220028"],
+        )
+
+    def test_sort_page_urls_falls_back_when_key_unusable(self):
+        """文件名没有数字、或数字重复 -> 原样返回源站顺序（不猜，别把正常章节弄乱）。"""
+        no_num = ["https://s.fun/a/cover.jpg", "https://s.fun/a/b.jpg"]
+        self.assertEqual(sort_page_urls(no_num), no_num)
+        dup = ["https://s.fun/a/7.jpg", "https://s.fun/a/7.jpg.c1500x.jpg"]
+        self.assertEqual(sort_page_urls(dup), dup)
+        self.assertEqual(sort_page_urls([]), [])
+
+    def test_fetch_chapter_pages_uses_sorted_order(self):
+        """fetch_chapter_pages 的 page_no 必须落在**排好序**的 URL 上。"""
+        base = "https://s.mangafunb.fun/d/dianjuren/0f432/"
+        # ⚠️ 与既有用例同形：`_FakeApi` 按端点分发，`/chapter2/` 分支返回 mapping["chapter"]，
+        #    而适配器读的是 `res["chapter"]["contents"]` → 这里要包两层
+        shuffled = {
+            "chapter": {
+                "chapter": {
+                    "uuid": "u-1",
+                    "contents": [
+                        {"url": base + "300.jpg.c1500x.jpg"},
+                        {"url": base + "100.jpg.c1500x.jpg"},
+                        {"url": base + "200.jpg.c1500x.jpg"},
+                    ],
+                }
+            }
+        }
+        self.ad._api_get = _FakeApi(shuffled)
+        detail = ComicDetail(source="copymanga", source_comic_id="dianjuren", title="x")
+        chapter = ChapterBrief(
+            source="copymanga", source_comic_id="dianjuren", chapter_no=1,
+            title="第01话", source_chapter_id="u-1",
+        )
+        pages = self.ad.fetch_chapter_pages(detail, chapter)
+        self.assertEqual([p.page_no for p in pages], [1, 2, 3])
+        self.assertEqual(
+            [p.source_url.rsplit("/", 1)[-1] for p in pages],
+            ["100.jpg.c1500x.jpg", "200.jpg.c1500x.jpg", "300.jpg.c1500x.jpg"],
+        )
 
     def test_fetch_source_page_urls_cached(self):
         fake = _FakeApi({"chapter": CHAPTER_JSON})

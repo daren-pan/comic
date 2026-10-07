@@ -53,6 +53,13 @@
 | 所选分组下的每个 chapter（`index` 0 起连续） | `chapter`，`chapter_no = index + 1` |
 | `contents[].url` | `page`（`source_url`，入库不下载） |
 
+⚠️ **`contents[]` 的顺序不保证是页序**（2026-10-07 实测）：某话 54 页里末尾 4 页的时间戳忽高忽低
+（…995220028 → 993470035 → 988300050），按数组顺序编号会让「尾页插到中间」。
+故 `_chapter_urls()` 统一过一遍 `sort_page_urls()`：**按文件名首位数字升序**编号
+（文件名 = `{毫秒时间戳}{3 位序号}.jpg.c1500x.jpg`；该话前 50 页本就是升序，可确认这就是页序口径）；
+数字缺失/重复时**退回源站原顺序**（不猜）。存量乱序数据用
+`tools/fix_copymanga_page_order.py` 重排（见 `tools/README.md`）。
+
 ### 分组怎么选
 
 站点把同一部作品按来源拆成多个组：`default`（默認/連載）、`tankobon`（单行本）、`karapeji`（全彩版）。**只收一个组**

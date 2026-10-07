@@ -93,6 +93,34 @@ REF_HOSTS = ("copy4000.com", "www.copy4000.com")
 
 _DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 
+#: 章节内页文件名开头的数字（形如 `1789016459900016.jpg.c1500x.jpg` = 毫秒时间戳 + 3 位序号）
+_PAGE_KEY_RE = re.compile(r"(\d+)")
+
+
+def sort_page_urls(urls: list[str]) -> list[str]:
+    """把章节内页 URL 按**页序**排好 —— 源站 `contents[]` 的顺序不保证是页序。
+
+    ⚠️ 2026-10-07 实测（用户反馈「copymanga 的章节页加载顺序不对、尾页跑到中间」）：
+    - 线上某话 54 页里，末尾 4 页的时间戳忽高忽低（…995220028 → 993470035 → 988300050）；
+    - 本地库已登记的 21 页那话同样存在乱序。
+    直接按数组顺序编号，`page_no` 就会把尾页排到中间。
+
+    文件名形如 `{毫秒时间戳}{3 位序号}.jpg.c1500x.jpg`，**按首位数字升序即页序**
+    （该话前 50 页本就是升序，可确认这就是源站的页序口径）。
+
+    ⚠️ 数字缺失或有重复时**原样返回源站顺序**（不猜）—— 宁可保持源站给的样子，
+    也不要用一个不可靠的键把本来正常的章节弄乱。
+    """
+    keys: list[int] = []
+    for u in urls:
+        m = _PAGE_KEY_RE.match(u.rsplit("/", 1)[-1])
+        if not m:
+            return list(urls)
+        keys.append(int(m.group(1)))
+    if len(set(keys)) != len(keys):
+        return list(urls)
+    return [u for _, u in sorted(zip(keys, urls), key=lambda kv: kv[0])]
+
 UA_DESKTOP = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -318,16 +346,21 @@ class CopymangaAdapter(CrawlerAdapter):
         return out[:MAX_CHAPTERS]
 
     def _chapter_urls(self, path_word: str, uuid: str) -> list[str]:
-        """章节内页 URL 列表（源站原图，未做转存）。"""
+        """章节内页 URL 列表（源站原图，未做转存）——**已按页序排好**。
+
+        ⚠️ 排序放在这里而不是 `fetch_chapter_pages`：`fetch_source_page_urls`（图床域名迁移时
+        重拉新鲜 URL）也走本方法，两条路必须**同一顺序** —— 转存时是按 `page_no` 与 URL 对位取字节的。
+        """
         res = self._api_get(
             API_CHAPTER.format(path_word=path_word, uuid=uuid), {"platform": 1}
         ) or {}
         contents = ((res.get("chapter") or {}).get("contents")) or []
-        return [
+        urls = [
             str(c.get("url")).strip()
             for c in contents
             if isinstance(c, dict) and str(c.get("url") or "").strip()
         ]
+        return sort_page_urls(urls)
 
     @staticmethod
     def _pick_group(groups: dict) -> str:
