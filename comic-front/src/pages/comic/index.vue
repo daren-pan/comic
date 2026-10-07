@@ -163,6 +163,7 @@ function fmtTime(iso: string): string {
           v-for="(ch, i) in sortedChapters"
           :key="ch.id"
           class="chapter u-button"
+          :title="ch.title"
           @click="read(ch)"
         >
           <text class="no u-span">{{ i + 1 }}</text>
@@ -247,7 +248,13 @@ function fmtTime(iso: string): string {
    （标题本身就是「第 12 话」这样的短语），居中排布。 */
 .chapters {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* ⚠️ 必须 `minmax(0, 1fr)`，不能只写 `1fr`：grid 子项（uni-button）默认 `min-width: auto`，
+     而 `1fr` 轨道的下限就是子项的 min-content —— 章节名里存在「第2回官方人气投票结果」
+     「单行本第6卷特典」这类长标题、且 `.name` 是 nowrap，轨道会被撑成不等宽
+     （实测 100.7 / 136.7 / 100.7 / 106px），4 列合计 468px > 容器 353px → **整页横向溢出**
+     （393px 视口下 scrollWidth 484 vs clientWidth 385）。
+     `minmax(0, …)` 允许轨道收缩到 0，超长标题交给 `.name` 已有的 overflow:hidden + ellipsis 截断。 */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 .chapter {

@@ -150,6 +150,15 @@ comic-front/
 - ⚠️ **`.chapter .no`（序号徽标）是 `display: none`，不是从模板删的**：章节标题本身就是「第 12 话」，
   4 列下每格只剩 ~80px，徽标会占掉一半宽度。留着 `display: none` 是为了保留模板结构、
   便于日后想恢复时只改一行 CSS。
+- ⚠️ **网格列宽一律写 `minmax(0, 1fr)`，别只写 `1fr`**（详情页章节列表就是这么被撑破的）：
+  grid 子项默认 `min-width: auto`，`1fr` 轨道的下限 = 子项的 **min-content**，而章节名里有
+  「第2回官方人气投票结果」「单行本第6卷特典」这类长标题、`.name` 又是 `nowrap` →
+  轨道被撑成**不等宽**（实测 `100.7 / 136.7 / 100.7 / 106px`），4 列合计 468px > 容器 353px，
+  393px 视口下 `scrollWidth 484 vs clientWidth 385` = **整页横向溢出**。
+  改 `minmax(0, 1fr)` 后轨道等宽 `82.25×4`、溢出 0，超长标题交给 `.name` 的
+  `overflow: hidden` + `text-overflow: ellipsis` 截断（并给按钮加了 `:title` 便于悬停看全名）。
+  ⚠️ 排查这类问题的通用手法：`getComputedStyle(grid).gridTemplateColumns` 看**解析后的轨道**——
+  出现不等宽数值就说明是 min-content 在顶，而不是 padding / 宽度写错。
 
 ### uni 内置组件样式归一化（`src/uni-compat.css`）
 
