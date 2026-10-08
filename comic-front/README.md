@@ -467,12 +467,36 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 抽屉菜单品牌（`.mm-brand`）、首页站标，以及后端 `api-service/main.py` 的 FastAPI 标题（`/docs` 上可见）。
 ⚠️ **`comic-web/`（冻结的参考实现）与 `.workbuddy/` 历史日志刻意没改** —— 前者按约定"约定与逻辑一律不动"。
 
+## 季节站标（2026-10-08 新增）
+
+站标（图标 + 字标）按**当前月份**自动切换季节版本，替换了原先的 CSS 徽标 + 文字：
+
+| 季节 | 月份 | 图标 / 字标 |
+|---|---|---|
+| 春 | 3–5 | `icon-spring.png` / `text-spring.png` |
+| 夏 | 6–8 | `icon-summer.png` / `text-summer.png` |
+| 秋 | 9–11 | `icon-autumn.png` / `text-autumn.png` |
+| 冬 | 12–2 | `icon-winter.png` / `text-winter.png` |
+
+- **判断逻辑与资源表**：`src/utils/season.ts`（`getSeason()` / `getSeasonLogo()`），另有干净无装饰的 `*-default.png`（导出为 `LOGO_DEFAULT`）。
+- **图片**：`src/static/logo/`，四季各一套 + 默认版，由 AI 生成（qwen-image 3.0 pro）后按季节命名归档。
+  ⚠️ 已做**透明化处理**（字标去白底、图标去四角白边）—— 否则夜间主题下会露出白块。
+- **接入点**（三处）：
+  - 首页顶栏 `.brand`（`pages/index/index.vue`）→ `.brand-icon`(30px) + `.brand-text`(68×34)；
+  - 抽屉菜单头部 `.mm-brand`（`components/Layout.vue`）→ `.mm-brand-icon`(28px) + `.mm-brand-text`(64×32)；
+  - 登录页品牌 `.brand`（`pages/login/index.vue`）→ `.brand-icon`(38px) + `.brand-text`(86×43)。
+- ⚠️ 站标用的是**带季节装饰**的版本；若缩到 20~30px 嫌糊，改用 `LOGO_DEFAULT`（干净版）即可。
+- ⚠️ 冬季图标 2026-10-08 重做过一版：首版顶部被 AI 画出了一层积雪毛边、破坏圆角，重做时在 prompt 里强调「四边圆角完整、无积雪毛边」并把 `snow drift / frost / jagged white edge / damaged corners` 放进 negative。
+- **favicon 也随季节切换**：`static/logo/favicon-{season}.png`（64×64，由对应季节图标缩放而来），在 `index.html` 的 head 里用**内联同步脚本**按月份改 `link[rel="icon"]` 的 href —— 之所以内联同步执行，是为了避免标签页先闪一下默认图标。
+  ⚠️ 该脚本里的季节规则与 `src/utils/season.ts` 的 `getSeason()` **必须保持一致**（改一处要改两处，脚本注释里已标明）。
+  ⚠️ `static/favicon.svg`（旧的橙色「漫」字版）**已不再被任何地方引用**。
+
 ## 首页顶栏（站标 + 图片轮播播报）
 
 2026-10-07 用户要求换掉原来的「聚合全网好漫画」hero，改成两栏：
 
-1. **站标**：CSS 徽标（`聚` 方块，与登录页 `.brand-mark` 同构）+ 名称「**聚漫画**」（暂定名）。
-   ⚠️ 没用 `static/favicon.svg` —— 那个图标里是「漫」字，与暂定名不一致；换图片资源时只改这一段。
+1. **站标**：**图片**（图标 + 字标），随季节自动切换 —— 见上节「季节站标」。
+   （2026-10-08 之前是 CSS 徽标 `聚` 方块 + 文字，现已替换。）
 2. **播报**：uni 内置 `<swiper autoplay>` 做的**图片轮播**（PPT 式逐张切换，4 秒一张、循环、带指示点），
    轮番展示「最近更新」的**前 5 部**，点一张进它的详情页。每张两层图（B 方案，2026-10-07 用户选定）：
    - `.bc-bg`：**同图模糊铺底**（`filter: blur(20px) brightness(0.55)` + `scale(1.15)` 盖住模糊边缘）——
