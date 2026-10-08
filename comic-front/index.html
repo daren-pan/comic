@@ -4,7 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>聚漫画 · 漫画聚合阅读平台</title>
-    <link rel="icon" type="image/svg+xml" href="./static/favicon.svg" />
+    <link rel="icon" type="image/png" href="./static/logo/favicon-autumn.png" />
+    <!-- favicon 随季节切换（春/夏/秋/冬 各一枚 64×64，见 static/logo/favicon-*.png）。
+         规则与 src/utils/season.ts 的 getSeason() **保持一致**：春 3-5 / 夏 6-8 / 秋 9-11 / 冬 12-2。
+         放在 head 里内联同步执行 —— 越早改掉 href，标签页越不会先闪一下默认图标。 -->
+    <script>
+      (function () {
+        var m = new Date().getMonth() + 1
+        var season =
+          m >= 3 && m <= 5 ? 'spring' :
+          m >= 6 && m <= 8 ? 'summer' :
+          m >= 9 && m <= 11 ? 'autumn' : 'winter'
+        var link = document.querySelector('link[rel="icon"]')
+        if (link) link.href = './static/logo/favicon-' + season + '.png'
+      })()
+    </script>
     <!--preload-links-->
     <!--app-context-->
   </head>
