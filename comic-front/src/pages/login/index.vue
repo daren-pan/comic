@@ -3,9 +3,13 @@ import { ref } from 'vue'
 import { useUserStore } from '../../stores/user'
 import { onLoad } from '@dcloudio/uni-app'
 import { setRoute, useRouter } from '../../utils/router'
+import { getSeasonLogo } from '../../utils/season'
 import Layout from '../../components/Layout.vue'
 
 const router = useRouter()
+
+// 品牌标识随季节切换（与首页顶栏、抽屉同一套资源）
+const logo = getSeasonLogo()
 const userStore = useUserStore()
 const mode = ref<'login' | 'register'>('login')
 const username = ref('')
@@ -97,8 +101,8 @@ onLoad((options) => {
       <view class="auth-card">
         <button class="back u-button" @click="onBack">← 返回</button>
         <view class="brand">
-          <text class="brand-mark u-span">聚</text>
-          <text class="brand-text u-span">聚漫画<text class="u-em">COMIC</text></text>
+          <image class="brand-icon" :src="logo.icon" mode="aspectFit" />
+          <image class="brand-text" :src="logo.text" mode="aspectFit" />
         </view>
         <view class="title u-h1">{{ mode === 'login' ? '登录' : '注册' }}</view>
         <view class="sub u-p">{{ mode === 'login' ? '登录后可同步收藏到云端' : '创建账号，收藏多端同步' }}</view>
@@ -165,14 +169,9 @@ onLoad((options) => {
 }
 .back:hover { color: #166534; }
 .brand { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
-.brand-mark {
-  width: 38px; height: 38px; border-radius: 10px;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  color: #fff; font-weight: 800; font-size: 21px;
-  display: flex; align-items: center; justify-content: center;
-}
-.brand-text { font-weight: 800; font-size: 20px; }
-.brand-text .u-em { font-style: normal; font-size: 12px; color: var(--primary); margin-left: 4px; letter-spacing: 1px; }
+.brand-icon { width: 38px; height: 38px; }
+/* 字标是 2:1 横排图，图上下各留白约 20% —— 高度 43px 时字面高约 26px */
+.brand-text { width: 86px; height: 43px; }
 
 .title { margin: 14px 0 4px; font-size: 24px; }
 .sub { margin: 0 0 22px; color: var(--text-2); font-size: 14px; }

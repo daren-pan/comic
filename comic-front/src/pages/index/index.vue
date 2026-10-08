@@ -5,9 +5,13 @@ import type { CategoryCount, Comic } from '../../types'
 import ComicCard from '../../components/ComicCard.vue'
 import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { setRoute, useRouter } from '../../utils/router'
+import { getSeasonLogo } from '../../utils/season'
 import Layout from '../../components/Layout.vue'
 
 const router = useRouter()
+
+// 站标随季节自动切换（春/夏/秋/冬 各一套图标 + 字标，见 utils/season.ts）
+const logo = getSeasonLogo()
 
 const categories = ref<CategoryCount[]>([])
 const hotComics = ref<Comic[]>([])
@@ -87,8 +91,8 @@ onUnload(() => (pageVisible.value = false))
            （2026-10-07 全站改名：漫阅 → 聚漫画） -->
       <view class="top-bar">
         <view class="brand">
-          <text class="brand-mark u-span">聚</text>
-          <text class="brand-name u-span">聚漫画</text>
+          <image class="brand-icon" :src="logo.icon" mode="aspectFit" />
+          <image class="brand-text" :src="logo.text" mode="aspectFit" />
         </view>
         <view class="broadcast">
           <swiper
@@ -153,8 +157,8 @@ onUnload(() => (pageVisible.value = false))
 
 <style scoped>
 /* ---- 顶栏：站标 + 图片轮播（播报）----
-   ① 站标用 CSS 徽标（与登录页 `.brand-mark` 同构）而不是 static/favicon.svg：
-      那个图标里是「漫」字，与暂定名「聚漫画」不一致；换成图片资源时只改这一段即可。
+   ① 站标 = 图片（图标 + 字标），随季节自动切换，资源见 static/logo/ 与 utils/season.ts。
+      图片已去白底（字标）与四角白边（图标），浅色 / 夜间两种主题下都能用。
    ② 轮播用 uni 内置 `<swiper autoplay>`（PPT 式逐张切换）—— 不用自己写定时器；
       自动播由 `pageVisible` 控制（切到别的 Tab 就暂停）。 */
 .top-bar {
@@ -164,18 +168,9 @@ onUnload(() => (pageVisible.value = false))
   margin-bottom: 14px;
 }
 .brand { display: flex; align-items: center; gap: 8px; }
-.brand-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: var(--primary);
-  color: #fff;
-  font-size: 17px;
-  font-weight: 800;
-  line-height: 30px;
-  text-align: center;
-}
-.brand-name { font-size: 19px; font-weight: 800; letter-spacing: 0.5px; }
+.brand-icon { width: 30px; height: 30px; }
+/* 字标是 2:1 横排图，图上下各留白约 20% —— 高度 34px 时字面高约 20px */
+.brand-text { width: 68px; height: 34px; }
 
 .broadcast { border-radius: 14px; overflow: hidden; background: var(--surface-2); }
 .bc-swiper { height: 260px; }

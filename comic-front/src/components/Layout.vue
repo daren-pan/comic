@@ -19,9 +19,13 @@ import { useUserStore } from '../stores/user'
 import { kindLabel, statusLabel, useMessageStore } from '../stores/message'
 import { TAB_ICONS, TAB_ICONS_DARK } from '../utils/icons'
 import { useTheme } from '../utils/theme'
+import { getSeasonLogo } from '../utils/season'
 
 const route = useRoute()
 const router = useRouter()
+
+// 抽屉里的品牌标识随季节切换（与首页顶栏同一套资源）
+const logo = getSeasonLogo()
 
 // 顶栏「返回上一层」按钮的显隐：底栏那三个 tab 是**根页面**（没有上一层可回），
 // 其余路由（/comic/:id 详情、/rank、/me、/messages、/admin*…）都是被 push 进来的二级页。
@@ -191,7 +195,10 @@ watch(() => route.path, () => {
     <view v-if="showMenu" class="menu-mask" :class="{ closing: menuClosing }" @click="closeMenu"></view>
     <view v-if="showMenu" class="mobile-menu" :class="{ closing: menuClosing }" @click.stop>
       <view class="mm-head">
-        <text class="mm-brand u-span">聚漫画 <text class="mm-brand-en u-span">COMIC</text></text>
+        <view class="mm-brand">
+          <image class="mm-brand-icon" :src="logo.icon" mode="aspectFit" />
+          <image class="mm-brand-text" :src="logo.text" mode="aspectFit" />
+        </view>
         <button class="mm-close u-button" @click="closeMenu" aria-label="关闭菜单">×</button>
       </view>
 
@@ -312,8 +319,9 @@ watch(() => route.path, () => {
    ⚠️ 本端只保留移动形态 → 不再有「默认隐藏、窄屏打开」那套，`.menu-mask` / `.mobile-menu`
    的完整样式定义在文件末尾（无条件生效），这里只放内部元素的样式。 */
 .mm-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px 12px; border-bottom: 1px solid var(--border); }
-.mm-brand { font-weight: 800; font-size: 18px; color: var(--text); }
-.mm-brand-en { font-style: normal; font-size: 11px; color: var(--primary); margin-left: 4px; letter-spacing: 1px; }
+.mm-brand { display: flex; align-items: center; gap: 8px; }
+.mm-brand-icon { width: 28px; height: 28px; }
+.mm-brand-text { width: 64px; height: 32px; }
 .mm-close { border: none; background: none; font-size: 22px; line-height: 1; color: var(--text-2); cursor: pointer; padding: 0 6px; }
 /* 账号区一行：头像 + 昵称（吃掉剩余宽度）+ 右侧「退出登录」窄胶囊。
    .mm-user 的 min-width:0 必须留着，否则长昵称会把按钮挤出抽屉（flex 项默认 min-width:auto）。 */
