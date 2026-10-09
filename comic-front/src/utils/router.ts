@@ -127,12 +127,46 @@ function go(to: NavTarget, replace: boolean): void {
   }
 }
 
+// ---- 层级返回（「上一级」是**写死的树**，不是浏览历史）----
+//
+// 为什么不用 `uni.navigateBack` / `history.back()`：返回目标依赖**运行态**（页面栈 / 浏览器历史），
+// H5 **一刷新这些就没了** —— 彼时返回要么无效、要么落到意料之外的页面（2026-10-09 用户报：
+// 「一刷新页面返回的逻辑就失效」）。层级树不依赖任何运行态：每个二级页的**上级是确定的**，
+// 刷新 / 直接打开链接（如 `#/comic/44`）/ 新标签页打开都成立。
+//
+// ⚠️ 新增二级页要在这里登记上级 —— 它与 STATIC 是**两件事**：STATIC 管「怎么去」（去程映射），
+//    这里管「怎么回」（回程层级）。
+
+/** 静态二级页的固定上级：都回首页；管理台子页回「采集管理」（与顶部选项卡栏的语义一致）。 */
+const PARENTS: Record<string, string> = {
+  '/rank': '/',
+  '/me': '/',
+  '/messages': '/',
+  '/login': '/',
+  '/admin': '/',
+  '/admin/logs': '/admin',
+  '/admin/users': '/admin',
+  '/admin/schedule': '/admin',
+  '/admin/comics': '/admin',
+}
+
+/** 当前路径的**固定上级**（层级返回的目标；不依赖页面栈 / 浏览历史）。 */
+export function parentOf(path: string): string {
+  // 带参数的两类页面：上级能从路径本身推出来
+  const reader = path.match(/^\/reader\/(\d+)(?:\/|$)/)
+  if (reader) return `/comic/${reader[1]}`             // 阅读器 → 它那一部的详情页
+  if (/^\/comic\/\d+$/.test(path)) return '/latest'    // 详情 → 最近更新页（2026-10-09 用户指定）
+  return PARENTS[path] || '/'
+}
+
 /** 同 vue-router 的 router 实例（仅保留项目实际用到的三个方法） */
 export function useRouter() {
   return {
     push: (to: NavTarget) => go(to, false),
     replace: (to: NavTarget) => go(to, true),
-    back: () => uni.navigateBack({ delta: 1, fail: () => uni.redirectTo({ url: '/pages/index/index' }) }),
+    // 「返回上一层」= 跳**固定上级**（`parentOf`）并**替换当前页**：不依赖浏览历史，
+    // 刷新后同样有效；替换而非压栈 —— 来回多次也不会把页面栈越叠越深。
+    back: () => go(parentOf(route.path), true),
   }
 }
 

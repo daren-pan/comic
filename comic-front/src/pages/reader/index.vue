@@ -365,7 +365,7 @@ function commitSeek() {
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') router.push(`/comic/${comicId}`)
+  if (e.key === 'Escape') router.back()   // 层级返回 → 详情页（不依赖浏览历史，见 utils/router.ts）
   else if (isVertical.value) {
     if (e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') goPage(pageNo.value + 1)
     else if (e.key === 'ArrowUp' || e.key === 'PageUp') goPage(pageNo.value - 1)
@@ -454,7 +454,7 @@ onBeforeUnmount(() => {
       <!-- 顶栏 -->
       <view class="topbar" :class="{ hide: !showBar }" @click.stop>
         <view class="tb-left">
-          <button class="icon-btn u-button" @click="router.push(`/comic/${comicId}`)" aria-label="返回">←</button>
+          <button class="icon-btn u-button" @click="router.back()" aria-label="返回">←</button>
           <text class="tb-title u-span">{{ chapter?.title }}</text>
         </view>
         <view class="tb-right">

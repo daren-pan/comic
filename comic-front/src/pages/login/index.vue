@@ -20,6 +20,12 @@ const loading = ref(false)
 
 /** 登录成功后回哪儿：默认「我的」；带了 `?redirect=` 就回那儿（见 `normalizeRedirect`） */
 const redirectTo = ref('/me')
+/**
+ * 「放弃登录」（点返回）的去处：入口都带 `?redirect=`（详情页 / 消息页 / 守卫 / 401），
+ * 带了就回它 —— `redirect` 在 URL 上、**刷新不失效**；没带（直接打开登录页）留空 →
+ * 按层级返回（`router.back()` → 首页）。
+ */
+const backTo = ref('')
 
 /**
  * 收敛 `?redirect=`：**只接受站内绝对路径**，其余一律回默认。
@@ -85,12 +91,16 @@ function toggleMode() {
 }
 
 function onBack() {
-  router.back()
+  // 回「来处」优先（redirect 在 URL 上，刷新也在）；没带就按层级返回（→ 首页）
+  if (backTo.value) router.replace(backTo.value)
+  else router.back()
 }
 // uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）+ 记住"登录后回哪儿"
 onLoad((options) => {
   setRoute('/login', options ?? {})
-  redirectTo.value = normalizeRedirect(options?.redirect)
+  const raw = options?.redirect
+  redirectTo.value = normalizeRedirect(raw)
+  backTo.value = String(raw ?? '').trim() ? normalizeRedirect(raw) : ''
 })
 
 </script>
