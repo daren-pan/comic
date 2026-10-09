@@ -22,6 +22,7 @@ from core.responses import ok
 from core.security import get_current_user, get_optional_user
 from schemas import HistoryPut
 from serializers import to_comic
+from services.catalog import visible_comic
 from services.tags import attach_tags
 
 router = APIRouter(tags=["users"])
@@ -62,8 +63,8 @@ def favorite_state(user_id: UserId, comic_id: int, user: dict = Depends(get_curr
 
 @router.put("/api/users/{user_id}/favorites/{comic_id}")
 def add_favorite(user_id: UserId, comic_id: int, user: dict = Depends(get_current_user)):
-    if not db.get_comic(comic_id):
-        raise HTTPException(status_code=404, detail="comic not found")
+    # 下架的作品不能收藏（与"进不了详情页"同一口径，见 services.catalog）
+    visible_comic(comic_id)
     users.set_favorite(str(user["id"]), comic_id, True)
     return ok({"favorited": True})
 

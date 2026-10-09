@@ -1,24 +1,26 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { getChapter, getChapters, getComic, getHistoryWithDetail, isFavorite, toggleFavorite, upsertHistory } from '../../api'
+import { addComment, deleteComment, getChapter, getChapters, getComic, getComments, getHistoryWithDetail, isFavorite, toggleFavorite, upsertHistory } from '../../api'
 import { useUserStore } from '../../stores/user'
 import { openNewTab, setRoute, useRoute, useRouter } from '../../utils/router'
 import { storage } from '../../utils/storage'
 import Layout from '../../components/Layout.vue'
-import type { Chapter, Comic, HistoryEntry } from '../../types'
+import type { Chapter, Comic, Comment, HistoryEntry } from '../../types'
 
 const route = useRoute()
 const router = useRouter()
 // 路由参数改由 uni 的 onLoad(options) 提供（uni 页面栈没有 vue-router 的 params）
 let comicId = 0
-const { isLoggedIn } = useUserStore()
+const { isLoggedIn, isAdmin } = useUserStore()
 
 const comic = ref<Comic>()
 const chapters = ref<Chapter[]>([])
 const fav = ref(false)
 const loading = ref(true)
 const favNotice = ref(false)
+/** 作品不存在或**已下架**（详情接口 404）→ 整页显示一句人话，而不是干等「加载中…」 */
+const gone = ref(false)
 // 「续读」：本书在「最近阅读」里的那条记录 —— 数据源与「我的书架 · 最近阅读」同一个接口；
 // null = 没读过 → 主按钮显示「▶ 开始阅读」
 const lastRead = ref<(HistoryEntry & { chapterTitle?: string }) | null>(null)
@@ -53,18 +55,30 @@ const sortedChapters = computed(() =>
 )
 
 async function load() {
-  const [c, chs, f, his] = await Promise.all([
-    getComic(comicId),
-    getChapters(comicId),
-    isLoggedIn ? isFavorite(comicId) : Promise.resolve(false),
-    getHistoryWithDetail(),
+  loading.value = true
+  try {
+    comic.value = await getComic(comicId)
+  } catch {
+    // ⚠️ 详情接口 404 有两种原因：**作品已下架**（口径见后端 services/catalog）或 id 不存在。
+    // 后端**故意**让两者返回同一个 404（不暴露"存在但被下架"），所以前端也不区分，统一给一句人话。
+    gone.value = true
+    loading.value = false
+    return
+  }
+  // 其余几路**各自兜底**：任一路失败都不该把整页卡在「加载中…」。
+  // 此前这里是裸的 `Promise.all` —— 一个 401（token 过期时的收藏接口）就让 loading 永远为 true，
+  // 页面白屏只有「加载中…」，实测踩过（见 .workbuddy/memory 2026-10-09）。
+  const [chs, f, his] = await Promise.all([
+    getChapters(comicId).catch(() => [] as Chapter[]),
+    isLoggedIn ? isFavorite(comicId).catch(() => false) : Promise.resolve(false),
+    getHistoryWithDetail().catch(() => [] as HistoryEntry[]),
   ])
-  comic.value = c
   chapters.value = chs
   fav.value = f
   // 同一部作品在历史里只会有一条（历史表按 (user_id, comic_id) 唯一）
   lastRead.value = his.find((h) => h.comicId === comicId) ?? null
   loading.value = false
+  void loadComments()
 }
 
 // uni 页面生命周期：取路由参数 → 登记 web 路径 → 加载数据
@@ -128,11 +142,97 @@ function fmtTime(iso: string): string {
   const d = new Date(iso)
   return `${d.getMonth() + 1}月${d.getDate()}日`
 }
+
+// ---------------- 评论区 ----------------
+//
+// 三件事分得很开（别混）：
+// - **列表**任何人可看；`enabled=false` 时接口照样 200，只是列表空 —— 所以关闭态要
+//   自己显示「评论区已关闭」，不能靠"空列表"猜；
+// - **发表**要登录（未登录按钮换成「登录后可评论」）；后端还会再判一次开关（403）；
+// - **删除**是管理动作，只有管理员看得到按钮（真门在后端 `require_admin`）。
+
+const comments = ref<Comment[]>([])
+const commentTotal = ref(0)
+const commentEnabled = ref(true)
+const commentDraft = ref('')
+const commentLoading = ref(false)
+const commentSending = ref(false)
+const commentNotice = ref('')     // 发表失败时的中文提示（后端文案直出）
+
+/** 还有下一页吗（列表是"加载更多"式追加，不是分页器） */
+const hasMoreComments = computed(() => comments.value.length < commentTotal.value)
+
+/** 评论时间：今天只给时分，其余给「M月D日」（与分组列表的粒度一致） */
+function fmtCommentTime(iso: string): string {
+  const d = new Date(iso)
+  const today = new Date()
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return sameDay ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : `${d.getMonth() + 1}月${d.getDate()}日`
+}
+
+/** 拉评论（`append=false` 重载第一页；失败不打断整页 —— 评论区是"页脚"，不该把人挡在外面） */
+async function loadComments(append = false) {
+  if (commentLoading.value) return
+  commentLoading.value = true
+  try {
+    const page = append ? Math.floor(comments.value.length / 20) + 1 : 1
+    const res = await getComments(comicId, page)
+    comments.value = append ? comments.value.concat(res.items) : res.items
+    commentTotal.value = res.total
+    commentEnabled.value = res.enabled
+  } catch {
+    if (!append) {
+      comments.value = []
+      commentTotal.value = 0
+    }
+  } finally {
+    commentLoading.value = false
+  }
+}
+
+async function sendComment() {
+  const content = commentDraft.value.trim()
+  if (!content || commentSending.value) return
+  commentSending.value = true
+  commentNotice.value = ''
+  try {
+    await addComment(comicId, content)
+    commentDraft.value = ''
+    // 重拉第一页而不是本地插入：作者名等字段的兜底规则只有后端一份（见 serializers.to_comment）
+    await loadComments()
+  } catch (e) {
+    commentNotice.value = e instanceof Error ? e.message : '发表失败'
+  } finally {
+    commentSending.value = false
+  }
+}
+
+async function removeComment(id: number) {
+  commentNotice.value = ''
+  try {
+    await deleteComment(id)
+    await loadComments()
+  } catch (e) {
+    commentNotice.value = e instanceof Error ? e.message : '删除失败'
+  }
+}
+
+function gotoLoginForComment() {
+  router.push({ path: '/login', query: { redirect: route.fullPath } })
+}
 </script>
 
 <template>
   <Layout>
     <view v-if="loading" class="empty">加载中…</view>
+    <view v-else-if="gone" class="empty">
+      <view>作品不存在或已下架</view>
+      <button class="btn ghost u-button back-home" @click="router.push('/')">回首页</button>
+    </view>
     <view v-else-if="comic" class="detail">
       <view class="hero">
         <image mode="aspectFill" class="hero-cover u-img" :src="comic.cover" :alt="comic.title" />
@@ -204,9 +304,64 @@ function fmtTime(iso: string): string {
           <text class="no u-span">{{ i + 1 }}</text>
           <text class="name u-span">{{ ch.title }}</text>
           <!-- 「最近一批入库」的角标（口径见后端 services.chapters.mark_latest_batch）。
-               uni-button 自带 overflow:hidden，所以角标必须落在按钮**内部**，不能溢出到外面。 -->
+               角标绝对定位在按钮内部 —— 见下方 .new 的注释（内缩是为了不跟相邻格子打架，
+               不是因为会被裁）。 -->
           <text v-if="ch.isNew" class="new u-span">NEW</text>
         </button>
+      </view>
+
+      <!-- ============ 评论区 ============
+           列表**任何人可看**；发表要登录；「删除」只给管理员看（真门在后端 require_admin）。
+
+           ⚠️ **关闭时整块不渲染**（连「评论（N）」标题一起）—— 2026-10-09 用户明确：
+           「关闭评论区是把整个评论区都屏蔽掉，而不是单单收起输入框」。
+           所以下面没有"已关闭"的占位提示：那一块根本不存在。
+           开关状态来自列表接口的 `enabled`（全站总开关 AND 单作品开关），
+           所以即使关着也要先拉一次 —— 但拉回来只是**用来判断要不要渲染**。 -->
+      <view v-if="commentEnabled" class="comment-block">
+        <view class="section-title">评论（{{ commentTotal }}）</view>
+        <view class="comments">
+          <view v-if="isLoggedIn" class="c-editor">
+            <textarea
+              class="c-input"
+              v-model="commentDraft"
+              :maxlength="500"
+              placeholder="说点什么…（最多 500 字）"
+            />
+            <view class="c-editor-foot">
+              <text class="c-count u-span">{{ commentDraft.length }}/500</text>
+              <button
+                class="btn u-button"
+                :disabled="commentSending || !commentDraft.trim()"
+                @click="sendComment"
+              >{{ commentSending ? '发表中…' : '发表' }}</button>
+            </view>
+          </view>
+
+          <view v-else class="c-hint u-p">
+            登录后可评论 —
+            <text class="u-a" @click="gotoLoginForComment">去登录</text>
+          </view>
+
+          <view v-if="commentNotice" class="c-notice u-p">{{ commentNotice }}</view>
+
+          <view v-if="!comments.length" class="c-hint u-p">还没有评论，来说两句</view>
+          <view v-for="c in comments" :key="c.id" class="c-item">
+            <view class="c-head">
+              <text class="c-author u-span">{{ c.author }}</text>
+              <text class="c-time u-span">{{ fmtCommentTime(c.createdAt) }}</text>
+              <text v-if="isAdmin" class="c-del u-span" @click="removeComment(c.id)">删除</text>
+            </view>
+            <view class="c-body u-p">{{ c.content }}</view>
+          </view>
+
+          <button
+            v-if="hasMoreComments"
+            class="btn ghost u-button c-more"
+            :disabled="commentLoading"
+            @click="loadComments(true)"
+        >{{ commentLoading ? '加载中…' : `加载更多（还有 ${commentTotal - comments.length} 条）` }}</button>
+        </view>
       </view>
     </view>
   </Layout>
@@ -360,4 +515,43 @@ function fmtTime(iso: string): string {
   font-weight: 700;
   pointer-events: none;
 }
+
+/* ---- 下架 / 不存在（详情接口 404）---- */
+.back-home { margin-top: 14px; padding: 7px 16px; font-size: 13px; }
+
+/* ---- 评论区 ---- */
+.comments { display: flex; flex-direction: column; gap: 10px; }
+
+/* 输入框：uni 的 <textarea> 会渲染成 <uni-textarea>，内层才是原生 textarea ——
+   边框/圆角/背景写在包裹元素上即可（与 pages/admin/index.vue 的 .u-textarea 同一套做法） */
+.c-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 74px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.c-editor-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.c-count { font-size: 12px; color: var(--text-2); }
+.c-editor-foot .btn { margin-left: auto; padding: 6px 16px; font-size: 13px; }
+
+/* 关闭态 / 空态 / 未登录提示 —— 同一种"低调说明"的语汇 */
+.c-hint { font-size: 13px; color: var(--text-2); padding: 10px 12px; background: var(--mute); border-radius: 10px; }
+.c-notice { font-size: 13px; color: var(--primary-dark); background: var(--primary-soft); border-radius: 8px; padding: 8px 12px; }
+
+.c-item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.c-head { display: flex; align-items: center; gap: 8px; }
+.c-author { font-size: 13px; font-weight: 700; color: var(--text); }
+.c-time { font-size: 12px; color: var(--text-2); }
+/* 删除：只有管理员看得到（后端还会再判一次权限） */
+.c-del { margin-left: auto; font-size: 12px; color: var(--text-2); cursor: pointer; }
+.c-del:hover { color: #c0392b; }
+.c-body { margin-top: 4px; font-size: 14px; line-height: 1.7; color: var(--text); word-break: break-word; }
+
+.c-more { align-self: center; padding: 7px 18px; font-size: 13px; margin-top: 2px; }
 </style>

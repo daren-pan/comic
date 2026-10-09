@@ -12,7 +12,8 @@
     { "path": "pages/admin/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/admin/logs", "style": { "navigationStyle": "custom" } },
     { "path": "pages/admin/users", "style": { "navigationStyle": "custom" } },
-    { "path": "pages/admin/schedule", "style": { "navigationStyle": "custom" } }
+    { "path": "pages/admin/schedule", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/admin/comics", "style": { "navigationStyle": "custom" } }
   ],
   "globalStyle": {
     "navigationStyle": "custom",

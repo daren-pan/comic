@@ -57,6 +57,7 @@ const STATIC: Record<string, string> = {
   '/admin/logs': 'pages/admin/logs',
   '/admin/users': 'pages/admin/users',
   '/admin/schedule': 'pages/admin/schedule',
+  '/admin/comics': 'pages/admin/comics',
 }
 
 function withQuery(page: string, query: Record<string, unknown>): string {

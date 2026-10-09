@@ -184,3 +184,28 @@ class MessageBody(BaseModel):
     username: str = Field(default="", max_length=64)
     toUserId: int | None = None
     minRole: Literal["", "user", "admin", "superadmin"] = ""
+
+
+# ---- 评论区 / 作品上下架（2026-10-09 新增）----
+
+class CommentBody(BaseModel):
+    """发表一条评论（`POST /api/comics/{id}/comments`）。
+
+    `content` 上限**与 `comment.content VARCHAR(500)` 对齐** —— 不设上限时超长会一路走到
+    INSERT 才撞列宽（那是 500，入口拦掉是 422）。下限 1：空白评论没有意义；
+    路由还会 `strip()` 后再判一次（全是空格也算空）。
+    """
+
+    content: str = Field(min_length=1, max_length=500)
+
+
+class ComicListingBody(BaseModel):
+    """作品上下架入参：`listed=True` 上架 / `False` 下架。"""
+
+    listed: bool
+
+
+class CommentSwitchBody(BaseModel):
+    """评论开关入参（**单作品**开关与**全站总开关**共用这个形状）。"""
+
+    enabled: bool

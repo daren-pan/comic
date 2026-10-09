@@ -17,6 +17,7 @@ from core.db import db
 from core.responses import ok
 from serializers import to_chapter, to_comic, to_page
 from services.chapters import mark_latest_batch
+from services.catalog import visible_comic
 from services.images import ImagePayload, resolve_cover_image, resolve_page_image
 from services.ondemand import ensure_chapter_pages
 from services.ondemand import search as search_sources
@@ -75,9 +76,11 @@ def comics(category: str | None = None, keyword: str | None = None, sort: str = 
 
 @router.get("/api/comics/{comic_id}")
 def comic_detail(comic_id: int):
+    # 可见性先判：**已下架的作品与"不存在"返回同一个 404**（口径见 services/catalog）。
+    # 页码访问量只给可见作品 +1 —— 下架作品不该因为有人直接打接口而涨热度。
+    visible_comic(comic_id)
     # 浏览 +1 先落库，再重新读取：这样返回热度含本次访问（热度 = 1000 + 浏览 + 2×收藏）
-    if not db.increment_comic_views(comic_id):
-        raise HTTPException(status_code=404, detail="comic not found")
+    db.increment_comic_views(comic_id)
     row = db.get_comic(comic_id)
     attach_tags([row])   # 标签不在 comic 行上：单条也走同一入口注入（见 services.tags）
     return ok(to_comic(row))
@@ -85,6 +88,7 @@ def comic_detail(comic_id: int):
 
 @router.get("/api/comics/{comic_id}/chapters")
 def chapters(comic_id: int):
+    visible_comic(comic_id)   # 下架 → 404，与详情页同一口径
     rows = db.get_chapters(comic_id)
     # 角标口径：最近一批入库的章节（详见 services.chapters）—— 在已取回的行上算，零额外查询
     mark_latest_batch(rows)

@@ -16,6 +16,7 @@
 | `add_admin_task_table.py` | **补 `admin_task` 表**（管理台后台任务落库：状态/结果/**触发账号**/入参快照；DDL 同样从 schema 抠出） | 是（`CREATE TABLE IF NOT EXISTS`，可重跑；回滚 = `DROP TABLE admin_task`） |
 | `add_message_table.py` | **补消息中心两张表 / 两个新列**：`message`（消息流，含收件范围 `to_user_id`/`min_role`）+ `message_read`（**已读按账号各一份**）；老库顺带补列、去掉废弃的 `read_at`。建表 DDL 从 schema 抠出 | 是（建表 + 先查 `information_schema` 再 `ALTER`，可重跑；回滚 = `DROP TABLE message_read`） |
 | `check_schema.py` | **体检：库里的表与 DDL 真源是否一致**（只读不写）。迁移脚本都是"按需"干活 —— 表已存在时只打印「已存在，未改动」，**看不出到底建上没有**；本脚本把 schema 里声明的表名与库里的实际表名对一遍，缺谁一目了然，缺表则退出码 1 | 是（只读；退出码 0 = 齐、1 = 缺表） |
+| `add_comic_listing_and_comment.py` | **补「作品上下架」与「评论区」**：`comic` 加 `listed`（1=上架 / 0=下架）与 `comment_enabled`（单作品评论开关）两列 + 索引 `idx_comic_listed_sync`；建 `comment`（评论正文）与 `app_setting`（全站键值配置，放**全站评论总开关**）两张表 | 是（列/索引先查 `information_schema` 再 `ALTER`，表用 `CREATE TABLE IF NOT EXISTS`，可重跑；⚠️ 回滚要 `DROP` 两张表、**会丢评论数据**） |
 | `add_perf_indexes.py` | **补齐性能索引**：给已有库补上 `comic.idx_comic_sync` / `page.idx_page_cached`（新库由 `mysql_schema.sql` 直接带上） | 是（幂等可重跑；只加索引不动数据，回滚 = `DROP INDEX`） |
 | `add_user_role.py` | **补 `user.role` 列 + 定超级管理员**（角色三档：`superadmin` 管理台+日志+授权页、`admin` 普通管理员、`user` 普通用户）：加列后若库里**没有超管**，把最早的特权用户（无则最早注册的用户）提升为 `superadmin`；`--superadmin <用户名>` 可**转移**超管身份（原超管降为普通管理员） | 是（列已存在则跳过；已有超管则不动。回滚 = 撤销角色 + `DROP COLUMN role`） |
 | `fix_copymanga_page_order.py` | **重排 copymanga 章节的 `page.page_no`**：该源 `contents[]` 顺序不保证是页序（2026-10-07 实测末尾几页时间戳乱序），旧数据表现为「阅读器里尾页跑到中间」。按文件名首位数字升序重排，排序键**复用适配器** `sort_page_urls()`；文件名取不到数字/有重复的章节**跳过并打印**（不猜）。只改 `page_no`，不动 `source_url`/`oss_url`/`cached_status` | 是（重排过再跑 = 0 处）。**默认干跑**，加 `--apply` 才落库；落库前把反向 UPDATE 写到 `backup/` |
@@ -32,6 +33,7 @@ cd crawler-service && .venv/Scripts/python.exe ../tools/add_user_role.py
 cd crawler-service && .venv/Scripts/python.exe ../tools/add_log_table.py
 cd crawler-service && .venv/Scripts/python.exe ../tools/add_admin_task_table.py
 cd crawler-service && .venv/Scripts/python.exe ../tools/add_message_table.py
+cd crawler-service && .venv/Scripts/python.exe ../tools/add_comic_listing_and_comment.py
 cd crawler-service && .venv/Scripts/python.exe ../tools/check_schema.py      # 体检（只读）
 ```
 

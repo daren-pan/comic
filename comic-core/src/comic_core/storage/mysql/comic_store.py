@@ -478,7 +478,15 @@ class MySQLStorage(Storage):
         page: int = 1,
         page_size: int = 12,
         source: str | None = None,
+        listed_only: bool = True,
     ) -> tuple[list[dict], int]:
+        """作品列表（投影见 `_COMIC_COLS`），返回 `(rows, total)`。
+
+        `listed_only`（默认 **True**）：只返回**已上架**的作品。
+        默认过滤是刻意的 —— 这是**面向前台列表**的查询，漏加过滤的后果是
+        「已下架的作品照样出现在首页」（用户可见的 bug）；而数据维护类批处理
+        （封面自愈 / CLI 列表）想连下架的一起扫时，**显式**传 `False` 即可。
+        """
         sql = f"""SELECT {_COMIC_COLS}
                  FROM comic c
                  LEFT JOIN chapter ch ON ch.comic_id = c.id
@@ -487,6 +495,8 @@ class MySQLStorage(Storage):
                  LEFT JOIN favorite f ON f.comic_id = c.id"""
         conds: list[str] = []
         params: list = []
+        if listed_only:
+            conds.append("c.listed = 1")
         if source:
             conds.append("c.source = %s")
             params.append(source)
@@ -573,12 +583,18 @@ class MySQLStorage(Storage):
                 row = cur.fetchone()
         return row
 
-    def get_comics_by_ids(self, comic_ids: list[int]) -> dict[int, dict]:
+    def get_comics_by_ids(
+        self, comic_ids: list[int], listed_only: bool = True
+    ) -> dict[int, dict]:
         """**一次**取多部作品的行（投影与 `get_comic` 完全一致）→ `{comic_id: row}`。
 
         为什么单独提供：收藏 / 历史这类"先拿到一批 id 再取作品"的列表接口，若逐条调
         `get_comic`，代价 = 「一次查询 + 一次建连接」× N —— 与标签 N+1 同一类问题
         （见 `serializers.attach_tags`）。这里压成一条 `WHERE c.id IN (...)`。
+
+        `listed_only`（默认 **True**）：**下架的作品当作"取不到"** —— 收藏 / 历史里
+        就不会出现点进去 404 的死条目（下架口径见 `list_comics`）。
+        数据库那行仍在，重新上架后它自己又出现在收藏 / 历史里。
 
         **不保证返回顺序**（也不为不存在的 id 补占位）：调用方按自己的 id 顺序取用，
         取不到的即视为作品已不存在，自行跳过。
@@ -587,16 +603,45 @@ class MySQLStorage(Storage):
             return {}
         ids = [int(i) for i in comic_ids]
         placeholders = ", ".join(["%s"] * len(ids))
+        cond = " AND c.listed = 1" if listed_only else ""
         sql = f"""SELECT {_COMIC_COLS}
                   FROM comic c
                   LEFT JOIN chapter ch ON ch.comic_id = c.id
                   LEFT JOIN favorite f ON f.comic_id = c.id
-                  WHERE c.id IN ({placeholders}) GROUP BY c.id"""
+                  WHERE c.id IN ({placeholders}){cond} GROUP BY c.id"""
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, ids)
                 rows = list(cur.fetchall())
         return {int(r["id"]): r for r in rows}
+
+    def set_comic_listed(self, comic_id: int, listed: bool) -> bool:
+        """上架 / 下架一部作品，返回**是否真的改到了行**（False = 该 id 不存在）。
+
+        只改 `comic.listed` 一列 —— **不删数据、不动章节**，所以重新上架是即时的；
+        采集侧也不受影响（照旧更新，见 `crawler-service/README.md`）。
+        下架后的可见性口径见 `list_comics`。
+        """
+        return self._set_comic_flag(comic_id, "listed", listed)
+
+    def set_comic_comment_enabled(self, comic_id: int, enabled: bool) -> bool:
+        """开关**单作品**评论区，返回是否真的改到了行。
+
+        ⚠️ 这里只管单作品开关；**全站总开关**在 `app_setting` 表（见 `comment_store`），
+        两者是 AND 关系 —— 总开关关着时，把单作品打开也不会放行。
+        """
+        return self._set_comic_flag(comic_id, "comment_enabled", enabled)
+
+    def _set_comic_flag(self, comic_id: int, column: str, value: bool) -> bool:
+        """把 `comic.<column>` 置 0/1。列名来自**本文件内的常量调用**，不接外部输入。"""
+        assert column in ("listed", "comment_enabled"), column
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE comic SET {column} = %s WHERE id = %s",
+                    (1 if value else 0, int(comic_id)),
+                )
+                return cur.rowcount > 0
 
     def get_comic_source(self, comic_id: int) -> str | None:
         """该行的收录源（`comic.source`，None = 不存在）。

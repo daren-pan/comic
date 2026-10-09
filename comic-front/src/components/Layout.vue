@@ -233,6 +233,9 @@ watch(() => route.path, () => {
         <view class="u-a" :class="{ on: route.path === '/rank' }" @click="goFromMenu('/rank')">排行</view>
         <view class="u-a" :class="{ on: route.path === '/me' }" @click="goFromMenu('/me')">我的收藏与历史</view>
         <view v-if="isAdmin" class="u-a" :class="{ on: route.path === '/admin' }" @click="goFromMenu('/admin')">采集管理</view>
+        <!-- ⚠️ 「作品管理」不在菜单里 —— 它是管理台那一栏选项卡的第 2 个
+             （见 components/AdminTabs.vue；与「定时任务」「运行日志」同一处理）。
+             管理台的抽屉入口保持一个「采集管理」。 -->
         <view v-if="isSuperAdmin" class="u-a" :class="{ on: route.path === '/admin/users' }" @click="goFromMenu('/admin/users')">授权管理</view>
       </view>
     </view>

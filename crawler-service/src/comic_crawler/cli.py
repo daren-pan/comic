@@ -58,7 +58,9 @@ def cmd_list(_: argparse.Namespace) -> int:
 def cmd_show(_args: argparse.Namespace) -> int:
     storage = MySQLStorage()
     print(f"\n库内作品（MySQL: {storage.dsn['host']}:{storage.dsn['port']}/{storage.dsn['database']}）:")
-    items, _ = storage.list_comics(page=1, page_size=1000)
+    # `listed_only=False`：这是**运维视角的全库清单**，下架的作品也要看得见
+    # （前台口径才是"只列已上架"，见 comic_core.storage.mysql.comic_store.list_comics）
+    items, _ = storage.list_comics(page=1, page_size=1000, listed_only=False)
     for row in items:
         print(
             f"  #{row['id']} [{row['source']}] {row['title']} - {row['author']} "

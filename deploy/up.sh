@@ -240,7 +240,7 @@ if [ "$MIGRATE" = "1" ]; then
   step "[4.5] 迁移已有库（幂等；全新库可跳过）"
   echo "   挂载 ../tools 与 ../comic-core/sql 到容器，逐个跑（都支持重复执行）"
   for t in add_log_table.py add_perf_indexes.py drop_fingerprint_unique.py add_user_role.py \
-           add_admin_task_table.py add_message_table.py; do
+           add_admin_task_table.py add_message_table.py add_comic_listing_and_comment.py; do
     echo "   → tools/$t"
     compose run --rm "${MIGRATE_MOUNTS[@]}" comic-app python "tools/$t" \
       || die "tools/$t 失败 —— 单独跑它看详细输出：

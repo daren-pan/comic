@@ -37,6 +37,39 @@ export interface PageInfo {
   height: number
 }
 
+/** 评论区（`/api/comics/:id/comments`）。 */
+export interface Comment {
+  id: number
+  content: string
+  /** 作者昵称；**作者账号已删 = 「已注销用户」**（兜底文案在后端，见 serializers.to_comment） */
+  author: string
+  authorId: string
+  createdAt: string
+}
+
+export interface CommentPage {
+  items: Comment[]
+  total: number
+  page: number
+  pageSize: number
+  /** 该作品当前**能否评论** = 全站总开关 AND 单作品开关（见后端 `services.comments`） */
+  enabled: boolean
+}
+
+/** 管理台「作品管理」行：`Comic` + 三个治理字段（**只给管理台**，前台契约不带）。 */
+export interface AdminComic extends Comic {
+  listed: boolean          // 上架状态（true = 上架）
+  commentEnabled: boolean  // 单作品评论开关
+  sourceComicId: string    // 源站作品 ID（「补全章节」按它精确定位，见 pages/admin/comics.vue）
+}
+
+export interface AdminComicPage {
+  items: AdminComic[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export interface PageResult<T> {
   items: T[]
   total: number

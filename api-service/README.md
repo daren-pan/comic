@@ -52,6 +52,8 @@ api-service/
 | `GET /api/comics?category=&keyword=&sort=updated\|views\|favorites&page=&page_size=` | 作品列表：分类 / 关键词 / 排序 / 分页（`sort=views` = 按热度倒序，同分再按最近更新倒序；`sort=favorites` = 按收藏数倒序，同数再按热度、更新时间） |
 | `GET /api/comics/{id}` | 作品详情（**浏览次数 +1 落库**后返回，`heat` 含本次访问） |
 | `GET /api/comics/{id}/chapters` | 章节列表（`chapter_no` 升序；**不含页数**，原因见 crawler-service README） |
+| `GET /api/comics/{id}/comments?page=&page_size=` | **评论列表**（最新在前）+ 总数 + `enabled`（该作品能否评论）。**任何人可看**；评论区关闭时**照常 200**（列表空 + `enabled=false`），前端据此**整块不渲染** |
+| `POST /api/comics/{id}/comments` | **发表评论**，body `{content}`（≤500 字）；**需登录**（未登录 401），评论区关闭 403 |
 | `GET /api/chapters/{id}/pages` | 分页图片列表；库内还没有页清单时**现场登记一次**（首次打开这一话才产生） |
 | `GET /api/covers/{id}` | 封面（真实文件优先，缺失生成 SVG）；`Cache-Control: max-age=3600` + `ETag`，占位图 `no-store` |
 | `GET /api/images/{comic_id}/{chapter_id}/{page_no}` | 分页图**三级兜底**：本地图库 → **穿透源站取这一张并顺手落盘** → SVG 占位。命中图库时 7 天长缓存 |
@@ -59,9 +61,9 @@ api-service/
 | `GET/PUT/DELETE /api/users/{user_id}/favorites[/{comic_id}]` | 收藏查询 / 添加 / 取消（`PUT` 幂等）；**需登录**，归属以 token 为准 |
 | `GET/PUT /api/users/{user_id}/history` · `DELETE .../history/{comic_id}` | 阅读历史：查询 / 写进度 / 删除。归属：带 token → 账号 id，否则匿名 id；写入先校验章节属于该作品（不匹配 404） |
 | `GET /api/admin/sources` · `POST /api/admin/sources/{name}/toggle` | 数据源列表（启用态 / 库内数 / 上次同步）/ 切换采集开关（持久化，重启不丢） |
-| `POST /api/admin/sync` | 触发采集，body `{source, mode, since?, limit?}`（`since` **优先于同步水位**），返回 `taskId` |
+| `POST /api/admin/sync` | 触发采集，body `{source, mode, since?, limit?}`（`since` **优先于同步水位**），返回 `taskId`。⚠️ 收尾后给**收藏了本次更新作品**的用户各发一条「更新了」消息（`comic_core.fanout`，与定时执行器共用同一份分发逻辑） |
 | `POST /api/admin/inspect` | 触发**全库**失效巡检（全库维护的唯一入口），body `{source?, since?, until?}`。三步：转存未转存页 + **全表**校验已转存对象（缺失恢复）+ 全库封面自愈 |
-| `POST /api/admin/import` | **按需导入单部作品**，body `{source, keyword?\|ref?\|source_comic_id?}`（三选一定位）。收录榜单之外的作品、全量收目录、**不下载正文图** |
+| `POST /api/admin/import` | **按需导入单部作品**，body `{source, keyword?\|ref?\|source_comic_id?}`（三选一定位）。收录榜单之外的作品、全量收目录、**不下载正文图**。⚠️ 对**已入库**作品重复导入是**幂等补章**（补齐库内缺失的所有章节）—— 管理台「作品管理」页的「补全章节」即复用此接口 |
 | `POST /api/admin/heal-covers` | **按作品强制封面自愈**，body `{keyword, source?}`（`keyword` 必填 = 名称或 ID，可多个）。跳过「文件在即健康」判断，专治**「封面文件在但内容是错的」** |
 | `GET /api/admin/tasks[/{task_id}]` | 后台任务状态轮询（running / done / failed + 结果统计）；`?limit=&mine=`（`mine=true` 只看自己触发的）。⚠️ 前端**消息中心**已覆盖"任务历史"这一用途（见下条），这个端点留给外部/调试用 |
 | `GET /api/messages?limit=&unread_only=` | **消息中心**列表 + 未读数（一次拿回）：**发给当前账号的**消息 + 正在跑的任务（仅管理员） |
@@ -71,6 +73,12 @@ api-service/
 | `GET /api/admin/logs` | 运行日志查询（`log_record`）：级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / 时间窗 + 分页 |
 | `GET /api/admin/logs/{id}` · `/options` · `POST /logs/purge?days=` | 单条日志（含堆栈全文）· 筛选候选值 · 删除 N 天前的日志 |
 | `GET /api/admin/users` · `POST /api/admin/users/{id}/role` | 授权页：用户列表（关键字 + 分页）· 设置角色（`admin` / `user`；**改自己会被拒**） |
+| `GET /api/admin/comics?keyword=&page=&page_size=` | **作品管理**：作品列表（**含已下架的** —— 管理台正是要看到它们才能重新上架），带 `listed` / `commentEnabled` |
+| `POST /api/admin/comics/{id}/listing` | **上架 / 下架**，body `{listed}`。只改一个标记、**不删数据**；下架后前台立刻不可见（列表 / 搜索 / 收藏 / 历史 / 详情页 404） |
+| `POST /api/admin/comics/{id}/comment` | **单作品评论开关**，body `{enabled}`。⚠️ 打开 ≠ 能评论（还要看全站总开关，两者是 AND） |
+| `GET` · `PUT /api/admin/settings/comment` | **全站评论总开关**（存在 `app_setting` 表；关掉 = 所有作品一起停，单作品开关保持原样） |
+| `GET /api/admin/comics/{id}/comments` | 某部作品的评论（**管理视角**：下架的作品也能看到并清理） |
+| `DELETE /api/admin/comments/{id}` | 删除一条评论（**物理删除**，不可恢复） |
 
 ## 基础命令
 

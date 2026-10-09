@@ -163,7 +163,9 @@ def heal_covers(
         # 按作品筛选：只取命中行（id 走主键、标题走 LIKE），不整表拉取
         rows = storage.find_comics(comic_ids=comic_ids, title_like=title_like, source=source)
     else:
-        rows, _ = storage.list_comics(page=1, page_size=10000, source=source)
+        # `listed_only=False`：封面自愈是**数据完整性**维护，与作品是否上架无关 ——
+        # 下架的作品重新上架时封面也该是好的（前台列表才会过滤下架，那是展示口径）
+        rows, _ = storage.list_comics(page=1, page_size=10000, source=source, listed_only=False)
     need_refetch: dict[str, list[dict]] = {}  # source -> 需回源取封面的漫画行
 
     for row in rows:

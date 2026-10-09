@@ -59,6 +59,43 @@ def to_chapter(row: dict) -> dict:
     }
 
 
+def to_admin_comic(row: dict) -> dict:
+    """管理台「作品管理」行的契约：在 `to_comic` 之上补三个**治理字段**。
+
+    `listed`（上架状态）/ `commentEnabled`（单作品评论开关）/ `sourceComicId`（源站作品 ID）
+    **只给管理台** —— 前台契约（`to_comic`）不带它们：普通用户拿不到、也不需要知道哪部被下架了。
+    `sourceComicId`：「补全章节」按 `(源, 源作品 ID)` 复用「按需导入」`POST /api/admin/import`
+    精确补章（源站搜索可能重名，只有 ID 是精确的）。
+
+    `to_comic` 需要调用方先注入 `tags`；管理台列表不显示标签，所以这里**不注入**
+    （省一条批量查询），`tags` 出来是空数组。
+    """
+    out = to_comic(row)
+    out["listed"] = bool(int(row.get("listed") or 0))
+    out["commentEnabled"] = bool(int(row.get("comment_enabled") or 0))
+    out["sourceComicId"] = str(row.get("source_comic_id") or "")
+    return out
+
+
+def to_comment(row: dict) -> dict:
+    """评论行 → 前端契约。
+
+    作者名取 `nickname`、空则退回 `username`；**两者都空 = 账号已被删**
+    （读取侧是 `LEFT JOIN user`，没命中就是 NULL）→ 显示「已注销用户」。
+    这句兜底**刻意写在后端**：三端（网页 / H5 / 小程序）拿到的是同一份文案，不必各写一遍。
+
+    `createdAt` 给原始 DATETIME（与 `to_chapter.createdAt` 同一处理），前端自己格式化。
+    """
+    name = (row.get("nickname") or "").strip() or (row.get("username") or "").strip()
+    return {
+        "id": int(row["id"]),
+        "content": row["content"],
+        "author": name or "已注销用户",
+        "authorId": str(row.get("user_id") or ""),
+        "createdAt": row["created_at"],
+    }
+
+
 def to_page(row: dict, comic_id: int, chapter_id: int) -> dict:
     return {
         "pageNo": row["page_no"],

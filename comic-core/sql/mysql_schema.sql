@@ -30,6 +30,15 @@ CREATE TABLE IF NOT EXISTS comic (
     sync_time DATETIME NOT NULL,
     -- addtime: 首次收录时间（第一次同步写入，之后不再更新）
     addtime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- listed: 1 = 上架（前台可见），0 = **下架**。
+    --   下架后列表 / 搜索 / 收藏 / 历史都不再出现，**详情页直接 404**（用户 2026-10-09 决策：
+    --   「无法搜索到该作品并进入详情页」）。下架只改这一列、**不删数据**，重新上架即恢复；
+    --   采集侧**照旧更新**（与上架状态无关，见 crawler-service/README.md）。
+    listed TINYINT NOT NULL DEFAULT 1,
+    -- comment_enabled: 该作品是否开放评论（1/0）。
+    --   ⚠️ 这是**单作品**开关；**全站总开关**存在 `app_setting` 表的 `comment_enabled` 键上，
+    --   有效值 = 总开关 AND 本列（见 `storage/mysql/comment_store.effective_enabled`）。
+    comment_enabled TINYINT NOT NULL DEFAULT 1,
     -- 判重只看 uk_source_comic（同源精确判重）。fingerprint 是"这几行可能是同一部作品"的
     -- 观测标记（归一化标题 + 作者），**刻意不是唯一键**：不同源 / 不同译本（繁简、中日英）
     -- 各占一行、各记各自章节进度（用户 2026-09-16 决策，见 docs/architecture.md §2.3）。
@@ -37,7 +46,11 @@ CREATE TABLE IF NOT EXISTS comic (
     UNIQUE KEY uk_source_comic (source, source_comic_id),
     -- 列表默认按最近更新倒序（sort=updated），无索引则每次列表页都 filesort；
     -- 大数据量下这是最常走的排序路径，必须有索引（见 AGENTS.md「硬性约定·性能」）。
-    KEY idx_comic_sync (sync_time)
+    KEY idx_comic_sync (sync_time),
+    -- 前台列表一律带 `WHERE c.listed = 1`（下架过滤），排序仍是 sync_time DESC ——
+    -- 复合索引让「过滤 + 排序」走同一条索引；单列 `listed` 选择性太低（绝大多数行都是 1），
+    -- MySQL 多半不会用它。
+    KEY idx_comic_listed_sync (listed, sync_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 CREATE TABLE IF NOT EXISTS chapter (
@@ -266,4 +279,42 @@ CREATE TABLE IF NOT EXISTS message_read (
     read_at DATETIME NOT NULL,
     UNIQUE KEY uk_msg_read (message_id, user_id),
     KEY idx_msg_read_user (user_id, read_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ---------------------------------------------------------------------------
+-- 评论（2026-10-09 新增）：漫画详情页底部的评论区。
+-- **只允许登录用户发表**（用户决策）—— 所以 `user_id` 一定是账号 id（不是匿名 UUID）。 
+-- 作者昵称**不冗余**：读取时 JOIN `user` 取**当前**昵称（改名后评论区跟着变），
+-- 账号已删则显示「已注销用户」（LEFT JOIN 得到 NULL，由读取侧兜底）。
+-- ⚠️ 与前几轮的口径一致：**没有外键到 `user`**（与 favorite / history / message_read 一样，
+--    关联关系由代码保证，避免删除顺序耦合）；但**保留**到 `comic` 的外键
+--    （与 chapter/page/favorite/history 一致 —— 作品行是真源，不该出现指向空气的评论）。
+-- 权限与开关：发表要 **登录** + **评论区开启**（有效值 = 全站总开关 AND `comic.comment_enabled`，
+--    见 storage/mysql/comment_store.effective_enabled）；删除要 `require_admin`。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS comment (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    comic_id INT NOT NULL,
+    -- 作者账号 id（**字符串列**，与 favorite / history 的 user_id 同型：
+    -- 那边把匿名 UUID 也塞在同一列里；评论只收登录用户，但保持列型一致便于共用 helper）
+    user_id VARCHAR(64) NOT NULL,
+    content VARCHAR(500) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- 列表：某作品的最新在前 —— (comic_id, id DESC) 一条索引既过滤又排序
+    KEY idx_comment_comic (comic_id, id),
+    -- 按人查（"这个人发了什么" / 将来的频控）
+    KEY idx_comment_user (user_id, created_at),
+    CONSTRAINT fk_comment_comic FOREIGN KEY (comic_id) REFERENCES comic(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ---------------------------------------------------------------------------
+-- 全站级键值配置（2026-10-09 新增）：目前只放 `comment_enabled`（全站评论总开关）。
+-- 为什么建表而不是塞 `.env`：这是**运行期要能改**的业务开关（管理台一个按钮），
+-- 环境变量改完要重启容器，不合适。也不做成 `comic` 上的列 —— 它是"全站"级、不是"某一行"的。
+-- 值一律按字符串存（'1' / '0' / 'true'…），由读取方解释；键不存在 = 取调用方给的默认值。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS app_setting (
+    k VARCHAR(64) NOT NULL PRIMARY KEY,
+    v VARCHAR(255) NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

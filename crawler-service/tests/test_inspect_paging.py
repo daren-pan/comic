@@ -112,7 +112,8 @@ class PagingStorage(Storage):
     def count_pages_by_status(self) -> dict:
         return {}
 
-    def list_comics(self, category=None, keyword=None, sort="updated", page=1, page_size=12):
+    def list_comics(self, category=None, keyword=None, sort="updated", page=1,
+                    page_size=12, listed_only=True):
         return [], 0
 
     def find_comics(self, comic_ids=None, title_like=None, source=None):
@@ -120,6 +121,14 @@ class PagingStorage(Storage):
 
     def get_comic(self, comic_id: int):
         return None
+
+    # 上下架 / 评论开关是 2026-10-09 加进 Storage 契约的（前台可见性与评论区），
+    # 巡检用不到 —— 按契约实现成空操作，只为能实例化（真逻辑在 MySQLStorage）
+    def set_comic_listed(self, comic_id: int, listed: bool) -> bool:
+        return False
+
+    def set_comic_comment_enabled(self, comic_id: int, enabled: bool) -> bool:
+        return False
 
     def get_chapters(self, comic_id: int) -> list:
         return []
