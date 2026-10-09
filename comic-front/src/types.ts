@@ -27,6 +27,7 @@ export interface Chapter {
   title: string
   orderNo: number
   createdAt: string
+  isNew: boolean         // 属于「最近一批入库」的章节（详情页右上角角标）
 }
 
 export interface PageInfo {

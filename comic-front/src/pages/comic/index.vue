@@ -4,6 +4,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import { getChapter, getChapters, getComic, getHistoryWithDetail, isFavorite, toggleFavorite, upsertHistory } from '../../api'
 import { useUserStore } from '../../stores/user'
 import { openNewTab, setRoute, useRoute, useRouter } from '../../utils/router'
+import { storage } from '../../utils/storage'
 import Layout from '../../components/Layout.vue'
 import type { Chapter, Comic, HistoryEntry } from '../../types'
 
@@ -24,10 +25,31 @@ const lastRead = ref<(HistoryEntry & { chapterTitle?: string }) | null>(null)
 
 const chapterCount = computed(() => chapters.value.length)
 
-// 章节列表按 orderNo（源站 chapter_order）倒序：最新章节在前，符合阅读习惯。
-// 仅在此视图内反向，不改后端接口、不影响阅读器「上一话/下一话」方向。
+/** 章节排序方向：'desc' = 最新在前（默认），'asc' = 从第 1 话开始 */
+type ChapterOrder = 'desc' | 'asc'
+
+/** 排序偏好的存储键（走项目统一的 storage 适配层，与主题的 `comic_theme` 同一套路） */
+const ORDER_KEY = 'comic_chapter_order'
+
+/** 排序偏好：**默认倒序**（与改造前行为一致）；切过就记住，重进详情页仍是上次选的方向 */
+const chapterOrder = ref<ChapterOrder>(storage.get(ORDER_KEY) === 'asc' ? 'asc' : 'desc')
+
+const ORDERS: { value: ChapterOrder; label: string }[] = [
+  { value: 'desc', label: '倒序' },
+  { value: 'asc', label: '正序' },
+]
+
+function setOrder(v: ChapterOrder) {
+  chapterOrder.value = v
+  storage.set(ORDER_KEY, v)
+}
+
+// 章节列表按 orderNo（源站 chapter_order）排序，方向由 chapterOrder 决定。
+// 仅在此视图内排序，不改后端接口、不影响阅读器「上一话/下一话」方向。
 const sortedChapters = computed(() =>
-  [...chapters.value].sort((a, b) => b.orderNo - a.orderNo),
+  [...chapters.value].sort((a, b) =>
+    chapterOrder.value === 'desc' ? b.orderNo - a.orderNo : a.orderNo - b.orderNo,
+  ),
 )
 
 async function load() {
@@ -157,7 +179,20 @@ function fmtTime(iso: string): string {
 
       <view class="desc u-p">{{ comic.description }}</view>
 
-      <view class="section-title">章节列表（{{ chapterCount }}）</view>
+      <view class="section-title">
+        章节列表（{{ chapterCount }}）
+        <!-- 排序切换：只影响本页视图；偏好记在本地（见 script 里的 ORDER_KEY）。
+             靠 margin-left:auto 贴到标题行右侧 —— `.section-title` 是全局样式，别改它。 -->
+        <view class="order-tabs">
+          <button
+            v-for="o in ORDERS"
+            :key="o.value"
+            class="order-tab u-button"
+            :class="{ on: chapterOrder === o.value }"
+            @click="setOrder(o.value)"
+          >{{ o.label }}</button>
+        </view>
+      </view>
       <view class="chapters">
         <button
           v-for="(ch, i) in sortedChapters"
@@ -168,6 +203,9 @@ function fmtTime(iso: string): string {
         >
           <text class="no u-span">{{ i + 1 }}</text>
           <text class="name u-span">{{ ch.title }}</text>
+          <!-- 「最近一批入库」的角标（口径见后端 services.chapters.mark_latest_batch）。
+               uni-button 自带 overflow:hidden，所以角标必须落在按钮**内部**，不能溢出到外面。 -->
+          <text v-if="ch.isNew" class="new u-span">NEW</text>
         </button>
       </view>
     </view>
@@ -244,6 +282,25 @@ function fmtTime(iso: string): string {
   border-left: 4px solid var(--primary);
 }
 
+/* 章节排序切换（倒序 / 正序）：贴在「章节列表（N）」这行右侧。
+   ⚠️ `.section-title` 是**全局**样式（`src/style.css`），别去改它 ——
+   这里只给自己的控件加 `margin-left: auto` 把它顶到行尾，全局那份不受影响。
+   视觉沿用 `components/FilterBar.vue` 的芯片语言（细边框 + 选中态主题色）。 */
+.order-tabs { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.order-tab {
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 3px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.order-tab:hover { border-color: var(--primary); color: var(--primary); }
+.order-tab.on { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); font-weight: 700; }
+
 /* 章节：每行 4 个。列宽只剩 ~80px，序号徽标要占掉一半宽度 → 隐藏，只留标题
    （标题本身就是「第 12 话」这样的短语），居中排布。 */
 .chapters {
@@ -258,6 +315,8 @@ function fmtTime(iso: string): string {
   gap: 8px;
 }
 .chapter {
+  /* uni-button 基础样式已是 relative（角标靠它定位），这里显式写一遍免得日后被覆盖 */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -274,4 +333,31 @@ function fmtTime(iso: string): string {
 .chapter:hover { border-color: var(--primary); background: var(--primary-soft); transform: translateY(-1px); }
 .chapter .no { display: none; }
 .name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--text); text-align: center; }
+
+/* 「最近一批入库」角标：贴按钮**内**右上角的小胶囊。
+   ⚠️ 内缩是**为了不跟相邻格子打架**，不是被裁 —— uni 自带的 `uni-button { overflow: hidden }`
+   已被兼容层覆盖成 `visible`（见 `src/uni-compat.css`，那条是为了不裁消息铃铛的红点），
+   实测 `.chapter` 的 computed `overflow` 就是 `visible`。
+   （4 列网格 gap 只有 8px，角标外扩会与邻格贴到一起。）
+   尺寸压到「只占顶部那 9px 内边距」：角标绝对定位、不参与布局，
+   标题的居中位置与不带角标时**完全一致**（早前一版给标题加 padding-right 让位，
+   结果所有标题整体左移，与未标章节对不齐，已改掉）。
+   `pointer-events: none` 保证点角标等于点整颗按钮，不另开热区。
+
+   ⚠️ **点过的章节照样显示 NEW，这是刻意的**（2026-10-09 用户确认）：角标表示
+   「这章属于该作品最近一批入库的章节」，**与有没有读过无关**；要等该作品来了
+   下一批新章节，这批的角标才一起让位。别把它改成"读过即消失"。 */
+.new {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  padding: 0 2px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 7px;
+  line-height: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
 </style>
