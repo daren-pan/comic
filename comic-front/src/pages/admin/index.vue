@@ -281,13 +281,20 @@ onLoad(async (options) => {
                 </view>
               </view>
               <!-- 翻页安全阀（`MAX_PAGES_PER_SYNC = 5`）对增量与全量一视同仁，页面得说清，
-                   否则「全量」会被误读成"扫全库"（2026-10-07 用户反馈） -->
+                   否则「全量」会被误读成"扫全库"（2026-10-07 用户反馈）。
+                   ⚠️ 文案要**短到窄屏一行放得下**（2026-10-09 用户要求「精简成一行」）——
+                   加字前先量 393 视口下的实际宽度。 -->
               <text class="hint u-span">
-                每轮最多翻 <text class="u-b">5 页（约 100 部）</text>，全量 / 增量一样 —— 要收更多就分批多跑几轮
+                每轮最多 <text class="u-b">5 页 ≈ 100 部</text>，全量 / 增量同限，多了分批
               </text>
-              <button class="btn u-button" :disabled="vm.running || !vm.info.enabled" @click="runSync(vm)">
-                {{ vm.running ? '运行中…' : '触发采集' }}
-              </button>
+              <!-- ⚠️ 按钮包一层块级 view：`.btn` 是 `inline-flex`，裸着跟在 `.hint`（行内 text）
+                   后面会排进**同一行流** —— 窄屏实测「触发采集」挤在文字右端（2026-10-09 用户报）。
+                   包一层后单独占一行、左对齐（`.run-row` 只做这件事）。 -->
+              <view class="run-row">
+                <button class="btn u-button" :disabled="vm.running || !vm.info.enabled" @click="runSync(vm)">
+                  {{ vm.running ? '运行中…' : '触发采集' }}
+                </button>
+              </view>
             </view>
           </view>
         </view>
@@ -374,6 +381,10 @@ onLoad(async (options) => {
 }
 .row-inputs .u-select { min-width: 90px; }
 .row-inputs .u-input[type='number'] { min-width: 70px; }
+
+/* 「触发采集」按钮行：单独一行、左对齐 —— `.btn` 是 inline-flex，不包一层会跟上面的
+   `.hint` 文字排进同一行流（2026-10-09 用户报「挤在文字右边」）。 */
+.run-row { display: flex; margin-top: 8px; }
 
 /* 开关 */
 /* 开关：纯 view + 点击（见模板注释）。选中态靠 .switch.on 这个类名 ——

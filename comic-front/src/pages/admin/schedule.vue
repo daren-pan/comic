@@ -451,13 +451,17 @@ onUnload(stopPolling)
 .badge.failed { background: #fdeaea; color: #c0392b; }
 
 /* 键值展示 */
+/* 运行状态：**每组数据独占一行**（标签列自适应宽 + 值列跟随）。
+   ⚠️ 原来是 `flex-wrap` —— 多组数据会挤在同一行里折行（2026-10-09 用户报「挤在一起」）。
+   模板里 DOM 是 `k,v,k,v…` 交替平铺，用 grid 两列自然排成「一行一组」，不用给每组包容器。 */
 .kv {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 12px;
+  align-items: baseline;
 }
 .kv .k { color: #8a8175; }
-.kv .v { margin-right: 14px; word-break: break-all; }
+.kv .v { word-break: break-all; }
 
 /* 表单 */
 .form-row {
