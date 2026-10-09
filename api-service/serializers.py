@@ -43,12 +43,19 @@ def to_comic(row: dict) -> dict:
 
 
 def to_chapter(row: dict) -> dict:
+    """章节行 → 契约。
+
+    `isNew`：是否属于「最近一批入库」（详情页右上角角标）—— 由调用方先注入
+    `row["is_new"]`（`services.chapters.mark_latest_batch`），与本模块的 `tags`
+    同一约定：**读不到就当 False，不回退查库**。
+    """
     return {
         "id": row["id"],
         "comicId": row["comic_id"],
         "title": row["title"],
         "orderNo": row["chapter_no"],
         "createdAt": row["sync_time"],
+        "isNew": bool(row.get("is_new")),
     }
 
 

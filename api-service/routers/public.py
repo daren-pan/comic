@@ -16,6 +16,7 @@ from fastapi.responses import Response
 from core.db import db
 from core.responses import ok
 from serializers import to_chapter, to_comic, to_page
+from services.chapters import mark_latest_batch
 from services.images import ImagePayload, resolve_cover_image, resolve_page_image
 from services.ondemand import ensure_chapter_pages
 from services.ondemand import search as search_sources
@@ -85,6 +86,8 @@ def comic_detail(comic_id: int):
 @router.get("/api/comics/{comic_id}/chapters")
 def chapters(comic_id: int):
     rows = db.get_chapters(comic_id)
+    # 角标口径：最近一批入库的章节（详见 services.chapters）—— 在已取回的行上算，零额外查询
+    mark_latest_batch(rows)
     return ok([to_chapter(r) for r in rows])
 
 
