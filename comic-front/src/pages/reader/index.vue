@@ -679,7 +679,17 @@ onBeforeUnmount(() => {
 .topbar.hide { opacity: 0; transform: translateY(-100%); pointer-events: none; }
 .reader.light .topbar { background: linear-gradient(rgba(0,0,0,0.06), transparent); }
 .tb-left, .tb-right { display: flex; align-items: center; gap: 10px; }
-.tb-title { color: #fff; font-weight: 600; font-size: 15px; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+/* 右组（上一章 / 下一章 / ⚙ / ☰）**固定不收缩** —— 否则长标题把它们挤成两行
+   （2026-10-09 用户报）。剩余宽度全归左边标题，超长时以省略号收尾。
+   gap 收到 6px（组内间距）给标题多腾一点宽度。 */
+.tb-right { flex: 0 0 auto; gap: 6px; }
+.tb-left { flex: 1 1 auto; min-width: 0; }
+.tb-title {
+  color: #fff; font-weight: 600; font-size: 15px; text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  /* 标题跟随可用宽度、超长省略（min-width: 0 是让 flex 项能缩到内容宽以下的前提） */
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .reader.light .tb-title { color: #1a1a1a; text-shadow: none; }
 .icon-btn {
   border: none;
@@ -699,7 +709,8 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255,255,255,0.35);
   background: rgba(255,255,255,0.1);
   color: #fff;
-  padding: 6px 14px;
+  /* 横向内边距 14 → 10：给长标题腾宽度（2026-10-09），同时保持「上一章」一行显示 */
+  padding: 6px 10px;
   border-radius: 999px;
   font-size: 13px;
   cursor: pointer;
