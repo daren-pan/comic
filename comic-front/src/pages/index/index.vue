@@ -122,7 +122,7 @@ onUnload(() => (pageVisible.value = false))
 
       <!-- 热门榜：只放前三，其余走「全部 ›」→ 排行页 -->
       <view class="section-title">
-        <text class="st-label">🔥 热门榜单</text>
+        <text class="st-label">热门榜单</text>
         <view class="more u-a" @click="goAll('/rank')">全部 ›</view>
       </view>
       <view class="grid">
@@ -131,7 +131,7 @@ onUnload(() => (pageVisible.value = false))
 
       <!-- 最新更新：同样只放前三，「全部 ›」→ 最近更新页 -->
       <view class="section-title">
-        <text class="st-label">⚡ 最新更新</text>
+        <text class="st-label">最新更新</text>
         <text class="hint">（源站同步 · {{ fmtTime(latestComics[0]?.updatedAt ?? Date.now().toString()) }}内有更新）</text>
         <view class="more u-a" @click="goAll('/latest')">全部 ›</view>
       </view>
@@ -221,7 +221,7 @@ onUnload(() => (pageVisible.value = false))
   overflow: hidden;
 }
 
-/* 区块标题文字：flex 项默认可被压缩换行 —— 窄屏实测会把「⚡ 最新更新」挤成「最新更 / 新」两行，
+/* 区块标题文字：flex 项默认可被压缩换行 —— 窄屏实测会把「最新更新」挤成「最新更 / 新」两行，
    这里锁死不折行；空间不够时让同行的 .hint 先让位（窄屏直接隐藏，见下方媒体查询）。 */
 .st-label { flex: 0 0 auto; white-space: nowrap; }
 
