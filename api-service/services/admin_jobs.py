@@ -12,14 +12,39 @@
 """
 from __future__ import annotations
 
+import logging
 import re
 
 from core import bootstrap  # noqa: F401  —— 先完成 sys.path 引导（使 comic_crawler 可导入）
 from services import ondemand
 from services.images import admin_image_store
 
+_logger = logging.getLogger(__name__)
+
 #: 「名称 / ID」串的分隔符：逗号（中英）、顿号、分号（中英）、任意空白
 _TOKEN_SPLIT = re.compile(r"[,，、;；\s]+")
+
+
+def _notify_fans(result: dict) -> int:
+    """把「本次真有新章节」的作品通知给**收藏者**（消息中心）→ 发出的条数。
+
+    与定时执行器（`comic_scheduler.daemon`）共用 `comic_core.fanout` 的分发逻辑，
+    差别只在投递通道：这里**同进程直调** `services.messages.publish`（写入口，省一次
+    自己调自己）；执行器那边走 HTTP（见 fanout 模块 docstring）。
+
+    失败语义：只记日志、**绝不影响任务结果**（fanout 内部已兜异常，这里再兜一层防
+    import / 结构异常——消息是可观测性，不该因为它没发出去让采集任务算失败）。
+    """
+    try:
+        from comic_core.fanout import notify_favorite_updates
+
+        from services import messages
+
+        updates = ((result or {}).get("stats") or {}).get("updated") or []
+        return notify_favorite_updates(updates, publish=messages.publish)
+    except Exception:
+        _logger.exception("收藏更新通知失败（不影响采集任务）")
+        return 0
 
 
 def sync_job(source: str, mode: str, limit: int | None = None, since=None) -> dict:
@@ -28,10 +53,17 @@ def sync_job(source: str, mode: str, limit: int | None = None, since=None) -> di
     ⚠️ 实际动作走采集层的 `sync_source` —— 与**定时执行器**（独立进程 `comic-scheduler`）
     用的是**同一个函数**，所以「手动触发」与「定时触发」的采集语义是**构造上一致**的
     （2026-10-06 收口；此前两边各写一遍同样的三行）。
+
+    收尾后把本次**真有新章节**的作品通知给收藏者（消息中心）—— 与定时执行器同一条
+    分发逻辑（`comic_core.fanout`），只差投递通道（这里同进程直调）。
     """
     from comic_crawler.facade import sync_source
 
-    return sync_source(source, mode, limit, since)
+    result = sync_source(source, mode, limit, since)
+    sent = _notify_fans(result)
+    if sent:
+        _logger.info("采集 %s：收藏更新通知已发出 %d 条", source, sent)
+    return result
 
 
 def parse_heal_keyword(keyword: str | None) -> tuple[list[int], list[str]]:

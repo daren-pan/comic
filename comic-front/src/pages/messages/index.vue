@@ -88,7 +88,8 @@ onUnload(() => msgStore.markAllRead())
           <view v-if="n.body" class="msg-detail">{{ n.body }}</view>
           <!-- 入参：一眼看出这条消息说的是**哪段时间范围**的数据（起始时间 = since） -->
           <view v-if="paramSummary(n)" class="msg-params">入参：{{ paramSummary(n) }}</view>
-          <view class="msg-src">
+          <!-- 触发人 / 源：**收藏更新通知**是采集时自动发的（没有触发人），这行只给任务类消息 -->
+          <view v-if="n.kind !== 'update'" class="msg-src">
             触发人：{{ n.username || '—' }}<template v-if="n.source"> · 源：{{ n.source }}</template>
           </view>
         </view>

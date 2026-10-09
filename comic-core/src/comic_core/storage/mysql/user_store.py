@@ -35,6 +35,34 @@ class MySQLUserStore(UserStore):
                 )
                 return [int(r["comic_id"]) for r in cur.fetchall()]
 
+    def list_favoriters(self, comic_ids: list[int], listed_only: bool = True) -> dict[int, list[int]]:
+        """**一次**取多部作品的收藏者 → `{comic_id: [user_id, ...]}`（见契约 `UserStore`）。
+
+        收藏者必是登录用户（收藏接口要求登录），JOIN `user` 表兜底：账号已删的行自然滤掉
+        （`favorite.user_id` 是数字串，过完 JOIN 再转 int，脏数据不会漏进来）。
+        `comic_id` 过滤走 `idx_fav_comic`；`listed_only` 再叠一层 `comic.listed = 1`
+        —— 下架作品不通知（详情页 404，通知了只会点进死链）。
+        """
+        if not comic_ids:
+            return {}
+        ids = [int(i) for i in comic_ids]
+        placeholders = ", ".join(["%s"] * len(ids))
+        cond = " AND c.listed = 1" if listed_only else ""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""SELECT f.comic_id, f.user_id
+                        FROM favorite f
+                        JOIN user u ON u.id = f.user_id
+                        JOIN comic c ON c.id = f.comic_id
+                        WHERE f.comic_id IN ({placeholders}){cond}""",
+                    ids,
+                )
+                out: dict[int, list[int]] = {}
+                for r in cur.fetchall():
+                    out.setdefault(int(r["comic_id"]), []).append(int(r["user_id"]))
+                return out
+
     # ---- 用户账户（登录/注册） ----
     def get_user_by_username(self, username: str) -> dict | None:
         with self._conn() as conn:

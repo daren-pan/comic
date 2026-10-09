@@ -81,7 +81,9 @@ def _sync_round(config, trigger: str) -> dict:
     for name in names:
         try:
             out = sync_source(name, config.mode, config.limit, config.since)
-            results[name] = {"ok": True, "summary": out["summary"]}
+            # 带上 stats（含 `updated` 更新明细）：执行器收尾后据此**通知收藏者**
+            # （见 daemon._notify_fans）；明细随 result 落任务表 JSON 列，管理台可查。
+            results[name] = {"ok": True, "summary": out["summary"], "stats": out.get("stats") or {}}
             ok += 1
         except Exception as exc:
             logger.exception("定时任务：源 %s 采集失败", name)

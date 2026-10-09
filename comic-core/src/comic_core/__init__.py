@@ -8,6 +8,8 @@
 | `paths`    | 运行时数据目录的默认值（`DATA_ROOT` / 图库根 / 源开关文件） |
 | `taxonomy` | 标签归一（繁转简 + 同义词），**写入侧**生效 |
 | `logctx`   | 日志上下文绑定（把任务 / 源 / 作品带进每条日志） |
+| `notify`   | 往消息中心投递（HTTP + 服务令牌）—— 给 api 之外的进程用 |
+| `fanout`   | 收藏更新通知（采集更新 → 找到收藏者 → 逐人发「更新了」消息） |
 | `storage`  | `Storage` / `UserStore` 契约 + MySQL 实现 + `log_record` Handler |
 | `images`   | 图库读写契约 + 本地实现（`LocalImageStore` / `default_store_root()`） |
 

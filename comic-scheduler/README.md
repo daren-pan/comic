@@ -54,6 +54,17 @@ api 重启/重部署时定时采集会中断，采集负载也与请求处理抢
   定时器一轮接一轮，只用秒级时间戳会撞 `admin_task` 的唯一键 —— 实测同一秒内第二轮直接
   `Duplicate entry`，且它的收尾会**覆盖第一轮的行**。
 
+## 收藏更新通知
+
+采集轮里「**真有新章节**」的作品，收尾后给**收藏者**（已登录账号）各发一条
+「《X》更新了」—— 分发逻辑与 api 手动采集**共用** `comic_core.fanout`，本进程只差
+投递通道：**走 HTTP**（`notify.publish_message`，服务令牌），因为写入入口只有 api 那一处。
+
+- 明细来自 `SyncStats.updated`（与「更新 N」计数同一处记账，见 `crawler-service/README.md`）；
+  执行器从各源 result 的 `stats.updated` 里汇总（这份明细也会随 result 落管理台任务表）。
+- **巡检轮**没有这份明细，自动跳过；下架作品不通知（`list_favoriters` 的 `listed_only`）。
+- 失败只记 warning：消息是可观测性，不影响这一轮的成败。
+
 ## 基础命令
 
 ```bash

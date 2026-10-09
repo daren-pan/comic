@@ -220,6 +220,19 @@ def _upsert_detail(
         stats.new_comics += 1
     elif added:
         stats.updated_comics += 1
+        # 明细与计数**同一处**记（供「通知收藏者」用，见 comic_core.fanout）——
+        # 首收作品不进这里：刚收录的作品没人收藏过它。
+        # 章节名取**真正新写入的**（`written` 与 `sampled` 同序），按话数升序展示更顺眼。
+        new_titles = [
+            c.title for c, (_ch_id, is_new_ch) in zip(sampled, written) if is_new_ch
+        ][:3]
+        stats.updated.append({
+            "comic_id": comic_id,
+            "title": detail.title,
+            "source": detail.source,
+            "new_chapters": added,
+            "titles": new_titles[::-1],
+        })
 
     # `sync_time` = **内容最近变化**的时刻（最近更新页角标 / `sort=updated` 取它）：
     # 新行与"元数据变了"的情形已由 `upsert_comic` 刷过；这里补"元数据没变、但来了新章节"。

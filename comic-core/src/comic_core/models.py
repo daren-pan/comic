@@ -82,7 +82,9 @@ class SyncStats:
     - `new_comics`：**首次收录**的作品数；
     - `updated_comics`：**本次真有新章节**的已有作品数 —— 扫到但没新章节**不计**
       （同一时间窗内第二次触发自然是 0，不再把"命中已有行"算成更新）；
-    - `new_chapters` / `failed` 同字面意思。
+    - `new_chapters` / `failed` 同字面意思；
+    - `updated`：与 `updated_comics` **同口径同来源**的明细（见下）—— 计数给统计看，
+      明细给「通知收藏者」用（`comic_core.fanout.notify_favorite_updates`）。
     """
 
     source: str
@@ -93,6 +95,10 @@ class SyncStats:
     updated_comics: int = 0
     new_chapters: int = 0
     failed: int = 0
+    #: 「本次真有新章节的已有作品」明细（不进 `sync_log`，`log_sync` 只挑固定计数列）。
+    #: 每项：`{"comic_id": int, "title": str, "source": str, "new_chapters": int,
+    #: "titles": [新章节名, 最多 3 个]}` —— 首收作品不进这里（没人收藏过它）。
+    updated: list[dict] = field(default_factory=list)
 
     def summary(self) -> str:
         return (

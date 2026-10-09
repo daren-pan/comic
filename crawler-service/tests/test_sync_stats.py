@@ -188,5 +188,35 @@ class TestUpdatedCounting(unittest.TestCase):
         self.assertEqual(storage.touched, [])
 
 
+class TestUpdatedDetail(unittest.TestCase):
+    """`updated` 明细（供「通知收藏者」用，见 comic_core.fanout）—— 与 `updated_comics` 同口径同来源。"""
+
+    def _run(self, *, is_new, changed, existing=(), new=()):
+        detail = _detail(chapters=sorted(set(existing) | set(new)))
+        stats = incremental_sync(_FakeAdapter(detail), _FakeStorage(
+            is_new=is_new, changed=changed, existing_chapters=existing, new_chapters=new,
+        ))
+        return stats
+
+    def test_detail_matches_counting(self):
+        stats = self._run(is_new=False, changed=False, existing=(1,), new=(2, 3))
+        self.assertEqual(stats.updated_comics, 1)
+        self.assertEqual(len(stats.updated), 1)
+        item = stats.updated[0]
+        self.assertEqual(item["comic_id"], 7)
+        self.assertEqual(item["source"], "fake")
+        self.assertEqual(item["new_chapters"], 2)
+        self.assertEqual(sorted(item["titles"]), ["第 2 话", "第 3 话"])
+
+    def test_no_detail_when_nothing_new(self):
+        stats = self._run(is_new=False, changed=False, existing=(1, 2), new=())
+        self.assertEqual(stats.updated, [])
+
+    def test_new_comic_has_no_detail(self):
+        """首收不进明细：刚收录的作品没人收藏过它（通知收藏者时也无从可发）。"""
+        stats = self._run(is_new=True, changed=True, new=(1, 2))
+        self.assertEqual(stats.updated, [])
+
+
 if __name__ == "__main__":
     unittest.main()

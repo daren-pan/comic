@@ -165,10 +165,14 @@ class Storage(ABC):
         page: int = 1,
         page_size: int = 12,
         source: str | None = None,
+        listed_only: bool = True,
     ) -> tuple[list[dict], int]:
         """作品列表，支持分类/关键词/排序(updated|views|favorites)/分页，返回 (items, total)。
 
         `source`：只取该数据源的作品；None = 全部源（供封面自愈等「按源限定」的批处理使用）。
+        `listed_only`：默认 True = 只返回**已上架**的（前台列表用）；
+        数据维护类批处理要连下架的一起扫时显式传 False。口径见
+        `MySQLComicStore.list_comics`。
         """
 
     @abstractmethod
@@ -196,13 +200,25 @@ class Storage(ABC):
         """作品详情。"""
 
     @abstractmethod
-    def get_comics_by_ids(self, comic_ids: list[int]) -> dict[int, dict]:
+    def get_comics_by_ids(
+        self, comic_ids: list[int], listed_only: bool = True
+    ) -> dict[int, dict]:
         """**一次**取多部作品的行（投影同 `get_comic`）→ `{comic_id: row}`。
 
         为什么单独提供：收藏 / 历史等"先拿到一批 id 再取作品"的列表接口，逐条调
         `get_comic` 会造成 N+1（每次调用都新建连接），与 `get_comic_tags_bulk` 同一理由。
+        `listed_only`：默认 True = **下架的作品当作取不到**（收藏 / 历史里不会出现
+        点进去 404 的死条目）；重新上架后它自己又会出现。
         **不保证顺序**，也不为不存在的 id 补占位 —— 调用方按自己的 id 顺序取用。
         """
+
+    @abstractmethod
+    def set_comic_listed(self, comic_id: int, listed: bool) -> bool:
+        """上架 / 下架一部作品（只改 `comic.listed`，不删数据）→ 是否真的改到了行。"""
+
+    @abstractmethod
+    def set_comic_comment_enabled(self, comic_id: int, enabled: bool) -> bool:
+        """开关**单作品**评论区 → 是否真的改到了行（全站总开关见 `comment_store`）。"""
 
     @abstractmethod
     def get_comic_source(self, comic_id: int) -> str | None:
@@ -300,6 +316,15 @@ class UserStore(ABC):
     @abstractmethod
     def list_favorites(self, user_id: str) -> list[int]:
         """用户收藏的作品 ID（按收藏时间倒序）。"""
+
+    @abstractmethod
+    def list_favoriters(self, comic_ids: list[int], listed_only: bool = True) -> dict[int, list[int]]:
+        """**一次**取多部作品的收藏者 → `{comic_id: [user_id, ...]}`（无收藏者的作品不在结果里）。
+
+        「收藏者」只可能是**已登录用户**（收藏接口要求登录），实现里 JOIN `user` 表兜底：
+        账号已删的行自然滤掉。`listed_only`（默认 True）：下架的作品当作没有收藏者 ——
+        下架后前台不可见（详情页 404），不该再通知「更新了」让人点进死链。
+        """
 
     @abstractmethod
     def is_favorite(self, user_id: str, comic_id: int) -> bool:

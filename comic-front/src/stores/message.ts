@@ -44,6 +44,7 @@ export function kindLabel(k: string): string {
       import: '导入',
       schedule: '定时',
       system: '系统',
+      update: '更新',     // 「收藏的作品更新了」—— 采集更新时自动发（comic_core.fanout）
     } as Record<string, string>
   )[k] || '消息'
 }
@@ -52,7 +53,8 @@ export function statusLabel(n: NoticeItem): string {
   if (n.status === 'running') return '运行中'
   if (n.status === 'failed' || n.level === 'error') return '失败'
   if (n.level === 'warn') return '警告'
-  return n.kind === 'system' ? '通知' : '完成'
+  // 「通知」类**不分完成/失败**：system 是平台公告，update 是收藏更新的自动提醒（没有成败可言）
+  return n.kind === 'system' || n.kind === 'update' ? '通知' : '完成'
 }
 /** 消息时间：`MM-DD HH:mm` */
 export function fmtMsgTime(iso: string | null): string {

@@ -9,7 +9,8 @@
 5. 用 `facade.run_round` 跑一轮，**动作由配置的 `action` 决定**：`sync` 逐源采集 / `inspect` 失效巡检
    （两者返回同一形状，含人话 `summary`）；
 6. 跑完把结果写回运行态**与任务表 `admin_task`**（管理台「最近任务」据此显示：谁触发的、在跑还是完了）；
-7. 平时每 60s 刷一次心跳（页面据此判断执行器在不在线）。
+7. 采集轮若有「真有新章节」的作品，给**收藏者**发更新通知（消息中心，走 HTTP，见 `_notify_fans`）；
+8. 平时每 60s 刷一次心跳（页面据此判断执行器在不在线）。
 
 **归属**：定时轮次没有账号 → 记「系统（定时）」；「立即执行一次」用**点按钮的人**（账号由请求文件带来）。
 
@@ -174,6 +175,34 @@ def _publish(task_id: str) -> None:
         logger.exception("定时任务：消息发布失败（不影响本轮）")
 
 
+def _notify_fans(result: dict) -> int:
+    """把本轮**真有新章节**的作品通知给收藏者（消息中心）→ 本轮发出的条数。
+
+    明细来自 `run_round` 各源 result 里的 `stats.updated`（采集轮才有；巡检轮的
+    `results` 形状不同，取不到就跳过）。分发逻辑与 api 手动采集**共用**
+    `comic_core.fanout`；这里**不传 publish** → 默认走 HTTP（与 `_publish` 同一理由：
+    写入入口只有 api 那一处，本进程不直写库）。
+
+    ⚠️ 失败只记 warning：消息是可观测性，不该因为它没发出去让这一轮算失败。
+    """
+    try:
+        from comic_core.fanout import notify_favorite_updates
+
+        updates: list[dict] = []
+        for value in (result.get("results") or {}).values():
+            if isinstance(value, dict):
+                updates.extend((value.get("stats") or {}).get("updated") or [])
+        if not updates:
+            return 0
+        sent = notify_favorite_updates(updates)
+        if sent:
+            logger.info("定时任务：收藏更新通知已发出 %d 条", sent)
+        return sent
+    except Exception:
+        logger.exception("定时任务：收藏更新通知失败（不影响本轮）")
+        return 0
+
+
 def run_once(config, trigger: str, owner: dict | None = None) -> dict:
     """跑一轮并写回运行态（+ 任务表）；异常不外抛（执行器要能一直活着）。
 
@@ -219,6 +248,7 @@ def run_once(config, trigger: str, owner: dict | None = None) -> dict:
 
     _persist(running=False, lastStatus=status, lastMessage=message)
     _task_close(task_id, status, message, result)
+    _notify_fans(result)
     logger.info("定时任务：%s 结束 —— %s", trigger, message,
                 extra={"log_fields": {"event": "schedule.done", "reason": status}})
     return result

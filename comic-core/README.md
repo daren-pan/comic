@@ -33,6 +33,7 @@ comic-core/
     ├── data/                 # taxonomy 的运行时数据（必须随包发布）
     ├── logctx.py             # 日志上下文（task_id / task_type，供管理台「按任务查」）+ 任务号生成
     ├── notify.py             # 往消息中心投递消息（`POST /api/messages` + HMAC 服务令牌；只用标准库）
+    ├── fanout.py             # 收藏更新通知（采集更新 → 找收藏者 → 逐人发「更新了」消息；投递通道由调用方注入）
     ├── storage/              # 存储契约（base）+ MySQL 实现（mysql/，含 log_handler）
     └── images/store.py       # 图库读写契约 + 本地实现（LocalImageStore / default_store_root）
 ```
