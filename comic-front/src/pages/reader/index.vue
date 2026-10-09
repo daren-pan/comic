@@ -145,7 +145,11 @@ function onImgLoad() {
 function goPage(p: number) {
   if (p < 1 || p > total.value) return
   pageNo.value = p
-  imgLoading.value = true
+  // ⚠️ 「图片加载中」只对**横排**有意义（单张换图，新 src 必然触发 @load 复位）。
+  // 竖排是流式懒加载：目标页的图若已在缓存/已在 DOM，`src` 没变、元素没重建 →
+  // `@load` 不会再触发 → imgLoading 卡在 true → 顶部提示块**永久显示**
+  // （2026-10-09 实测复现：拖进度条回第 1 页后 3.5s 仍在）。
+  if (!isVertical.value) imgLoading.value = true
   if (isVertical.value) scrollToPage(p)
 }
 
@@ -558,8 +562,12 @@ onBeforeUnmount(() => {
           </view>
 
           <!-- 竖排模式的收尾块：**排在滚动流末尾**（CSS 里 `.vertical-stage .end-bar` 覆盖掉 fixed），
-               否则浮层会盖住最后一页（实测重叠 90px）。按钮不带左右箭头，靠宽度保证文字一行显示全。 -->
-          <view v-if="pageNo === total" class="end-bar">
+               否则浮层会盖住最后一页（实测重叠 90px）。按钮不带左右箭头，靠宽度保证文字一行显示全。
+               ⚠️ **不挂 `v-if="pageNo === total"`**（2026-10-09 修）：pageNo 由滚动测量推导，滚到底的
+               那一刻才变 total → 收尾块这时才插入滚动流 → 内容突然变长（+160px）但滚动位置不动 →
+               收尾块停在视口外，**要再滚一次才看得到**（用户报「下滑到底按钮显示不出来」）。
+               它本来就排在最后一张图下方，不滚到那里根本看不到，常驻零副作用。 -->
+          <view class="end-bar">
             <view class="u-p">— 本章完 —</view>
             <view class="end-btns">
               <button class="btn ghost u-button" :disabled="!hasPrev" @click="prevChapter">上一章</button>
