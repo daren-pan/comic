@@ -1035,4 +1035,12 @@ onBeforeUnmount(() => {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* #ifdef H5 */
+/* ==================== 网页版（.mode-web，2026-10-10） ====================
+   阅读器是全屏 fixed 层（两种形态都盖住顶栏，沉浸阅读）。桌面加宽正文列 ——
+   竖排图片宽度上限 720px → 880px（手机端不变；横排本来就是「高度受限」，无需改）。
+   整段只进 H5 产物（小程序恒移动版）。 */
+.mode-web .vertical-stage .page-img { width: min(100vw, 880px); }
+/* #endif */
 </style>

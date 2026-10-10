@@ -306,7 +306,7 @@ onLoad((options) => setRoute('/search', options ?? {}))
 
 /* 3 列 × 6 行 = 18 = 每页条数 —— 正好填满，末行不留空格。
    ⚠️ 改列数时必须同步改 `pageSize`（两者相乘要等于每页条数），否则末行会空出来。
-   ⚠️ 本端只保留移动形态（2026-09-23），故**没有**桌面 6 列、也没有 900px 那档断点。 */
+   网页版 6 列 × 3 行 = 18，同样整除（见文末 .mode-web 段）。 */
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 /* 手机（≤560px）保持 3 列，只收紧间距（原先降到 2 列；2026-09-22 用户要求） */
 @media (max-width: 560px) { .grid { gap: 10px; } }
@@ -369,4 +369,16 @@ onLoad((options) => setRoute('/search', options ?? {}))
   font-size: 12px; padding: 2px 8px; border-radius: 6px;
   background: #eaf3de; color: #3b6d11;
 }
+
+/* #ifdef H5 */
+/* 网页版（.mode-web，2026-10-10）：漫画网格 3 列 → 6 列（密度与首页一致；18 条 =
+   6 列 × 3 行仍整除）；中窄宽窗降 4 列、超窄窗 3 列。整段只进 H5 产物。 */
+.mode-web .grid { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 1024px) {
+  .mode-web .grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 560px) {
+  .mode-web .grid { grid-template-columns: repeat(3, 1fr); }
+}
+/* #endif */
 </style>

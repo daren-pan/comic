@@ -8,10 +8,12 @@
 //     （.nav-links 的 flex 子项 / .mobile-menu 自己就是 display:flex），而小程序规定
 //     `<text>` 内不得放 `<view>`/`<image>` 等块级组件，故统一映射成 `view` + `u-a` 类。
 //
-// ⚠️ **本端只保留移动形态**（2026-09-23）：comic-front 是移动端专用前端，网页端由 comic-web 承担。
-//    因此桌面专属元素（logo / 顶栏主导航 / 用户胶囊 / 退出 / 登录链接 / 消息下拉浮层 / 页脚）
-//    **已整体删除**，原来的 `@media (max-width: 860px)` 移动规则**提升为基础态**。
-//    只有 ≤560px 那档保留（手机内部收紧间距 / 字号，不是桌面规则）。
+// ⚠️ **两套形态**（2026-10-10 起）：**移动端为基准**（2026-09-23 定的形态，就是本文件
+//    与各页 <style> 的主体规则），网页版是**新增的增量覆盖**（`.mode-web` 前缀，见文末
+//    「网页版顶栏」段）。模式由 utils/layout.ts 管理（UA 判定默认 + 手动切换 + 本地记忆），
+//    **仅 H5 有效** —— 小程序 / App 恒为移动版。
+//    网页版专属元素（品牌 / 主导航 / 用户区 / 主题与布局切换键）用 `#ifdef H5` +
+//    `v-if="isWebMode"` 双重守护：小程序构建时整块被条件编译剥掉，不留死代码。
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from '../utils/router'
@@ -19,6 +21,7 @@ import { useUserStore } from '../stores/user'
 import { kindLabel, statusLabel, useMessageStore } from '../stores/message'
 import { TAB_ICONS, TAB_ICONS_DARK } from '../utils/icons'
 import { useTheme } from '../utils/theme'
+import { useLayoutMode } from '../utils/layout'
 import { getSeasonLogo } from '../utils/season'
 
 const route = useRoute()
@@ -34,8 +37,13 @@ const ROOT_PATHS = ['/', '/latest', '/search']
 const canGoBack = computed(() => !ROOT_PATHS.includes(route.path))
 
 // 主题：模板根 `.app-shell` 挂 `.theme-dark`，整棵子树的 CSS 变量随之切换
-// `setTheme` 供抽屉里的「背景主题」分段控件使用（顶栏那个切换键已于 2026-10-07 移除）
-const { isDark, setTheme } = useTheme()
+// `setTheme` 供抽屉里的「背景主题」分段控件使用；`toggleTheme` 供**网页版顶栏**的主题
+// 切换键使用（网页模式下抽屉不可达，那件设置项挪到顶栏）。
+const { isDark, setTheme, toggleTheme } = useTheme()
+
+// 布局模式（移动版 / 网页版，utils/layout.ts）。网页版顶栏放「切回移动版」键 ——
+// 手机访问自动就是移动版，所以顶栏只需单向（网页 → 移动）；反方向在抽屉菜单里。
+const { isWebMode, setMode } = useLayoutMode()
 
 const keyword = ref('')
 const showMenu = ref(false)      // 菜单是否挂载（v-if）
@@ -97,6 +105,16 @@ function tabIcon(path: string, on: boolean): string {
   return on ? tabIcons.value[k].on : tabIcons.value[k].off
 }
 
+// ---- 网页版主导航（2026-10-10）----
+// 与底栏三 tab + 排行同一套入口（桌面习惯顺序：首页 / 分类 / 最近更新 / 排行）；
+// 「管理 / 授权」两个入口按角色在模板里追加（与抽屉菜单同一套门槛）。
+const NAV_LINKS = [
+  { path: '/', label: '首页' },
+  { path: '/search', label: '分类' },
+  { path: '/latest', label: '最近更新' },
+  { path: '/rank', label: '排行' },
+]
+
 // ---- 移动端菜单（二级页面）----
 // 左上角 ☰ 打开。菜单是 fixed 覆盖层、**不占文档流**，所以不会把下面的页面挤下去
 // （旧实现是 .nav 里的普通块级元素，展开会把整页顶下去，已废弃）。
@@ -146,6 +164,29 @@ watch(() => route.path, () => {
   <view class="app-shell" :class="{ 'theme-dark': isDark }">
     <view class="nav">
       <view class="container nav-inner">
+        <!-- 网页版左区：品牌 + 主导航（`#ifdef H5` + v-if 双重守护 —— 小程序构建整块剥掉，
+             移动版下不渲染）。样式见文末「网页版顶栏」段。 -->
+        <!-- #ifdef H5 -->
+        <template v-if="isWebMode">
+          <view class="logo" @click="router.push('/')">
+            <image class="logo-icon" :src="logo.icon" mode="aspectFit" />
+            <image class="logo-text" :src="logo.text" mode="aspectFit" />
+          </view>
+          <view class="nav-links">
+            <view
+              v-for="l in NAV_LINKS"
+              :key="l.path"
+              class="nav-link u-a"
+              :class="{ on: route.path === l.path }"
+              @click="router.push(l.path)"
+            >{{ l.label }}</view>
+            <!-- 管理 / 授权：按角色显示（与抽屉菜单同一套门槛） -->
+            <view v-if="isAdmin" class="nav-link u-a" :class="{ on: route.path === '/admin' }" @click="router.push('/admin')">管理</view>
+            <view v-if="isSuperAdmin" class="nav-link u-a" :class="{ on: route.path === '/admin/users' }" @click="router.push('/admin/users')">授权</view>
+          </view>
+        </template>
+        <!-- #endif -->
+
         <view class="nav-right">
           <!-- 提交语义走 uni 的 form-type（不是 HTML 的 type="submit"，那在 uni 里不触发提交）；
                回车提交用 uni-input 的 confirm 事件补齐（uni-form 不是原生 form，没有隐式提交）。 -->
@@ -154,8 +195,17 @@ watch(() => route.path, () => {
             <button class="u-button" form-type="submit" aria-label="搜索">🔍</button>
           </form>
 
+          <!-- 网页版：主题切换 + 布局切换（网页模式下抽屉不可达，这两件设置项放顶栏；
+               布局键单向「网页 → 移动」，反方向在抽屉菜单里）。 -->
+          <!-- #ifdef H5 -->
+          <template v-if="isWebMode">
+            <button class="icon-btn u-button" @click="toggleTheme()" :title="isDark ? '切换到明亮主题' : '切换到夜间主题'">{{ isDark ? '☀️' : '🌙' }}</button>
+            <button class="icon-btn u-button" @click="setMode('mobile')" title="切换到移动版布局">📱</button>
+          </template>
+          <!-- #endif -->
+
           <!-- 消息中心：**面向所有登录用户**的通知（任务消息、维护公告、定向通知…）。
-               点铃铛进独立消息页（本端只有移动形态）。
+               两种形态都是「跳独立消息页」。
                ⚠️ 登录就显示：内容由服务端按"这条消息发给谁"过滤，普通用户看到的是发给自己的那些。
                ⚠️ 窄屏消息入口**不做宽度判断**，见 <style> 里的说明。 -->
           <view v-if="isLoggedIn" class="msg-wrap">
@@ -165,25 +215,34 @@ watch(() => route.path, () => {
             </button>
           </view>
 
-          <!-- 主题切换已**移进抽屉菜单**（2026-10-07 用户要求）：顶栏腾出位置，
-               且「主题」属于设置项而非高频操作。见下方 `.mm-row`。 -->
+          <!-- 网页版右区：用户（登录 → 头像胶囊 + 退出；未登录 → 登录按钮）。
+               胶囊点进「我的」；退出即 onLogout（清登录态 + 回首页）。 -->
+          <!-- #ifdef H5 -->
+          <template v-if="isWebMode">
+            <template v-if="isLoggedIn">
+              <view class="user-chip" @click="router.push('/me')">
+                <text class="user-avatar u-span">{{ (user?.nickname || '我').slice(0, 1) }}</text>
+                <text class="user-name u-span">{{ user?.nickname || user?.username }}</text>
+              </view>
+              <button class="logout-btn u-button" @click="onLogout">退出</button>
+            </template>
+            <button v-else class="login-link u-button" @click="router.push('/login')">登录</button>
+          </template>
+          <!-- #endif -->
 
-          <!-- 返回上一层：只在**非底栏 tab 页**显示（漫画详情 / 排行 / 我的 / 消息 / 管理台…）。
-               底栏那三个 tab（首页 / 最近更新 / 分类）是根页面，没有"上一层"可回。
-               `router.back()` 自带兜底（无历史时 redirectTo 首页），直接打开详情链接也不会卡住。
-               ⚠️ 靠 flex order 排到最前（order:0），别改 DOM 顺序 —— 顶栏整体依赖 order 排版。
-               图标用 `❮`（U+276E 重角引号）：同形状但**笔画更粗更醒目** —— 普通 `<` 在 19px 下
-               又细又小（2026-10-07 用户反馈「有点小看着别扭」）。它不是 emoji 码位，按文本字形渲染。 -->
+          <!-- 移动版：返回上一层 + 菜单键 ☰（返回键网页版不渲染，由桌面导航替代；
+               ☰ 在网页版**宽窗**由 CSS 隐藏，窄窗（≤860px）恢复显示 —— 桌面导航放不下时
+               主导航收进抽屉）。
+               返回键只在**非底栏 tab 页**显示（详情 / 排行 / 我的 / 消息 / 管理台…），
+               `router.back()` 自带兜底（无历史时回首页），直接打开详情链接也不会卡住。
+               图标 `❮`（U+276E 重角引号）：同方向但笔画比 `<` 粗、不显小（2026-10-07 用户反馈）。
+               ⚠️ 两件都靠 flex order 排位（返回 0 / ☰ 5），别改 DOM 顺序。 -->
           <button
-            v-if="canGoBack"
+            v-if="!isWebMode && canGoBack"
             class="back-btn u-button"
             @click="router.back()"
             aria-label="返回上一层"
           >❮</button>
-
-          <!-- 菜单按钮：☰。本端只保留移动形态，故恒显示。
-               ⚠️ 2026-10-07 用户要求「顶栏左上方的菜单移到右上方」→ `order: 5`（排在铃铛之后、
-               成为顶栏最右），靠 flex order 定位，DOM 顺序不动。 -->
           <button class="menu-btn u-button" :class="{ on: showMenu }" @click="openMenu" aria-label="菜单">☰</button>
         </view>
       </view>
@@ -226,6 +285,19 @@ watch(() => route.path, () => {
         </view>
       </view>
 
+      <!-- 页面布局：移动版 / 网页版（**仅 H5** —— 小程序 / App 恒为移动版，没有网页形态）。
+           切到网页版后抽屉自动关掉：网页模式没有 ☰（顶栏换成桌面导航），
+           切回移动版走网页版顶栏的 📱 键。选择存本地，见 utils/layout.ts。 -->
+      <!-- #ifdef H5 -->
+      <view class="mm-row">
+        <text class="mm-row-label u-span">页面布局</text>
+        <view class="mm-seg">
+          <button class="mm-seg-btn u-button" :class="{ on: !isWebMode }" @click="setMode('mobile')">📱 移动版</button>
+          <button class="mm-seg-btn u-button" :class="{ on: isWebMode }" @click="setMode('web'); closeMenu()">🖥 网页版</button>
+        </view>
+      </view>
+      <!-- #endif -->
+
       <view class="mm-list">
         <view class="u-a" :class="{ on: route.path === '/' }" @click="goFromMenu('/')">首页</view>
         <view class="u-a" :class="{ on: route.path === '/search' }" @click="goFromMenu('/search')">分类</view>
@@ -244,9 +316,9 @@ watch(() => route.path, () => {
       <slot />
     </view>
 
-    <!-- 移动端底栏导航：本端只保留移动形态，故恒显示。
+    <!-- 移动版底栏导航：只在移动版渲染（网页版导航在顶栏，整块不渲染）。
          阅读器是 position:fixed + z-index 200 的全屏层，会盖住它（与顶栏同一处理方式，无需额外排除）。 -->
-    <view class="bottom-nav">
+    <view v-if="!isWebMode" class="bottom-nav">
       <view
         v-for="t in tabs"
         :key="t.path"
@@ -296,8 +368,8 @@ watch(() => route.path, () => {
   gap: 10px;
   height: 60px;
 }
-/* 顶栏只有「菜单 · 搜索 · 消息 · 主题」四件（移动形态）。
-   原来的 .logo / .nav-links / .user-chip / .logout / .login-link 已随桌面端一并删除。 */
+/* 移动形态只有「搜索 · 消息 · 返回 · 菜单」四件；网页版另有品牌 / 主导航 / 用户区 /
+   主题与布局键（2026-10-10 新增，样式见文末「网页版顶栏」段）。 */
 
 .nav-right { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 /* 用 order 重排而非改 DOM 顺序：DOM 里顺序是「搜索 · 消息 · 主题 · 菜单」，
@@ -314,7 +386,7 @@ watch(() => route.path, () => {
    字号取 21px 与 ☰ 一致（❮ 自带较多边距，同字号下比 < 更小，所以不能沿用 19px）。 */
 .back-btn { display: inline-flex; align-items: center; justify-content: center; order: 0; flex-shrink: 0; border: none; background: none; font-size: 21px; line-height: 1; cursor: pointer; color: var(--text); padding: 0 8px 0 0; }
 
-/* 菜单按钮：恒显示（本端只保留移动形态），靠 order 排到顶栏**最右**（铃铛之后） */
+/* 菜单按钮：移动版恒显示（网页版不渲染），靠 order 排到顶栏**最右**（铃铛之后） */
 .menu-btn { display: inline-flex; align-items: center; justify-content: center; order: 5; flex-shrink: 0; border: none; background: none; font-size: 21px; line-height: 1; cursor: pointer; color: var(--text); padding: 0 2px; }
 .menu-btn.on { color: var(--primary); }
 
@@ -378,7 +450,7 @@ watch(() => route.path, () => {
   transition: all 0.15s;
 }
 .msg-btn:hover, .msg-btn.on { border-color: var(--primary); background: var(--primary-soft); }
-/* ⚠️ 本端只有移动形态 → 铃铛恒为「跳独立消息页」，**没有**下拉浮层那一套
+/* ⚠️ 两种形态的铃铛都是「跳独立消息页」，**没有**下拉浮层那一套
    （原 .wide-only / .narrow-only 二选一、.msg-panel 浮层、.msg-mask 遮罩、
    以及只服务浮层的 .msg-head/.msg-item 等样式，已随桌面端一并删除）。
    消息条目的样式在 pages/messages/index.vue 里自带一份（scoped）。 */
@@ -421,7 +493,7 @@ watch(() => route.path, () => {
   to { opacity: 1; transform: none; }
 }
 
-/* ---- 底栏导航（移动形态，恒显示） ---- */
+/* ---- 底栏导航（仅移动版渲染；网页版整块不渲染） ---- */
 /* 底栏本体：fixed 贴底，不占文档流。阅读器是 position:fixed + z-index 200 的全屏层，
    会盖住它（与顶栏 z-index 100 同一处理方式，故不需要额外排除逻辑）。 */
 .bottom-nav {
@@ -506,4 +578,113 @@ watch(() => route.path, () => {
   animation: drawer-in 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 .mobile-menu.closing { animation: drawer-out 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) forwards; }
+
+/* 网页版样式只进 H5 产物（小程序 / App 恒为移动版、`.mode-web` 永不出现）——
+   整段由条件编译包裹，mp 构建时剥掉、不留死 CSS（先例：App.vue 的 MP-WEIXIN 段）。
+   ⚠️ 这段里**只放网页版规则**，别把移动端规则写进来。 */
+/* #ifdef H5 */
+/* ==================== 网页版顶栏（2026-10-10） ====================
+   移动端为基准（上面全部规则），网页版是 `.mode-web` 前缀的**增量覆盖**。
+   `.mode-web` 挂在 H5 的 <html> 上（见 utils/layout.ts），小程序 / App 不产生该前缀；
+   元素的可见性由模板的 `#ifdef H5` + `v-if="isWebMode"` 控制，这里只管样式与排布。 */
+
+/* 顶栏整体：略高一点、间距放宽 */
+.mode-web .nav-inner { gap: 16px; height: 64px; }
+/* 右组收成内容宽（移动版是 flex:1 占满整条）—— 左区主导航负责吃剩余空间 */
+.mode-web .nav-right { flex: 0 0 auto; gap: 10px; }
+
+/* 品牌（与抽屉头部同一套季节资源） */
+.logo { display: flex; align-items: center; gap: 8px; cursor: pointer; flex-shrink: 0; }
+.logo-icon { width: 30px; height: 30px; }
+.logo-text { width: 70px; height: 34px; }
+
+/* 主导航：吃掉左区剩余宽度 */
+.nav-links { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.nav-link {
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s;
+}
+.nav-link:hover { color: var(--text); background: var(--bg); }
+.nav-link.on { color: var(--primary); background: var(--primary-soft); }
+
+/* 网页版搜索框：收成固定宽度（移动版是 flex:1 撑满） */
+.mode-web .search-box { flex: 0 1 240px; }
+
+/* 圆形图标键（主题 / 布局切换）——与消息铃铛同款 */
+.icon-btn {
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
+  transition: border-color 0.15s, background 0.15s;
+}
+.icon-btn:hover { border-color: var(--primary); background: var(--primary-soft); }
+
+/* 用户区：登录 → 头像胶囊（点进「我的」）+ 退出；未登录 → 登录按钮 */
+.user-chip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 12px 3px 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s;
+}
+.user-chip:hover { border-color: var(--primary); }
+.user-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: #fff;
+  font-size: 13px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.user-name { font-size: 13px; font-weight: 600; color: var(--text); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logout-btn { border: none; background: none; color: var(--text-2); font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 2px; white-space: nowrap; flex-shrink: 0; }
+.logout-btn:hover { color: var(--primary); }
+.login-link { border: none; background: var(--primary); color: #fff; font-size: 13px; font-weight: 600; padding: 7px 18px; border-radius: 999px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.login-link:hover { background: var(--primary-dark); }
+
+/* 网页版右组内部的排位（沿用 order 体系，不动 DOM 顺序）：
+   搜索 2 → 主题/布局 3 → 铃铛 4 → 用户区 5 */
+.mode-web .icon-btn { order: 3; }
+.mode-web .msg-wrap { order: 4; }
+.mode-web .user-chip, .mode-web .logout-btn, .mode-web .login-link { order: 5; }
+
+/* 网页版**宽窗**：桌面导航完整 → 隐藏 ☰（窄窗由下方媒体查询恢复显示） */
+.mode-web .menu-btn { display: none; }
+
+/* 窄窗（≤860px）的网页版：桌面导航放不下 → 主导航收进抽屉、☰ 恢复显示；
+   主题 / 布局 / 用户区也一并收（抽屉里有对应入口：背景主题 / 页面布局 / 账号区），
+   顶栏只留「品牌 + 搜索 + 铃铛 + ☰」。
+   ⚠️ 860 与各页的窄屏断点一致（管理台 / 详情页单栏化都在 860）。 */
+@media (max-width: 860px) {
+  .mode-web .nav-links,
+  .mode-web .icon-btn,
+  .mode-web .user-chip,
+  .mode-web .logout-btn,
+  .mode-web .login-link { display: none; }
+  /* 右组恢复可收缩（宽窗的 `flex: 0 0 auto` 不收缩，窄窗会顶出横向滚动条 —— 实测 393px 溢出 50px） */
+  .mode-web .nav-right { flex: 1 1 auto; min-width: 0; }
+  .mode-web .search-box { flex: 1 1 auto; }
+  .mode-web .menu-btn { display: inline-flex; }
+}
+
+/* 网页版内容底部不需要给底栏留白（底栏整块不渲染） */
+.mode-web .page { padding-bottom: 48px; }
+/* #endif */
 </style>

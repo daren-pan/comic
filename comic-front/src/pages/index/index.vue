@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { getCategories, getComics } from '../../api'
 import type { CategoryCount, Comic } from '../../types'
 import ComicCard from '../../components/ComicCard.vue'
 import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { setRoute, useRouter } from '../../utils/router'
 import { getSeasonLogo } from '../../utils/season'
+import { useLayoutMode } from '../../utils/layout'
 import Layout from '../../components/Layout.vue'
 
 const router = useRouter()
@@ -19,16 +20,23 @@ const latestComics = ref<Comic[]>([])
 const catComics = ref<Record<string, Comic[]>>({})
 const loaded = ref(false)
 
-// 首页每个区块只放「排名最前的三部」（热门榜单 / 最新更新 / 分类精选 一律如此）——
+// 首页每个区块的展示条数：**移动端 3**（原样）、**网页版 6**（1180px 一行铺满，2026-10-10）。
+// 取数统一按 6 条（多取 3 条成本可忽略），展示时按模式 slice —— 切换布局模式无需重新请求。
 // 其余走标题右侧的「全部 ›」：分类块跳分类页按 category 查（分类页本来就支持 ?category= 直达），
 // 热门 / 最新跳排行页、最近更新页。
-const TOP_N = 3
+const FETCH_N = 6
+const { isWebMode } = useLayoutMode()
+const shownN = computed(() => (isWebMode.value ? 6 : 3))
+/** 区块展示列表：按当前模式截取（移动端 3 / 网页版 6）；列表未就绪时给空数组兜底 */
+function shown(list?: Comic[]): Comic[] {
+  return (list ?? []).slice(0, shownN.value)
+}
 
-// ---- 顶栏播报：图片轮播（PPT 式），轮番展示「最近更新」的前 5 部 ----
-// 为什么单独取 5 条：下面「最新更新」区块只要 3 部（TOP_N），而播报要 5 部 ——
-// 一次请求 pageSize=5，区块再 slice(0, TOP_N)，省一次往返。
+// ---- 顶栏播报：图片轮播（PPT 式），轮番展示「最近更新」的前 6 部 ----
+// 播报与「最新更新」区块**共用一次请求**（pageSize=6）：播报用全部 6 部，
+// 区块按当前布局模式 slice（移动端 3 / 网页版 6，见 shown()）—— 省一次往返。
 // 轮播本身交给 uni 的 <swiper autoplay>（不用自己写定时器）；只在页面可见时自动播。
-const MARQUEE_N = 5
+const MARQUEE_N = 6
 const marquee = ref<Comic[]>([])
 const pageVisible = ref(true)
 
@@ -61,15 +69,15 @@ onMounted(async () => {
   const cats = categories.value.filter((c) => c.name !== '全部').map((c) => c.name)
 
   const [hot, latest] = await Promise.all([
-    getComics({ sort: 'views', pageSize: TOP_N }),
+    getComics({ sort: 'views', pageSize: FETCH_N }),
     getComics({ sort: 'updated', pageSize: MARQUEE_N }),
   ])
   hotComics.value = hot.items
   marquee.value = latest.items
-  latestComics.value = latest.items.slice(0, TOP_N)
+  latestComics.value = latest.items
 
   const picks = cats.slice(0, 4)
-  const res = await Promise.all(picks.map((c) => getComics({ category: c, pageSize: TOP_N })))
+  const res = await Promise.all(picks.map((c) => getComics({ category: c, pageSize: FETCH_N })))
   picks.forEach((c, i) => (catComics.value[c] = res[i].items))
   loaded.value = true
 })
@@ -126,7 +134,7 @@ onUnload(() => (pageVisible.value = false))
         <view class="more u-a" @click="goAll('/rank')">全部 ›</view>
       </view>
       <view class="grid">
-        <ComicCard v-for="c in hotComics" :key="c.id" :comic="c" />
+        <ComicCard v-for="c in shown(hotComics)" :key="c.id" :comic="c" />
       </view>
 
       <!-- 最新更新：同样只放前三，「全部 ›」→ 最近更新页 -->
@@ -136,7 +144,7 @@ onUnload(() => (pageVisible.value = false))
         <view class="more u-a" @click="goAll('/latest')">全部 ›</view>
       </view>
       <view class="grid">
-        <ComicCard v-for="c in latestComics" :key="c.id" :comic="c" />
+        <ComicCard v-for="c in shown(latestComics)" :key="c.id" :comic="c" />
       </view>
 
       <!-- 分类浏览：每块只放前 3 部，标题右侧「全部」跳分类页查该标签下的所有漫画 -->
@@ -146,7 +154,7 @@ onUnload(() => (pageVisible.value = false))
           <view class="more u-a" @click="goCategory(cat.name)">全部 ›</view>
         </view>
         <view class="grid">
-          <ComicCard v-for="c in catComics[cat.name]" :key="c.id" :comic="c" />
+          <ComicCard v-for="c in shown(catComics[cat.name])" :key="c.id" :comic="c" />
         </view>
       </template>
 
@@ -246,4 +254,21 @@ onUnload(() => (pageVisible.value = false))
   /* 标题行容不下「最新更新」+ 长提示 + 「全部 ›」→ 提示让位，只留标题与链接（实测 390px 会换行） */
   .section-title .hint { display: none; }
 }
+
+/* #ifdef H5 */
+/* ==================== 网页版（.mode-web，2026-10-10） ====================
+   整段只进 H5 产物（小程序 / App 恒为移动版）。 */
+/* 品牌行：网页版站标已在顶部导航条里，藏掉页面内重复的那份；轮播升成整宽 hero */
+.mode-web .brand { display: none; }
+.mode-web .bc-swiper { height: 300px; }
+/* 区块网格 3 列 → 6 列（展示条数同步 3 → 6，见脚本 shown()）；中窄宽窗降回 4 列 */
+.mode-web .grid { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 1024px) {
+  .mode-web .grid { grid-template-columns: repeat(4, 1fr); }
+}
+/* 超窄窗（≤560px，手机上强开网页版）：密度收回 3 列 */
+@media (max-width: 560px) {
+  .mode-web .grid { grid-template-columns: repeat(3, 1fr); }
+}
+/* #endif */
 </style>

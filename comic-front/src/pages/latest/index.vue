@@ -169,4 +169,16 @@ onReachBottom(loadMore)
 .day-group:not(:last-child) { margin-bottom: 10px; }
 
 .tail { text-align: center; color: var(--text-2); font-size: 13px; margin: 22px 0 8px; }
+
+/* #ifdef H5 */
+/* 网页版（.mode-web，2026-10-10）：漫画网格 3 列 → 6 列（密度与首页一致；批次 18 条 =
+   6 列 × 3 行，正好填满）；中窄宽窗降 4 列、超窄窗 3 列。整段只进 H5 产物。 */
+.mode-web .grid { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 1024px) {
+  .mode-web .grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 560px) {
+  .mode-web .grid { grid-template-columns: repeat(3, 1fr); }
+}
+/* #endif */
 </style>

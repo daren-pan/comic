@@ -95,4 +95,12 @@ const router = useRouter()
   .status { top: 5px; left: 5px; font-size: 10px; padding: 1px 6px; }
   .time { top: 5px; right: 5px; font-size: 10px; padding: 1px 6px; }
 }
+
+/* #ifdef H5 */
+/* 网页版（.mode-web，2026-10-10）：卡片更宽（列表 5 列 ≈ 217px），字号 / 内边距放宽一档。
+   hover 浮起在基础态已有（.card:hover），桌面直接生效。整段只进 H5 产物（小程序恒移动版）。 */
+.mode-web .info { padding: 12px 14px 14px; }
+.mode-web .title { font-size: 16px; }
+.mode-web .meta, .mode-web .update { font-size: 13px; }
+/* #endif */
 </style>

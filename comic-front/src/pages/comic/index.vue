@@ -234,50 +234,54 @@ function gotoLoginForComment() {
       <button class="btn ghost u-button back-home" @click="router.push('/')">回首页</button>
     </view>
     <view v-else-if="comic" class="detail">
-      <view class="hero">
-        <image mode="aspectFill" class="hero-cover u-img" :src="comic.cover" :alt="comic.title" />
-        <view class="hero-info">
-          <view class="u-h1">{{ comic.title }}</view>
-          <view class="hero-meta u-p">
-            <!-- ⚠️ 这里**不再**放 `comic.category` 那个 chip：它是"魔法, 校园"这种原始串，
-                 与下面的 tags 是同一批信息（tags 就是从它拆出来的），并排显示会重复。
-                 现在**每个标签一个 chip**、都可点 → 搜索页按该标签筛。 -->
-            <text class="chip done u-span" v-if="comic.status === '已完结'">{{ comic.status }}</text>
-            <text class="chip hot u-span" v-else>{{ comic.status }}</text>
-            <text
-              class="tag u-span"
-              v-for="t in comic.tags"
-              :key="t"
-              :title="`搜索「${t}」`"
-              @click="goSearch(t)"
-            >{{ t }}</text>
-          </view>
-          <view class="hero-line u-p">
-            作者：<text
-              class="u-a author-link"
-              :title="`搜索作者「${comic.author}」`"
-              @click="goSearch(comic.author)"
-            >{{ comic.author }}</text>
-          </view>
-          <!-- 2026-10-07 用户要求：这行去掉「章节：N 话」与「热度 X」，只留更新时间
-               （章节数在下面「章节列表（N）」里本来就有，不必在 hero 重复） -->
-          <view class="hero-line u-p">更新 {{ fmtTime(comic.updatedAt) }}</view>
-          <view class="hero-line sources u-p">数据来源：<text class="u-em">{{ comic.source }}</text></view>
-          <view class="actions">
-            <button class="btn u-button" @click="onPrimaryRead">
-              {{ lastRead ? `续读${lastRead.chapterTitle ?? ''}` : '▶ 开始阅读' }}
-            </button>
-            <button class="btn ghost u-button" :class="{ active: fav }" @click="onFav">
-              {{ fav ? '★ 已收藏' : '☆ 收藏' }}
-            </button>
-          </view>
-          <view v-if="favNotice" class="fav-notice u-p">
-            收藏需要登录 — <view class="u-a" @click="gotoLogin">去登录</view>，登录后可跨设备同步收藏
+      <!-- 左栏（作品卡 + 简介）包一层：移动端它是**无样式包裹层**（渲染与不加完全一致），
+           网页版靠它把「封面 + 简介」作为一个整体做 sticky 左栏（见文末 .mode-web 段）。 -->
+      <view class="side">
+        <view class="hero">
+          <image mode="aspectFill" class="hero-cover u-img" :src="comic.cover" :alt="comic.title" />
+          <view class="hero-info">
+            <view class="u-h1">{{ comic.title }}</view>
+            <view class="hero-meta u-p">
+              <!-- ⚠️ 这里**不再**放 `comic.category` 那个 chip：它是"魔法, 校园"这种原始串，
+                   与下面的 tags 是同一批信息（tags 就是从它拆出来的），并排显示会重复。
+                   现在**每个标签一个 chip**、都可点 → 搜索页按该标签筛。 -->
+              <text class="chip done u-span" v-if="comic.status === '已完结'">{{ comic.status }}</text>
+              <text class="chip hot u-span" v-else>{{ comic.status }}</text>
+              <text
+                class="tag u-span"
+                v-for="t in comic.tags"
+                :key="t"
+                :title="`搜索「${t}」`"
+                @click="goSearch(t)"
+              >{{ t }}</text>
+            </view>
+            <view class="hero-line u-p">
+              作者：<text
+                class="u-a author-link"
+                :title="`搜索作者「${comic.author}」`"
+                @click="goSearch(comic.author)"
+              >{{ comic.author }}</text>
+            </view>
+            <!-- 2026-10-07 用户要求：这行去掉「章节：N 话」与「热度 X」，只留更新时间
+                 （章节数在下面「章节列表（N）」里本来就有，不必在 hero 重复） -->
+            <view class="hero-line u-p">更新 {{ fmtTime(comic.updatedAt) }}</view>
+            <view class="hero-line sources u-p">数据来源：<text class="u-em">{{ comic.source }}</text></view>
+            <view class="actions">
+              <button class="btn u-button" @click="onPrimaryRead">
+                {{ lastRead ? `续读${lastRead.chapterTitle ?? ''}` : '▶ 开始阅读' }}
+              </button>
+              <button class="btn ghost u-button" :class="{ active: fav }" @click="onFav">
+                {{ fav ? '★ 已收藏' : '☆ 收藏' }}
+              </button>
+            </view>
+            <view v-if="favNotice" class="fav-notice u-p">
+              收藏需要登录 — <view class="u-a" @click="gotoLogin">去登录</view>，登录后可跨设备同步收藏
+            </view>
           </view>
         </view>
-      </view>
 
-      <view class="desc u-p">{{ comic.description }}</view>
+        <view class="desc u-p">{{ comic.description }}</view>
+      </view>
 
       <view class="section-title">
         章节列表（{{ chapterCount }}）
@@ -554,4 +558,47 @@ function gotoLoginForComment() {
 .c-body { margin-top: 4px; font-size: 14px; line-height: 1.7; color: var(--text); word-break: break-word; }
 
 .c-more { align-self: center; padding: 7px 18px; font-size: 13px; margin-top: 2px; }
+
+/* #ifdef H5 */
+/* ==================== 网页版（.mode-web，2026-10-10） ====================
+   两栏：左栏（作品卡 + 简介，sticky 跟随）+ 右栏（章节 / 评论）。
+   移动端为基准，这里全部是增量覆盖；整段只进 H5 产物（小程序恒移动版）。 */
+.mode-web .detail {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  column-gap: 24px;
+  align-items: start;
+}
+/* 左栏整体 sticky：章节列表很长，滚动时封面 / 简介保持可见。
+   `top: 84px` = 顶栏 64px + 20px 呼吸位。 */
+.mode-web .side { grid-column: 1; grid-row: 1 / span 3; position: sticky; top: 84px; }
+
+/* 左栏作品卡：改**纵向**（封面居中放大、信息在下）—— 340px 的窄栏里横向摆不开 */
+.mode-web .hero { flex-direction: column; align-items: stretch; gap: 14px; padding: 16px; }
+.mode-web .hero-cover { width: 180px; height: 240px; margin: 0 auto; }
+.mode-web .hero-info .u-h1 { font-size: 20px; margin-bottom: 8px; }
+.mode-web .hero-line { font-size: 13px; }
+.mode-web .actions { margin-top: 14px; }
+.mode-web .actions .btn { flex: 1 1 auto; padding: 9px 14px; font-size: 14px; }
+.mode-web .desc { padding: 12px 14px; }
+
+/* 右栏：章节列表标题对齐左栏顶、章节网格 4 列 → 6 列 */
+.mode-web .detail > .section-title { grid-column: 2; grid-row: 1; margin-top: 0; }
+.mode-web .chapters { grid-column: 2; grid-row: 2; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.mode-web .comment-block { grid-column: 2; grid-row: 3; }
+/* 评论一行别太长（右栏 ~816px 全宽会超出阅读舒适区） */
+.mode-web .comments { max-width: 680px; }
+
+/* 中窄宽窗（≤1024px）：左栏收窄、章节降回 4 列 */
+@media (max-width: 1024px) {
+  .mode-web .detail { grid-template-columns: 280px minmax(0, 1fr); }
+  .mode-web .chapters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+/* 窄窗（≤860px）：退回单栏流（与移动端同序：作品卡 → 简介 → 章节 → 评论） */
+@media (max-width: 860px) {
+  .mode-web .detail { display: block; }
+  .mode-web .side { position: static; }
+  .mode-web .detail > .section-title { margin-top: 28px; }
+}
+/* #endif */
 </style>

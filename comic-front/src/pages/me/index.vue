@@ -137,7 +137,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
 .btn.sm { padding: 5px 12px; font-size: 13px; }
 .btn.danger:hover { border-color: #e23; color: #e23; }
 
-/* 3 列（与首页 / 最近更新 / 分类统一）。本端只保留移动形态（2026-09-23）。 */
+/* 3 列（与首页 / 最近更新 / 分类统一）。网页版另有 6 列（见文末 .mode-web 段，2026-10-10）。 */
 .fav-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .fav-login {
   text-align: center;
@@ -167,10 +167,21 @@ onLoad((options) => setRoute('/me', options ?? {}))
 .fav-item .u-span { font-size: 12px; color: var(--text-2); }
 
 /* 收藏网格：3 列、只收紧间距（2026-09-22）。
-   ⚠️ 本端只保留移动形态（2026-09-23），故**没有**桌面 6 列、也没有 900px 那档断点；
-   原 900px 里的 `.row-actions { flex-direction: column }` 也一并提升为基础态 ——
-   那是窄屏规则，不该随桌面断点一起消失。 */
+   网页版另有 6 列（见文末 .mode-web 段，2026-10-10）；原 900px 里的
+   `.row-actions { flex-direction: column }` 已提升为基础态（窄屏规则，不随桌面断点消失）。 */
 @media (max-width: 560px) {
   .fav-grid { gap: 10px; }
 }
+
+/* #ifdef H5 */
+/* 网页版（.mode-web，2026-10-10）：收藏网格 3 列 → 6 列（与首页 / 列表页同密度）；
+   中窄宽窗降 4 列、超窄窗 3 列。整段只进 H5 产物。 */
+.mode-web .fav-grid { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 1024px) {
+  .mode-web .fav-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 560px) {
+  .mode-web .fav-grid { grid-template-columns: repeat(3, 1fr); }
+}
+/* #endif */
 </style>
