@@ -46,7 +46,7 @@ comic/
 - **管理台 / 按需导入**：逻辑在 `api-service/services/ondemand.py`；接口 `/api/admin/*`，前端 `/#/admin`（角色三档 + 两道门 `require_admin` / `require_superadmin`）。
 - **定时任务的进程边界**：管理台「定时任务」的配置与展示在 `api-service/services/scheduler.py`，**采集由独立进程 `comic-scheduler` 执行**（不随 api 生死）。两者只通过运行时数据目录里三个文件交换：`schedule.json`（api 写 / 执行器读）、`schedule_state.json`（执行器写 / api 读）、`schedule_run_now.json`（api 写 / 执行器**读到即删**）—— **一文件一写者**是硬约束。依赖方向 `scheduler → crawler → core`（**不依赖 api-service**）。见 `comic-scheduler/README.md`。任务的**记录**不在那三个文件里：手动触发与定时轮次都落 MySQL 的 `admin_task` 表（**重启不丢、与触发账号绑定**，定时轮次记「系统（定时）」；api 启动时把上一进程残留的 `running` 标成中断）。
 - **消息中心（面向所有登录用户的平台级通知）**：`message` 表 + 已读记账 `message_read` + `/api/messages` —— 顶栏铃铛与消息页读的都是它。**内容以库为准**（前端不保存消息，换机器看到同一份）；**可见范围由数据决定**（`to_user_id` 定向某人 + `min_role` 最低角色要求，任务消息是 `admin`），**已读按账号各一份**。任务收尾、独立进程 `comic-scheduler`、外部系统都往里发；**写入只有一个入口** `POST /api/messages`（api 自己进程内直调 `services.messages.publish_task()`，别的进程走 HTTP 带 `X-Service-Token`：HMAC，密钥复用 `COMIC_JWT_SECRET`，见 `comic_core/notify.py`）。见 `api-service/README.md`。
-- **前端上线形态**：Docker 下是**两个独立镜像** —— `comic-web:1.0.0`（网页端，宿主 85）/ `comic-front:1.0.0`（移动端，宿主 86），**各自带 nginx** 反代 `/api/*` 到 `comic-app:8000`；`comic-api` 是纯 API。两个镜像共用同一份站点配置（`deploy/{web,front}/nginx.conf` 必须逐字节一致）。见 `deploy/README.md`。
+- **前端上线形态**：Docker 下**只有一个前端镜像** —— `comic-front:1.0.0`（自带 nginx 反代 `/api/*` 到 `comic-app:8000`；移动 / 网页两套布局由它按 UA 自动切换）；`comic-api` 是纯 API。⚠️ comic-web 的镜像部署已于 2026-10-10 下线（源码保留为参考实现，`deploy/web/` 已删除）。见 `deploy/README.md`。
 
 ## 基础命令
 

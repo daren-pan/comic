@@ -13,8 +13,8 @@
 #    `comic-core>=1.0.0` 与 `comic-crawler>=1.0.0`（方向单向：api → crawler → core）。
 #    所以**不需要先有 crawler 镜像**，只要那两个 wheel 已生成。
 #
-# ⚠️ 前端不烘进这里：网页端与移动端各自带 nginx（deploy/web/ 与 deploy/front/），
-#    后端只在内网提供 /api/* —— 既不需要 comic-web 镜像，也不需要 COMIC_DIST_DIR。
+# ⚠️ 前端不烘进这里：前端（comic-front）自带 nginx（deploy/front/），
+#    后端只在内网提供 /api/* —— 既不需要前端镜像，也不需要 COMIC_DIST_DIR。
 #    main.py 那层挂载有 `if DIST_DIR.is_dir()` 守卫：目录不存在就自然不挂，无需改后端代码。
 
 # 基础镜像经 DaoCloud 加速站拉取（m.daocloud.io 代理 docker.io，与 crawler 层同一个来源）——

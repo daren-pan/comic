@@ -29,7 +29,7 @@ comic/
 │                             #   与 comic-web 相互独立，H5 构建产物 comic-front/dist/build/h5
 ├── tools/                    # 一次性运维脚本（标签回填/规范化等，见 tools/README.md）
 ├── scripts/                  # 一键脚本：初始化/启动/自检/打包（.bat + .sh 双份，见 scripts/README.md）
-├── deploy/                   # 生产部署（Linux/Docker）：每模块一个文件夹（web/crawler/api/nginx）
+├── deploy/                   # 生产部署（Linux/Docker）：每模块一个文件夹（mysql / api / crawler / scheduler / front / core）
 │                             #   产物（wheel / 前端 dist）+ 该模块 Dockerfile 放一起
 │                             #   build.sh 生成产物并按序构建镜像；编排见 docker-compose.yml，步骤见 docs/deploy.md
 └── logs/                     # 运行时日志（api/vite，gitignore 不入库）
@@ -98,7 +98,8 @@ cd comic-web && npm install && npm run build   # 产物 comic-web/dist（base �
 ```bash
 cd comic-web && npm run dev   # Vite dev server（5173），/api 由 Vite 代理到 8000 后端
 ```
-> 上线时前端产物会被 `deploy/build.sh` 复制进 `deploy/web/dist`，再 `COPY --from=comic-web` 烘进 API 镜像。
+> ⚠️ 上线部署已与 comic-web 无关（2026-10-10 起）：前端只有 comic-front 一个镜像（自带 nginx，
+> 移动 / 网页两套布局按 UA 自动切换），见 `deploy/README.md`。
 
 ### 前端 · uni-app 版（comic-front，可选）
 

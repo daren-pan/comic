@@ -7,10 +7,9 @@
 #             crawler-service/   --wheel-->  deploy/crawler/dist/comic_crawler-<版本>.whl
 #             api-service/       --wheel-->  deploy/api/dist/comic_api-<版本>.whl
 #             comic-scheduler/   --wheel-->  deploy/scheduler/dist/comic_scheduler-<版本>.whl
-#             <网页端产物目录>   --复制---->  deploy/web/dist/    （默认 comic-web/dist）
-#             <移动端产物目录>   --复制---->  deploy/front/dist/  （默认 comic-front/dist/build/h5）
+#             <前端产物目录>     --复制---->  deploy/front/dist/  （默认 comic-front/dist/build/h5）
 #  步骤 2  按依赖顺序构建镜像
-#             mysql → web → crawler → api → scheduler → front
+#             mysql → crawler → api → scheduler → front
 #
 #  其中 mysql 镜像是本项目**独占**的数据库（MySQL 8.0，见 docker-compose.yml）——数据卷首次
 #  启动时会自动执行烘在镜像里的建库脚本，10 张表直接建好。
@@ -25,23 +24,18 @@
 #     少了它，pip 装 comic-crawler / comic-api / comic-scheduler 时会去 PyPI 找 comic-core 并直接报错。
 #     wheel 的拓扑顺序固定为 **comic-core → crawler → api / scheduler**（后三个的 METADATA 里都声明了上游）。
 #
-#  两个前端镜像（comic-web / comic-front）**各自带 nginx**：静态产物 + 反代在同一个容器里，
-#  所以没有"反代活着但产物不在"的悬空状态。两个可以同时构建、同时运行，互不影响。
-#  它们共用同一份 nginx 站点配置 —— deploy/web/nginx.conf 与 deploy/front/nginx.conf 必须
-#  逐字节一致（Docker 构建上下文不能跨目录 COPY，只能各放一份），本脚本会先校验再构建。
+#  前端镜像（comic-front）**自带 nginx**：静态产物 + 反代在同一个容器里，所以没有
+#  "反代活着但产物不在"的悬空状态。⚠️ comic-web 的镜像部署已于 2026-10-10 下线
+#  （旧前端保留在仓库里仅作参考实现），deploy/web/ 目录已删除。
 #
-#  用法：./deploy/build.sh                 # 两个前端都构建（默认）
-#        ./deploy/build.sh --web           # 只构建网页端（comic-web:1.0.0）
-#        ./deploy/build.sh --front         # 只构建移动端（comic-front:1.0.0）
-#        ./deploy/build.sh --web --front   # 等价于不带参数
+#  用法：./deploy/build.sh                 # 构建全部（mysql + 各 wheel + comic-front 镜像）
 #        ./deploy/build.sh -h              （Windows: deploy\build.bat）
 #        —— 一般**不用单独跑它**：一键脚本 `deploy/up.sh` 已经把
 #           「前端 npm build → 本脚本 → compose up -d → 自检」串好了。
 #        单独构建后启动：docker compose -f deploy/docker-compose.yml up -d
 #
-#  前端来源：网页端默认取 comic-web/dist，可用环境变量 **WEB_SRC=<目录>** 覆盖；
-#        移动端默认取 comic-front/dist/build/h5，可用 **FRONT_SRC=<目录>** 覆盖。
-#        两个产物目录在复制前都会先清空（避免不同 hash 的旧产物混在一起）。
+#  前端来源：默认取 comic-front/dist/build/h5，可用环境变量 **FRONT_SRC=<目录>** 覆盖；
+#        产物目录在复制前会先清空（避免不同 hash 的旧产物混在一起）。
 #
 #  PyPI 源：镜像构建时装依赖走哪个源 —— 依次取 环境变量 PIP_INDEX → deploy/.env 的 PIP_INDEX
 #        → 默认 https://mirrors.aliyun.com/pypi/simple（国内直连 pypi.org 很慢；
@@ -53,22 +47,16 @@
 # ============================================================
 set -euo pipefail
 
-# ---------- 参数：选要构建哪个前端（都不给 = 两个都建）----------
-BUILD_WEB=0
-BUILD_FRONT=0
+# ---------- 参数 ----------
 for a in "$@"; do
   case "$a" in
-    --web)   BUILD_WEB=1 ;;
-    --front) BUILD_FRONT=1 ;;
+    --front) : ;;   # 兼容保留：前端只有一个（comic-front），加不加都一样
+    --web)   echo "!! comic-web 的镜像部署已下线（2026-10-10）：现在唯一前端是 comic-front" >&2; exit 1 ;;
     -h|--help)  # 打印文件头那段说明（按内容定位，不写死行号，免得改了头部就漏出正文）
                 awk 'NR==1{next} {sub(/^# ?/,"")} NR>2 && /^=+$/ {print; exit} {print}' "$0"; exit 0 ;;
     *) echo "!! 未知参数：$a（-h 看用法）" >&2; exit 1 ;;
   esac
 done
-if [ "$BUILD_WEB" = "0" ] && [ "$BUILD_FRONT" = "0" ]; then
-  BUILD_WEB=1
-  BUILD_FRONT=1
-fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY="$ROOT/deploy"
@@ -83,7 +71,6 @@ abs() {  # abs <路径>
 }
 
 # 前端产物来源（见文件头）
-WEB_SRC="$(abs "${WEB_SRC:-$ROOT/comic-web/dist}")"
 FRONT_SRC="$(abs "${FRONT_SRC:-$ROOT/comic-front/dist/build/h5}")"
 
 # ---------- 选定 Python 解释器 ----------
@@ -117,23 +104,6 @@ copy_tree() {  # copy_tree <源根> <目标目录> <相对路径...>；目标已
   mkdir -p "$dest"
   ( cd "$src" && tar -cf - --exclude='__pycache__' --exclude='*.pyc' "$@" ) | ( cd "$dest" && tar -xf - )
 }
-
-# ---------- 前置：两份 nginx.conf 必须逐字节一致 ----------
-# 两个前端镜像各自带一份相同的站点配置（Docker 构建上下文不能跨目录 COPY），
-# 所以改一处必须同步另一处 —— 这里先拦住，免得只有一边生效、排查半天。
-# ⚠️ 比较时必须**先 cd 进 deploy/ 再用相对文件名**：$DEPLOY 在 Git Bash 里是 `/d/...` 形式，
-#    直接交给 Windows 版 python.exe 会报 `FileNotFoundError: '/d/.../nginx.conf'`
-#    （MSYS 只转换独立的参数，不转换嵌在 -c 字符串里的路径）—— 这与下面 docker/pip 一律用
-#    相对路径是同一个原因。本机在 Git Bash 里跑 build.sh / up.sh 会因此整脚本起不来。
-echo "-> [0/2] 校验两个前端镜像共用的 nginx 配置"
-if ! ( cd "$DEPLOY" && "$PY" -c 'import filecmp,sys; sys.exit(0 if filecmp.cmp(sys.argv[1],sys.argv[2],shallow=False) else 1)' \
-         web/nginx.conf front/nginx.conf ); then
-  echo "   !! deploy/web/nginx.conf 与 deploy/front/nginx.conf 内容不一致"
-  echo "      两个前端镜像共用同一份站点配置，必须逐字节相同。同步："
-  echo "        cp deploy/web/nginx.conf deploy/front/nginx.conf"
-  exit 1
-fi
-echo "   deploy/web/nginx.conf == deploy/front/nginx.conf ✅"
 
 # ---------- 步骤 1：产物 ----------
 echo
@@ -173,12 +143,7 @@ copy_front() {  # copy_front <源目录> <deploy 子目录> <人话名字>
   copy_tree "$src" "$DEPLOY/$out/dist" .
 }
 
-if [ "$BUILD_WEB" = "1" ]; then
-  copy_front "$WEB_SRC"   web   "网页端" "cd comic-web && npm run build"
-fi
-if [ "$BUILD_FRONT" = "1" ]; then
-  copy_front "$FRONT_SRC" front "移动端" "cd comic-front && npm run build:h5"
-fi
+copy_front "$FRONT_SRC" front "前端" "cd comic-front && npm run build:h5"
 
 # ---------- 产物检查 ----------
 echo
@@ -213,18 +178,12 @@ check_leftovers() {  # check_leftovers <源目录> <产物目录> <显示前缀>
   fi
 }
 
-if [ "$BUILD_WEB" = "1" ]; then
-  echo "   deploy/web/dist/（$(find "$DEPLOY/web/dist" -type f | wc -l | tr -d ' ') 个文件）"
-  check_leftovers "$WEB_SRC" "$DEPLOY/web/dist" "deploy/web/dist"
-fi
-if [ "$BUILD_FRONT" = "1" ]; then
-  echo "   deploy/front/dist/（$(find "$DEPLOY/front/dist" -type f | wc -l | tr -d ' ') 个文件）"
-  check_leftovers "$FRONT_SRC" "$DEPLOY/front/dist" "deploy/front/dist"
-fi
+echo "   deploy/front/dist/（$(find "$DEPLOY/front/dist" -type f | wc -l | tr -d ' ') 个文件）"
+check_leftovers "$FRONT_SRC" "$DEPLOY/front/dist" "deploy/front/dist"
 
 # ---------- 步骤 2：按序构建镜像 ----------
 echo
-echo "-> [2/2] 构建镜像（顺序：mysql → web → crawler → api → scheduler → front）"
+echo "-> [2/2] 构建镜像（顺序：mysql → crawler → api → scheduler → front）"
 # 用**相对路径**而不是绝对路径：Git Bash 的 pwd 给出 /d/... 这种 POSIX 形式，
 # 直接传给 docker.exe（Windows 程序）会报 "unable to prepare context: path ... not found"。
 cd "$DEPLOY"
@@ -240,10 +199,6 @@ build_img() {  # build_img <模块目录> <镜像名> [额外的 docker build �
 }
 
 build_img mysql   comic-mysql:1.0.0
-# ⚠️ 这里必须写成 if/fi，不能用 `[ ... ] && build_img ...`：
-#    脚本开了 set -e，条件为假时整个 AND 列表返回非 0，会让脚本在建镜像阶段直接退出
-#    （症状：只跑 --front 时建完 mysql 就没了；只跑 --web 时建完 api 就没了）。
-if [ "$BUILD_WEB" = "1" ]; then build_img web comic-web:1.0.0; fi
 # crawler、api、scheduler 无镜像依赖，并行构建以节省时间
 ( build_img crawler comic-crawler:1.0.0 --build-context "core=./core" ) &
 CRAWLER_PID=$!
@@ -254,11 +209,11 @@ SCHEDULER_PID=$!
 wait $CRAWLER_PID   || { echo "!! comic-crawler 构建失败" >&2; exit 1; }
 wait $API_PID       || { echo "!! comic-api 构建失败" >&2; exit 1; }
 wait $SCHEDULER_PID || { echo "!! comic-scheduler 构建失败" >&2; exit 1; }
-if [ "$BUILD_FRONT" = "1" ]; then build_img front comic-front:1.0.0; fi
+build_img front comic-front:1.0.0
 
 echo
 echo "OK  镜像已就绪"
-docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep -E "comic-(mysql|web|crawler|api|scheduler|front)" || true
+docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep -E "comic-(mysql|crawler|api|scheduler|front)" || true
 echo
 echo "启动：docker compose -f deploy/docker-compose.yml up -d"
 echo "查看：docker compose -f deploy/docker-compose.yml ps"
