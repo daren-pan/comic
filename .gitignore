@@ -29,6 +29,10 @@ build/
 image_store/
 */image_store/
 
+# ---- 用户头像（个人中心上传，运行时数据，不随仓库分发） ----
+avatar_store/
+*/avatar_store/
+
 # ---- 运行时产物 / 日志（统一收在根 logs/，仅保留占位文件）----
 serve_out.txt
 nohup.out
