@@ -192,6 +192,8 @@ docker compose -f deploy/docker-compose.yml up -d
   docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_user_role.py
   docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_admin_task_table.py
   docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_message_table.py
+  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_comic_listing_and_comment.py
+  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_table_comments.py
   docker compose -f docker-compose.yml run --rm $M comic-app python tools/check_schema.py   # 体检：表齐不齐
   ```
   懒得逐条敲就 **`bash deploy/up.sh --migrate`** —— 起完服务自动把上面这些跑一遍，最后体检、缺表就报错。
@@ -302,13 +304,14 @@ mysql -h <host> -P <port> -u root -p < comic-core/sql/mysql_schema.sql
 - 新库会自动带上 `log_record` 表、性能索引，且 `comic.fingerprint` 是**普通索引**；
   **已有库**（老环境升级）对应补这几个脚本：`add_log_table.py`（补表）、`add_perf_indexes.py`（补索引）、
 `add_admin_task_table.py`（补 `admin_task` 表）、`add_message_table.py`（补 `message` / `message_read`
-两张表与 `message` 的新列）、
+两张表与 `message` 的新列）、`add_comic_listing_and_comment.py`（补上下架两列与评论 / 配置两张表）、
+`add_table_comments.py`（给所有表与字段刷注释）、
   **`drop_fingerprint_unique.py`（把 fingerprint 的唯一约束改成普通索引）**、
   **`add_user_role.py`（补 `user.role` 列，并在库里没有超管时把最早的特权用户提升为 `superadmin`；
   另支持 `--superadmin <用户名>` 转移超管身份）** ——
-  第三个是"跨源不再合并"改造所必需：不去掉唯一约束，第二个源的同名作品会插不进去（`Duplicate entry`）；
-  第四个是"管理台要鉴权"改造所必需：不补列 `require_admin` 读不到 `role`，会把**所有人**都当普通用户
-  （谁也进不去管理台）。四个都可重跑、都写了回滚方式（⚠️ 第三个的回滚受限制：库内可能已有同指纹多行）；
+  **`drop_fingerprint_unique.py`** 是"跨源不再合并"改造所必需：不去掉唯一约束，第二个源的同名作品会插不进去（`Duplicate entry`）；
+  **`add_user_role.py`** 是"管理台要鉴权"改造所必需：不补列 `require_admin` 读不到 `role`，会把**所有人**都当普通用户
+  （谁也进不去管理台）。以上脚本都可重跑、都写了回滚方式（⚠️ `drop_fingerprint_unique.py` 的回滚受限制：库内可能已有同指纹多行）；
 - `scripts/init_mysql.sh` / `.bat` 是上面这条路的脚本化：同样幂等、同样**不含 `DROP`**（不会清空数据），
   额外先来一步 `CREATE DATABASE IF NOT EXISTS`（库不存在也一步到位），口令自动读 `deploy/.env`。
 

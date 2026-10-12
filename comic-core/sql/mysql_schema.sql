@@ -1,5 +1,7 @@
 -- 漫画聚合平台 MySQL 表结构（架构方案 §3.1，项目唯一存储方案）
 -- 字符集 utf8mb4，支持中文与 emoji
+-- 表与字段一律带 COMMENT（Navicat 等客户端直接可见用途说明；本文件是注释唯一真源，
+-- 已有库用 tools/add_table_comments.py 刷入）
 --
 -- 【建表约定】每张表都必须有自增代理主键 `id INT AUTO_INCREMENT PRIMARY KEY`，
 -- 关联表也要 —— 业务唯一性另用 UNIQUE KEY 表达（如 uk_user_comic）。
@@ -8,37 +10,37 @@
 -- 时间列一律 DATETIME（勿用 VARCHAR 存时间：字符串比较的边界/排序语义都是错的）
 
 CREATE TABLE IF NOT EXISTS comic (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    title VARCHAR(255) NOT NULL,
-    author VARCHAR(255) NOT NULL DEFAULT '',
-    cover_url VARCHAR(1024) NOT NULL DEFAULT '',
-    status VARCHAR(32) NOT NULL DEFAULT '连载',
-    category VARCHAR(128) NOT NULL DEFAULT '',
-    description TEXT,
-    fingerprint VARCHAR(64) NOT NULL,
-    source VARCHAR(64) NOT NULL,
-    source_comic_id VARCHAR(128) NOT NULL,
-    latest_chapter_title VARCHAR(255) NOT NULL DEFAULT '',
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    title VARCHAR(255) NOT NULL COMMENT '标题',
+    author VARCHAR(255) NOT NULL DEFAULT '' COMMENT '作者',
+    cover_url VARCHAR(1024) NOT NULL DEFAULT '' COMMENT '封面图 URL（源站外链）',
+    status VARCHAR(32) NOT NULL DEFAULT '连载' COMMENT '连载状态（连载 / 完结…）',
+    category VARCHAR(128) NOT NULL DEFAULT '' COMMENT '原始分类串（展示用；标签关联见 comic_tag）',
+    description TEXT COMMENT '简介',
+    fingerprint VARCHAR(64) NOT NULL COMMENT '判重观测标记（归一化标题+作者；非唯一键，跨源不合并）',
+    source VARCHAR(64) NOT NULL COMMENT '收录源（zaimanhua / copymanga…）',
+    source_comic_id VARCHAR(128) NOT NULL COMMENT '源站作品 id（与 source 组成同源唯一键）',
+    latest_chapter_title VARCHAR(255) NOT NULL DEFAULT '' COMMENT '最新章节标题',
     -- views: 累计浏览次数（详情页每次访问 +1，落库）。
     -- 热度不落库，由 (1000 + views*1 + 收藏数*2) 实时计算，见 storage/mysql/_util.py 的 HEAT_* / heat_sql()。
-    views INT NOT NULL DEFAULT 0,
+    views INT NOT NULL DEFAULT 0 COMMENT '累计浏览次数（热度=1000+views+2×收藏数）',
     -- sync_time: **内容最近变化的时刻** —— 标题/作者/状态/分类/简介/最新章节标题 任一变化，
     --            或来了新章节时刷新；**扫到但没变化不刷**（2026-10-07 改的口径）。
     --            「最近更新」列表（sort=updated）与卡片右上角角标取的就是它，
     --            所以它表示"源站这部作品最近什么时候真有变化"，而不是"我们最近什么时候扫过它"。
     --            ⚠️ 增量同步的水位**不看这一列**，那是 sync_log.finished_at。
-    sync_time DATETIME NOT NULL,
+    sync_time DATETIME NOT NULL COMMENT '内容最近变化时刻（列表排序/角标用；增量水位看 sync_log.finished_at）',
     -- addtime: 首次收录时间（第一次同步写入，之后不再更新）
-    addtime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    addtime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '首次收录时间（之后不再更新）',
     -- listed: 1 = 上架（前台可见），0 = **下架**。
     --   下架后列表 / 搜索 / 收藏 / 历史都不再出现，**详情页直接 404**（用户 2026-10-09 决策：
     --   「无法搜索到该作品并进入详情页」）。下架只改这一列、**不删数据**，重新上架即恢复；
     --   采集侧**照旧更新**（与上架状态无关，见 crawler-service/README.md）。
-    listed TINYINT NOT NULL DEFAULT 1,
+    listed TINYINT NOT NULL DEFAULT 1 COMMENT '上下架：1=上架可见，0=下架（前台不可见、详情 404，数据保留）',
     -- comment_enabled: 该作品是否开放评论（1/0）。
     --   ⚠️ 这是**单作品**开关；**全站总开关**存在 `app_setting` 表的 `comment_enabled` 键上，
     --   有效值 = 总开关 AND 本列（见 `storage/mysql/comment_store.effective_enabled`）。
-    comment_enabled TINYINT NOT NULL DEFAULT 1,
+    comment_enabled TINYINT NOT NULL DEFAULT 1 COMMENT '本作品评论开关（有效值 = 全站总开关 AND 本列）',
     -- 判重只看 uk_source_comic（同源精确判重）。fingerprint 是"这几行可能是同一部作品"的
     -- 观测标记（归一化标题 + 作者），**刻意不是唯一键**：不同源 / 不同译本（繁简、中日英）
     -- 各占一行、各记各自章节进度（用户 2026-09-16 决策，见 docs/architecture.md §2.3）。
@@ -51,106 +53,106 @@ CREATE TABLE IF NOT EXISTS comic (
     -- 复合索引让「过滤 + 排序」走同一条索引；单列 `listed` 选择性太低（绝大多数行都是 1），
     -- MySQL 多半不会用它。
     KEY idx_comic_listed_sync (listed, sync_time)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='作品主表：一行 = 一个收录源收录的一部作品（同源判重、跨源不合并）';
 
 CREATE TABLE IF NOT EXISTS chapter (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    comic_id INT NOT NULL,
-    chapter_no INT NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    source_chapter_id VARCHAR(128) NOT NULL,
-    sync_time DATETIME NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    comic_id INT NOT NULL COMMENT '所属作品 id（comic.id）',
+    chapter_no INT NOT NULL COMMENT '话号（章节排序用）',
+    title VARCHAR(255) NOT NULL COMMENT '章节标题',
+    source_chapter_id VARCHAR(128) NOT NULL COMMENT '源站章节 id',
+    sync_time DATETIME NOT NULL COMMENT '本章内容最近同步/变化的时刻',
     UNIQUE KEY uk_comic_chapter (comic_id, chapter_no),
     KEY idx_comic_id (comic_id),
     CONSTRAINT fk_chapter_comic FOREIGN KEY (comic_id) REFERENCES comic(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='章节表：一行 = 作品下的一话（同作品内 chapter_no 唯一）';
 
 CREATE TABLE IF NOT EXISTS page (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    chapter_id INT NOT NULL,
-    page_no INT NOT NULL,
-    source_url VARCHAR(2048) NOT NULL,
-    oss_url VARCHAR(1024) NOT NULL DEFAULT '',
-    cached_status VARCHAR(16) NOT NULL DEFAULT '未转存',
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    chapter_id INT NOT NULL COMMENT '所属章节 id（chapter.id）',
+    page_no INT NOT NULL COMMENT '页号（1 起，章节内有序）',
+    source_url VARCHAR(2048) NOT NULL COMMENT '源站图片 URL',
+    oss_url VARCHAR(1024) NOT NULL DEFAULT '' COMMENT '转存后的图库 key（空 = 未转存）',
+    cached_status VARCHAR(16) NOT NULL DEFAULT '未转存' COMMENT '转存状态（未转存 / 已转存 / 失效…）',
     KEY idx_chapter_id (chapter_id),
     -- 转存 / 失效巡检每次都按 cached_status='未转存' 筛（page 是全库最大的表），
     -- 无索引即全表扫；带上 id 以便配合键集分页（after_id）走索引。
     KEY idx_page_cached (cached_status, id),
     CONSTRAINT fk_page_chapter FOREIGN KEY (chapter_id) REFERENCES chapter(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='页面表：一行 = 章节下的一页图片（全库最大的表；转存/巡检按 cached_status 筛）';
 
 CREATE TABLE IF NOT EXISTS sync_log (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    source VARCHAR(64) NOT NULL,
-    mode VARCHAR(16) NOT NULL,
-    total_seen INT NOT NULL DEFAULT 0,
-    new_comics INT NOT NULL DEFAULT 0,
-    updated_comics INT NOT NULL DEFAULT 0,
-    new_chapters INT NOT NULL DEFAULT 0,
-    failed INT NOT NULL DEFAULT 0,
-    started_at DATETIME NOT NULL,
-    finished_at DATETIME NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    source VARCHAR(64) NOT NULL COMMENT '数据源名',
+    mode VARCHAR(16) NOT NULL COMMENT '采集模式（full 全量 / incremental 增量…）',
+    total_seen INT NOT NULL DEFAULT 0 COMMENT '本次扫到的作品数',
+    new_comics INT NOT NULL DEFAULT 0 COMMENT '新增作品数',
+    updated_comics INT NOT NULL DEFAULT 0 COMMENT '更新作品数',
+    new_chapters INT NOT NULL DEFAULT 0 COMMENT '新增章节数',
+    failed INT NOT NULL DEFAULT 0 COMMENT '失败数',
+    started_at DATETIME NOT NULL COMMENT '开始时间',
+    finished_at DATETIME NOT NULL COMMENT '结束时间（增量同步水位）'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='采集任务统计：每源每次跑一行汇总（逐条明细看 log_record）';
 
 -- 标签字典表：每个唯一标签一行（去重），供关联表引用
 CREATE TABLE IF NOT EXISTS tag (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(128) NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    name VARCHAR(128) NOT NULL COMMENT '标签名（唯一）',
     UNIQUE KEY uk_tag_name (name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='标签字典表：每个唯一标签一行（去重）';
 
 -- 漫画-标签 关联表：关联 tag 字典表，不再冗余存 tag 字符串
 CREATE TABLE IF NOT EXISTS comic_tag (
     -- id: 代理主键。关系的唯一性由 uk_comic_tag 保证；保留自增 id 是为后续扩展
     -- （引用某条关联、给关联加字段、做流水/审计）留出稳定的行标识。
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    comic_id INT NOT NULL,
-    tag_id INT NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键（代理键，关系唯一性由 uk_comic_tag 保证）',
+    comic_id INT NOT NULL COMMENT '作品 id（comic.id）',
+    tag_id INT NOT NULL COMMENT '标签 id（tag.id）',
     UNIQUE KEY uk_comic_tag (comic_id, tag_id),
     KEY idx_comic_tag_tag (tag_id),
     CONSTRAINT fk_tag_comic FOREIGN KEY (comic_id) REFERENCES comic(id),
     CONSTRAINT fk_tag_tag FOREIGN KEY (tag_id) REFERENCES tag(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='漫画-标签关联表：一行 = 作品挂某个标签';
 
 -- 用户中心（架构方案 §3.1 user/favorite/history）
 CREATE TABLE IF NOT EXISTS user (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(64) NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    nickname VARCHAR(64) NOT NULL DEFAULT '',
-    avatar_url VARCHAR(512) NOT NULL DEFAULT '',
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    username VARCHAR(64) NOT NULL COMMENT '登录名（唯一）',
+    password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希（不可逆）',
+    nickname VARCHAR(64) NOT NULL DEFAULT '' COMMENT '昵称',
+    avatar_url VARCHAR(512) NOT NULL DEFAULT '' COMMENT '头像 URL',
     -- 角色三档：'superadmin' = 超级管理员（管理台/日志/授权页，**全库唯一**，只由"首个注册用户"产生）；
     --          'admin'      = 普通管理员（管理台/日志，**进不了授权页**）；
     --          'user'       = 普通用户（默认，无管理台权限）。
     -- 引导与迁移见 api-service/routers/auth.py 与 tools/add_user_role.py。
-    role VARCHAR(32) NOT NULL DEFAULT 'user',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    role VARCHAR(32) NOT NULL DEFAULT 'user' COMMENT '角色：superadmin 超管（全库唯一）/ admin 管理员 / user 普通用户',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
     UNIQUE KEY uk_username (username)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户表（角色三档：superadmin / admin / user）';
 
 CREATE TABLE IF NOT EXISTS favorite (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL,
-    comic_id INT NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    user_id VARCHAR(64) NOT NULL COMMENT '用户标识（登录账号 id；兼容匿名 UUID）',
+    comic_id INT NOT NULL COMMENT '作品 id（comic.id）',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '收藏时间',
     -- 唯一性：一个用户对一部漫画只能有一条收藏（PUT 幂等依赖它）
     UNIQUE KEY uk_user_comic (user_id, comic_id),
     KEY idx_user_created (user_id, created_at),
     CONSTRAINT fk_fav_comic FOREIGN KEY (comic_id) REFERENCES comic(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='收藏表：一行 = 某用户收藏某作品（一人一作品一条）';
 
 CREATE TABLE IF NOT EXISTS history (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id VARCHAR(64) NOT NULL,
-    comic_id INT NOT NULL,
-    chapter_id INT NOT NULL,
-    page_no INT NOT NULL DEFAULT 1,
-    read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    user_id VARCHAR(64) NOT NULL COMMENT '用户标识（登录账号 id；兼容匿名 UUID）',
+    comic_id INT NOT NULL COMMENT '作品 id（comic.id）',
+    chapter_id INT NOT NULL COMMENT '最近读到的章节 id',
+    page_no INT NOT NULL DEFAULT 1 COMMENT '最近读到的页号',
+    read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '最近阅读时间',
     -- 唯一性：一个用户对一部漫画只保留一条**最新进度**（upsert 依赖它）
     UNIQUE KEY uk_user_comic (user_id, comic_id),
     KEY idx_user_read (user_id, read_at),
     CONSTRAINT fk_hist_comic FOREIGN KEY (comic_id) REFERENCES comic(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='阅读历史：一行 = 某用户对某作品的最新阅读进度（一人一作品一条）';
 
 -- ---------------------------------------------------------------------------
 -- 运行日志（逐条落库）。与 sync_log 的分工：sync_log 是**任务级统计**（每源每次跑一行汇总），
@@ -161,33 +163,33 @@ CREATE TABLE IF NOT EXISTS history (
 -- `extra={"log_fields": {...}}` 提供（拿不到就留空，不影响入库）。
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS log_record (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
     -- 时间用 DATETIME（项目约定时间列一律 DATETIME）；同秒多条靠 id 兜底排序
     -- 语义：**写入进程的本机时间**（容器必须配 TZ=Asia/Shanghai）。日志页出参一律
     -- 按北京时间（services/logs.to_beijing 会按进程时区补差），所以这里不做 UTC 转换。
-    created_at DATETIME NOT NULL,
-    level VARCHAR(8) NOT NULL DEFAULT '',
-    logger VARCHAR(64) NOT NULL DEFAULT '',
-    message TEXT,
-    task_id VARCHAR(64) NOT NULL DEFAULT '',
-    task_type VARCHAR(16) NOT NULL DEFAULT '',
-    exc_type VARCHAR(64) NOT NULL DEFAULT '',
-    exc_text TEXT,
-    source VARCHAR(64) NOT NULL DEFAULT '',
-    comic_id INT NULL,
-    comic_title VARCHAR(255) NOT NULL DEFAULT '',
-    chapter_id INT NULL,
-    chapter_title VARCHAR(255) NOT NULL DEFAULT '',
-    endpoint VARCHAR(255) NOT NULL DEFAULT '',
-    pages INT NULL,
-    reason VARCHAR(255) NOT NULL DEFAULT '',
-    event VARCHAR(32) NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL COMMENT '日志时间（写入进程本机时间，容器须配 TZ）',
+    level VARCHAR(8) NOT NULL DEFAULT '' COMMENT '级别（INFO / WARNING / ERROR…）',
+    logger VARCHAR(64) NOT NULL DEFAULT '' COMMENT '记录器名',
+    message TEXT COMMENT '日志正文',
+    task_id VARCHAR(64) NOT NULL DEFAULT '' COMMENT '所属任务号（admin_task.task_id）',
+    task_type VARCHAR(16) NOT NULL DEFAULT '' COMMENT '任务类型',
+    exc_type VARCHAR(64) NOT NULL DEFAULT '' COMMENT '异常类型（有异常时）',
+    exc_text TEXT COMMENT '异常堆栈',
+    source VARCHAR(64) NOT NULL DEFAULT '' COMMENT '数据源',
+    comic_id INT NULL COMMENT '作品 id',
+    comic_title VARCHAR(255) NOT NULL DEFAULT '' COMMENT '作品名（冗余，便于直接阅读）',
+    chapter_id INT NULL COMMENT '章节 id',
+    chapter_title VARCHAR(255) NOT NULL DEFAULT '' COMMENT '章节标题',
+    endpoint VARCHAR(255) NOT NULL DEFAULT '' COMMENT '接口路径（读图类日志）',
+    pages INT NULL COMMENT '页数（转存类日志）',
+    reason VARCHAR(255) NOT NULL DEFAULT '' COMMENT '原因 / 说明',
+    event VARCHAR(32) NOT NULL DEFAULT '' COMMENT '事件类型（日志页筛选用）',
     KEY idx_log_created (created_at),
     KEY idx_log_level_created (level, created_at),
     KEY idx_log_source_created (source, created_at),
     KEY idx_log_task (task_id),
     KEY idx_log_comic (comic_id, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='运行日志：逐条落库（管理台「运行日志」页数据源）';
 
 -- ---------------------------------------------------------------------------
 -- 管理台「后台任务」表：一次**手动触发**（采集 / 巡检 / 封面自愈 / 按需导入）= 一行。
@@ -200,23 +202,23 @@ CREATE TABLE IF NOT EXISTS log_record (
 -- ⚠️ 采集的**业务明细**不在本表：每源统计看 `sync_log`，逐条日志看 `log_record`（按 task_id 关联）。
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS admin_task (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    task_id VARCHAR(64) NOT NULL,
-    task_type VARCHAR(16) NOT NULL DEFAULT '',
-    status VARCHAR(16) NOT NULL DEFAULT 'running',
-    message VARCHAR(500) NOT NULL DEFAULT '',
-    result JSON NULL,
-    params JSON NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    task_id VARCHAR(64) NOT NULL COMMENT '任务号（唯一，形如 sync-1-aaa；log_record 按它关联）',
+    task_type VARCHAR(16) NOT NULL DEFAULT '' COMMENT '任务类型（sync / transfer / inspect / import / heal / schedule）',
+    status VARCHAR(16) NOT NULL DEFAULT 'running' COMMENT '状态：running / done / failed',
+    message VARCHAR(500) NOT NULL DEFAULT '' COMMENT '状态说明（一句话）',
+    result JSON NULL COMMENT '结果 payload（JSON，给前端展示）',
+    params JSON NULL COMMENT '入参快照（JSON，复盘「当时点的是什么」）',
     -- 触发账号：user 表被删/改名后也还能看懂是谁点的，所以 username 冗余存一份
-    user_id INT NULL,
-    username VARCHAR(64) NOT NULL DEFAULT '',
-    started_at DATETIME NOT NULL,
-    finished_at DATETIME NULL,
+    user_id INT NULL COMMENT '触发账号 id（NULL = 系统/定时）',
+    username VARCHAR(64) NOT NULL DEFAULT '' COMMENT '触发账号名（冗余，账号删改后仍可读）',
+    started_at DATETIME NOT NULL COMMENT '开始时间',
+    finished_at DATETIME NULL COMMENT '结束时间',
     UNIQUE KEY uk_task_id (task_id),
     KEY idx_task_started (started_at),
     KEY idx_task_user_started (user_id, started_at),
     KEY idx_task_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='管理台后台任务：一次手动触发或定时轮次 = 一行（状态/归属/入参快照，重启不丢）';
 
 -- ---------------------------------------------------------------------------
 -- 消息中心（`message` 表）：**平台级的消息流** —— 顶栏铃铛、消息页读的就是它。
@@ -234,36 +236,36 @@ CREATE TABLE IF NOT EXISTS admin_task (
 -- ⚠️ **已读按账号各一份**（`message_read` 关联表）：同一条广播消息，A 读过不该让 B 的角标消失。
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS message (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
     -- 任务消息 = 任务类型（sync/inspect/heal/import/schedule）；其余写者自定义（system/notice…）
-    kind VARCHAR(16) NOT NULL DEFAULT '',
+    kind VARCHAR(16) NOT NULL DEFAULT '' COMMENT '消息类型（任务消息=任务类型；其余写者自定义）',
     -- info / warn / error —— 前端据此显示 完成 / 警告 / 失败（**同时承载任务成败**，不另设 status 列）
-    level VARCHAR(8) NOT NULL DEFAULT 'info',
-    title VARCHAR(255) NOT NULL DEFAULT '',
-    body TEXT,
+    level VARCHAR(8) NOT NULL DEFAULT 'info' COMMENT '级别：info / warn / error（同时承载任务成败）',
+    title VARCHAR(255) NOT NULL DEFAULT '' COMMENT '标题',
+    body TEXT COMMENT '正文',
     -- **入参快照**（触发时的关键参数：`since`/`until`/`mode`/`limit`/`sources`/`action`/`keyword`…）。
     -- 用途：一眼看出"这条消息说的是哪段时间范围内的数据"（`since` 就是起始时间；为空 = 按源自身水位），
     -- 以及复现"当时点的是什么"。与 `admin_task.params` 同源，但**消息自带一份** ——
     -- 消息是独立记录（别的模块也能写），不该反过来依赖任务表还在不在。
-    params JSON NULL,
-    task_id VARCHAR(64) NOT NULL DEFAULT '',
-    source VARCHAR(64) NOT NULL DEFAULT '',
+    params JSON NULL COMMENT '入参快照（JSON，消息自带一份，不依赖任务表）',
+    task_id VARCHAR(64) NOT NULL DEFAULT '' COMMENT '关联任务号（admin_task.task_id）',
+    source VARCHAR(64) NOT NULL DEFAULT '' COMMENT '数据源（任务类消息）',
     -- **触发人**（谁干的）：系统/定时轮次为空；username 冗余一份，账号改名删号后仍看得懂
-    user_id INT NULL,
-    username VARCHAR(64) NOT NULL DEFAULT '',
+    user_id INT NULL COMMENT '触发人 id（系统/定时为空）',
+    username VARCHAR(64) NOT NULL DEFAULT '' COMMENT '触发人名（冗余）',
     -- **收件范围**（两个条件同时成立才可见）：
     --   to_user_id：定向发给某个人（NULL = 不限人）
     --   min_role  ：最低角色要求（'' = 所有登录用户；'user' < 'admin' < 'superadmin'，
     --               即 min_role='admin' 时**超管也能看到** —— 超管是管理员的超集）
-    to_user_id INT NULL,
-    min_role VARCHAR(16) NOT NULL DEFAULT '',
-    created_at DATETIME NOT NULL,
+    to_user_id INT NULL COMMENT '定向收件人 id（NULL = 不限人）',
+    min_role VARCHAR(16) NOT NULL DEFAULT '' COMMENT '最低可见角色（空 = 所有登录用户，admin = 管理员及以上）',
+    created_at DATETIME NOT NULL COMMENT '创建时间',
     KEY idx_msg_created (created_at),
     KEY idx_msg_kind_created (kind, created_at),
     KEY idx_msg_task (task_id),
     KEY idx_msg_to_user (to_user_id, created_at),
     KEY idx_msg_role_created (min_role, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='消息中心：平台级消息流（顶栏铃铛 / 消息页数据源）';
 
 -- ---------------------------------------------------------------------------
 -- 消息的**已读记账**：一行 = "某账号读过某条消息"。
@@ -273,13 +275,13 @@ CREATE TABLE IF NOT EXISTS message (
 -- ⚠️ 没有 FOREIGN KEY：与本项目其它表一致（关联关系由代码保证，避免删除顺序耦合）。
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS message_read (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    message_id INT NOT NULL,
-    user_id INT NOT NULL,
-    read_at DATETIME NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    message_id INT NOT NULL COMMENT '消息 id（message.id）',
+    user_id INT NOT NULL COMMENT '账号 id',
+    read_at DATETIME NOT NULL COMMENT '读取时间',
     UNIQUE KEY uk_msg_read (message_id, user_id),
     KEY idx_msg_read_user (user_id, read_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='消息已读记账：一行 = 某账号读过某条消息（按账号各一份）';
 
 -- ---------------------------------------------------------------------------
 -- 评论（2026-10-09 新增）：漫画详情页底部的评论区。
@@ -293,19 +295,19 @@ CREATE TABLE IF NOT EXISTS message_read (
 --    见 storage/mysql/comment_store.effective_enabled）；删除要 `require_admin`。
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS comment (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    comic_id INT NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    comic_id INT NOT NULL COMMENT '作品 id（comic.id）',
     -- 作者账号 id（**字符串列**，与 favorite / history 的 user_id 同型：
     -- 那边把匿名 UUID 也塞在同一列里；评论只收登录用户，但保持列型一致便于共用 helper）
-    user_id VARCHAR(64) NOT NULL,
-    content VARCHAR(500) NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    user_id VARCHAR(64) NOT NULL COMMENT '作者账号 id（字符串列，与 favorite/history 同型）',
+    content VARCHAR(500) NOT NULL COMMENT '评论内容（≤500 字）',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发表时间',
     -- 列表：某作品的最新在前 —— (comic_id, id DESC) 一条索引既过滤又排序
     KEY idx_comment_comic (comic_id, id),
     -- 按人查（"这个人发了什么" / 将来的频控）
     KEY idx_comment_user (user_id, created_at),
     CONSTRAINT fk_comment_comic FOREIGN KEY (comic_id) REFERENCES comic(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='评论表：漫画详情页评论区（只允许登录用户发表）';
 
 -- ---------------------------------------------------------------------------
 -- 全站级键值配置（2026-10-09 新增）：目前只放 `comment_enabled`（全站评论总开关）。
@@ -314,7 +316,7 @@ CREATE TABLE IF NOT EXISTS comment (
 -- 值一律按字符串存（'1' / '0' / 'true'…），由读取方解释；键不存在 = 取调用方给的默认值。
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS app_setting (
-    k VARCHAR(64) NOT NULL PRIMARY KEY,
-    v VARCHAR(255) NOT NULL DEFAULT '',
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+    k VARCHAR(64) NOT NULL PRIMARY KEY COMMENT '配置键（主键）',
+    v VARCHAR(255) NOT NULL DEFAULT '' COMMENT '配置值（字符串，由读取方解释）',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='全站级键值配置（目前放 comment_enabled 全站评论总开关）';

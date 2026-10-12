@@ -100,7 +100,8 @@ docker compose -f deploy/docker-compose.yml up -d
 **4)** `compose up -d`（comic-front + scheduler）→ **5)** 自检（mysql healthy → 容器内 `/api/health` →
 数据目录可写 → 入口 HTTP 码 + **前端身份**）。**幂等**：重复跑就是更新代码 + 重新构建 + `up -d`，不会清数据。
 加了 `--migrate` 就在 4 与 5 之间多跑一步"已有库迁移"（`add_log_table` / `add_perf_indexes` /
-`drop_fingerprint_unique` / `add_user_role` / `add_admin_task_table` / `add_message_table`，逐个挂
+`drop_fingerprint_unique` / `add_user_role` / `add_admin_task_table` / `add_message_table` /
+`add_comic_listing_and_comment` / `add_table_comments`，逐个挂
 `../tools` **与 `../comic-core/sql`** 进容器执行，都是幂等的；跑完再用 `tools/check_schema.py` 体检一遍，
 缺表就当场失败）。⚠️ **已有数据卷不会重跑 mysql 的初始化脚本** —— 新表只能靠这一步补。
 
