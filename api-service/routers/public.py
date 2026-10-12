@@ -16,6 +16,7 @@ from fastapi.responses import Response
 from core.db import db
 from core.responses import ok
 from serializers import to_chapter, to_comic, to_page
+from services.avatars import read_avatar
 from services.chapters import mark_latest_batch
 from services.catalog import visible_comic
 from services.images import ImagePayload, resolve_cover_image, resolve_page_image
@@ -113,6 +114,15 @@ def cover(comic_id: int, request: Request):
     if not row:
         raise HTTPException(status_code=404, detail="comic not found")
     return _image_response(request, resolve_cover_image(row))
+
+
+@router.get("/api/avatars/{user_id}")
+def avatar(user_id: int, request: Request):
+    """用户头像（公开；`no-cache + ETag` —— 换头像后同 URL 立即生效，未变则 304）。"""
+    payload = read_avatar(user_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="avatar not found")
+    return _image_response(request, payload)
 
 
 @router.get("/api/images/{comic_id}/{chapter_id}/{page_no}")

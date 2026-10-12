@@ -99,6 +99,7 @@ export interface User {
   username: string
   nickname: string
   role: string              // 'superadmin' 超管（管理台+日志+授权，全库唯一）/ 'admin' 普通管理员（管理台+日志）/ 'user' 普通用户
+  avatarUrl?: string        // 上传头像的 URL（'' / 缺省 = 未上传，显示首字母头像；见 components/UserAvatar.vue）
   createdAt: string
 }
 

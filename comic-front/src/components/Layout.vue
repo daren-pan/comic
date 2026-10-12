@@ -10,9 +10,9 @@
 //
 // ⚠️ **两套形态**（2026-10-10 起）：**移动端为基准**（2026-09-23 定的形态，就是本文件
 //    与各页 <style> 的主体规则），网页版是**新增的增量覆盖**（`.mode-web` 前缀，见文末
-//    「网页版顶栏」段）。模式由 utils/layout.ts 管理（UA 判定默认 + 手动切换 + 本地记忆），
-//    **仅 H5 有效** —— 小程序 / App 恒为移动版。
-//    网页版专属元素（品牌 / 主导航 / 用户区 / 主题与布局切换键）用 `#ifdef H5` +
+//    「网页版顶栏」段）。模式由 utils/layout.ts 管理（**只按 UA 判定**；2026-10-12 起
+//    手动切换键已移除），**仅 H5 有效** —— 小程序 / App 恒为移动版。
+//    网页版专属元素（品牌 / 主导航 / 用户区 / 主题键）用 `#ifdef H5` +
 //    `v-if="isWebMode"` 双重守护：小程序构建时整块被条件编译剥掉，不留死代码。
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { storeToRefs } from 'pinia'
@@ -23,6 +23,7 @@ import { TAB_ICONS, TAB_ICONS_DARK } from '../utils/icons'
 import { useTheme } from '../utils/theme'
 import { useLayoutMode } from '../utils/layout'
 import { getSeasonLogo } from '../utils/season'
+import UserAvatar from './UserAvatar.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,9 +42,9 @@ const canGoBack = computed(() => !ROOT_PATHS.includes(route.path))
 // 切换键使用（网页模式下抽屉不可达，那件设置项挪到顶栏）。
 const { isDark, setTheme, toggleTheme } = useTheme()
 
-// 布局模式（移动版 / 网页版，utils/layout.ts）。网页版顶栏放「切回移动版」键 ——
-// 手机访问自动就是移动版，所以顶栏只需单向（网页 → 移动）；反方向在抽屉菜单里。
-const { isWebMode, setMode } = useLayoutMode()
+// 布局模式（移动版 / 网页版，utils/layout.ts）—— **只按 UA 判定**（2026-10-12 起
+// 手动切换键已移除：手机访问自动进移动版、电脑进网页版）。
+const { isWebMode } = useLayoutMode()
 
 const keyword = ref('')
 const showMenu = ref(false)      // 菜单是否挂载（v-if）
@@ -105,14 +106,15 @@ function tabIcon(path: string, on: boolean): string {
   return on ? tabIcons.value[k].on : tabIcons.value[k].off
 }
 
-// ---- 网页版主导航（2026-10-10）----
-// 与底栏三 tab + 排行同一套入口（桌面习惯顺序：首页 / 分类 / 最近更新 / 排行）；
-// 「管理 / 授权」两个入口按角色在模板里追加（与抽屉菜单同一套门槛）。
+// ---- 网页版主导航（2026-10-10；2026-10-12 加「书架」）----
+// 与底栏三 tab + 排行同一套入口（桌面习惯顺序：首页 / 分类 / 最近更新 / 排行 / 书架）；
+// 「书架」是随「用户胶囊改指个人中心」补上的桌面入口；「管理 / 授权」按角色在模板里追加。
 const NAV_LINKS = [
   { path: '/', label: '首页' },
   { path: '/search', label: '分类' },
   { path: '/latest', label: '最近更新' },
   { path: '/rank', label: '排行' },
+  { path: '/me', label: '书架' },
 ]
 
 // ---- 移动端菜单（二级页面）----
@@ -195,12 +197,10 @@ watch(() => route.path, () => {
             <button class="u-button" form-type="submit" aria-label="搜索">🔍</button>
           </form>
 
-          <!-- 网页版：主题切换 + 布局切换（网页模式下抽屉不可达，这两件设置项放顶栏；
-               布局键单向「网页 → 移动」，反方向在抽屉菜单里）。 -->
+          <!-- 网页版：主题切换（网页模式下抽屉不可达，这件设置项放顶栏）。 -->
           <!-- #ifdef H5 -->
           <template v-if="isWebMode">
             <button class="icon-btn u-button" @click="toggleTheme()" :title="isDark ? '切换到明亮主题' : '切换到夜间主题'">{{ isDark ? '☀️' : '🌙' }}</button>
-            <button class="icon-btn u-button" @click="setMode('mobile')" title="切换到移动版布局">📱</button>
           </template>
           <!-- #endif -->
 
@@ -216,12 +216,12 @@ watch(() => route.path, () => {
           </view>
 
           <!-- 网页版右区：用户（登录 → 头像胶囊 + 退出；未登录 → 登录按钮）。
-               胶囊点进「我的」；退出即 onLogout（清登录态 + 回首页）。 -->
+               胶囊点进「个人中心」（2026-10-12 从「书架」改指）；退出即 onLogout（清登录态 + 回首页）。 -->
           <!-- #ifdef H5 -->
           <template v-if="isWebMode">
             <template v-if="isLoggedIn">
-              <view class="user-chip" @click="router.push('/me')">
-                <text class="user-avatar u-span">{{ (user?.nickname || '我').slice(0, 1) }}</text>
+              <view class="user-chip" @click="router.push('/profile')">
+                <UserAvatar :url="user?.avatarUrl" :name="user?.nickname || user?.username" :size="28" />
                 <text class="user-name u-span">{{ user?.nickname || user?.username }}</text>
               </view>
               <button class="logout-btn u-button" @click="onLogout">退出</button>
@@ -262,15 +262,15 @@ watch(() => route.path, () => {
       </view>
 
       <!-- 账号区：窄屏唯一的账号入口（顶栏的「登录 / 用户胶囊」在窄屏已隐藏）。
-           登录态 = 头像 + 昵称（占满剩余宽度）+ 右侧窄胶囊「退出登录」，同一行；
+           登录态 = 头像 + 昵称，**整行可点 → 进「个人中心」**（退出登录已移入该页，2026-10-12）；
            未登录时没有用户块，那个「登录」按钮靠 .wide 单独保持整条宽度。 -->
       <view class="mm-account">
         <template v-if="isLoggedIn">
-          <view class="mm-user">
-            <text class="mm-avatar u-span">{{ (user?.nickname || '我').slice(0, 1) }}</text>
+          <view class="mm-user u-a" @click="goFromMenu('/profile')">
+            <UserAvatar :url="user?.avatarUrl" :name="user?.nickname || user?.username" :size="36" />
             <text class="mm-name u-span">{{ user?.nickname || user?.username }}</text>
+            <text class="mm-arrow u-span">›</text>
           </view>
-          <button class="mm-login-btn u-button" @click="onLogout(); closeMenu()">退出登录</button>
         </template>
         <button v-else class="mm-login-btn wide u-button" @click="goFromMenu('/login')">登录</button>
       </view>
@@ -285,25 +285,13 @@ watch(() => route.path, () => {
         </view>
       </view>
 
-      <!-- 页面布局：移动版 / 网页版（**仅 H5** —— 小程序 / App 恒为移动版，没有网页形态）。
-           切到网页版后抽屉自动关掉：网页模式没有 ☰（顶栏换成桌面导航），
-           切回移动版走网页版顶栏的 📱 键。选择存本地，见 utils/layout.ts。 -->
-      <!-- #ifdef H5 -->
-      <view class="mm-row">
-        <text class="mm-row-label u-span">页面布局</text>
-        <view class="mm-seg">
-          <button class="mm-seg-btn u-button" :class="{ on: !isWebMode }" @click="setMode('mobile')">📱 移动版</button>
-          <button class="mm-seg-btn u-button" :class="{ on: isWebMode }" @click="setMode('web'); closeMenu()">🖥 网页版</button>
-        </view>
-      </view>
-      <!-- #endif -->
-
       <view class="mm-list">
         <view class="u-a" :class="{ on: route.path === '/' }" @click="goFromMenu('/')">首页</view>
         <view class="u-a" :class="{ on: route.path === '/search' }" @click="goFromMenu('/search')">分类</view>
         <view class="u-a" :class="{ on: route.path === '/latest' }" @click="goFromMenu('/latest')">最近更新</view>
         <view class="u-a" :class="{ on: route.path === '/rank' }" @click="goFromMenu('/rank')">排行</view>
         <view class="u-a" :class="{ on: route.path === '/me' }" @click="goFromMenu('/me')">我的收藏与历史</view>
+        <view class="u-a" :class="{ on: route.path === '/profile' }" @click="goFromMenu('/profile')">个人中心</view>
         <view v-if="isAdmin" class="u-a" :class="{ on: route.path === '/admin' }" @click="goFromMenu('/admin')">采集管理</view>
         <!-- ⚠️ 「作品管理」不在菜单里 —— 它是管理台那一栏选项卡的第 2 个
              （见 components/AdminTabs.vue；与「定时任务」「运行日志」同一处理）。
@@ -369,7 +357,7 @@ watch(() => route.path, () => {
   height: 60px;
 }
 /* 移动形态只有「搜索 · 消息 · 返回 · 菜单」四件；网页版另有品牌 / 主导航 / 用户区 /
-   主题与布局键（2026-10-10 新增，样式见文末「网页版顶栏」段）。 */
+   主题键（2026-10-10 新增，样式见文末「网页版顶栏」段）。 */
 
 .nav-right { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 /* 用 order 重排而非改 DOM 顺序：DOM 里顺序是「搜索 · 消息 · 主题 · 菜单」，
@@ -398,19 +386,12 @@ watch(() => route.path, () => {
 .mm-brand-icon { width: 28px; height: 28px; }
 .mm-brand-text { width: 64px; height: 32px; }
 .mm-close { border: none; background: none; font-size: 22px; line-height: 1; color: var(--text-2); cursor: pointer; padding: 0 6px; }
-/* 账号区一行：头像 + 昵称（吃掉剩余宽度）+ 右侧「退出登录」窄胶囊。
-   .mm-user 的 min-width:0 必须留着，否则长昵称会把按钮挤出抽屉（flex 项默认 min-width:auto）。 */
+/* 账号区一行：头像 + 昵称，**整行可点 → 进「个人中心」**（退出登录已移入该页，2026-10-12）。
+   .mm-user 的 min-width:0 必须留着，否则长昵称会把右侧箭头挤出抽屉（flex 项默认 min-width:auto）。 */
 .mm-account { display: flex; align-items: center; gap: 10px; padding: 14px 2px; border-bottom: 1px solid var(--border); }
-.mm-user { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
-.mm-avatar {
-  width: 36px; height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  color: #fff;
-  font-size: 15px; font-weight: 800;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
+.mm-user { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; cursor: pointer; }
+.mm-user:hover .mm-name { color: var(--primary); }
+.mm-arrow { margin-left: auto; font-size: 18px; line-height: 1; color: var(--text-2); flex: none; }
 .mm-name { font-weight: 700; font-size: 15px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mm-login-btn {
   flex: 0 0 auto;
@@ -616,7 +597,7 @@ watch(() => route.path, () => {
 /* 网页版搜索框：收成固定宽度（移动版是 flex:1 撑满） */
 .mode-web .search-box { flex: 0 1 240px; }
 
-/* 圆形图标键（主题 / 布局切换）——与消息铃铛同款 */
+/* 圆形图标键（主题切换）——与消息铃铛同款 */
 .icon-btn {
   width: 36px; height: 36px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -644,15 +625,6 @@ watch(() => route.path, () => {
   transition: border-color 0.15s;
 }
 .user-chip:hover { border-color: var(--primary); }
-.user-avatar {
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  color: #fff;
-  font-size: 13px; font-weight: 800;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
 .user-name { font-size: 13px; font-weight: 600; color: var(--text); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logout-btn { border: none; background: none; color: var(--text-2); font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 2px; white-space: nowrap; flex-shrink: 0; }
 .logout-btn:hover { color: var(--primary); }
@@ -660,7 +632,7 @@ watch(() => route.path, () => {
 .login-link:hover { background: var(--primary-dark); }
 
 /* 网页版右组内部的排位（沿用 order 体系，不动 DOM 顺序）：
-   搜索 2 → 主题/布局 3 → 铃铛 4 → 用户区 5 */
+   搜索 2 → 主题 3 → 铃铛 4 → 用户区 5 */
 .mode-web .icon-btn { order: 3; }
 .mode-web .msg-wrap { order: 4; }
 .mode-web .user-chip, .mode-web .logout-btn, .mode-web .login-link { order: 5; }
@@ -669,7 +641,7 @@ watch(() => route.path, () => {
 .mode-web .menu-btn { display: none; }
 
 /* 窄窗（≤860px）的网页版：桌面导航放不下 → 主导航收进抽屉、☰ 恢复显示；
-   主题 / 布局 / 用户区也一并收（抽屉里有对应入口：背景主题 / 页面布局 / 账号区），
+   主题 / 用户区也一并收（抽屉里有对应入口：背景主题 / 账号区），
    顶栏只留「品牌 + 搜索 + 铃铛 + ☰」。
    ⚠️ 860 与各页的窄屏断点一致（管理台 / 详情页单栏化都在 860）。 */
 @media (max-width: 860px) {

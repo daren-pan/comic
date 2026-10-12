@@ -130,6 +130,25 @@ class MySQLUserStore(UserStore):
                 row = cur.fetchone()
                 return dict(row) if row else None
 
+    # ---- 个人资料（改昵称 / 改密码 / 改头像，2026-10-12）----
+    def update_nickname(self, user_id: str, nickname: str) -> None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE user SET nickname=%s WHERE id=%s", (nickname, user_id))
+                conn.commit()
+
+    def update_password(self, user_id: str, password_hash: str) -> None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE user SET password_hash=%s WHERE id=%s", (password_hash, user_id))
+                conn.commit()
+
+    def update_avatar(self, user_id: str, avatar_url: str) -> None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE user SET avatar_url=%s WHERE id=%s", (avatar_url, user_id))
+                conn.commit()
+
     def is_favorite(self, user_id: str, comic_id: int) -> bool:
         with self._conn() as conn:
             with conn.cursor() as cur:

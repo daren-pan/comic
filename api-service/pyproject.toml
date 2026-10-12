@@ -22,6 +22,8 @@ dependencies = [
     "uvicorn>=0.30",
     "bcrypt>=4.0",
     "PyJWT>=2.8",
+    # 文件上传：头像接口的 multipart 解析（FastAPI 的 File / UploadFile 需要它，2026-10-12 加）
+    "python-multipart>=0.0.9",
     # 采集层：接口层仍在**进程内**直接调用 comic_crawler（编排 / 适配器 / 穿透取图），是硬依赖。
     # 声明在这里 → 由 pip 解析安装（方向单向：api → crawler）。
     # ⚠️ 计划中：改成 HTTP 调用采集服务后，这一行会被删掉。

@@ -1,7 +1,7 @@
 // 用户中心接口（认证 / 收藏 / 历史）
 // 说明：认证与收藏走登录态（JWT，请求拦截器自动附 token）；历史/最近阅读走匿名 userId（无需登录）。
 import type { AuthResult, Comic, HistoryEntry, User } from '../types'
-import { getUserId } from './auth'
+import { clearAuth, getToken, getUserId } from './auth'
 import { request } from './request'
 
 /** 当前匿名 userId（URL 编码后拼进路径），未登录也恒有值 */
@@ -45,6 +45,78 @@ export function login(username: string, password: string): Promise<AuthResult> {
  */
 export function me(): Promise<User> {
   return request<User>('/api/auth/me')
+}
+
+// ---- 个人资料（个人中心页；三件事都只改当前登录账号）----
+
+/**
+ * 修改昵称（需登录）
+ * @returns 更新后的 User（调用方写回本地缓存）
+ * @see PUT /api/auth/me
+ */
+export function updateProfile(nickname: string): Promise<User> {
+  return request<User>('/api/auth/me', { method: 'PUT', data: { nickname } })
+}
+
+/**
+ * 修改密码（需登录；后端先验原密码）
+ * @see PUT /api/auth/password
+ */
+export function changePassword(oldPassword: string, newPassword: string): Promise<null> {
+  return request<null>('/api/auth/password', { method: 'PUT', data: { oldPassword, newPassword } })
+}
+
+/**
+ * 上传头像（需登录；multipart 字段名 `file`，≤2MB，JPG / PNG / WebP / GIF）
+ *
+ * 走 `uni.uploadFile` 而不是 request 层：文件上传要用 multipart，`uni.request` 不做这事。
+ * 响应形状与 request 层一致（`{code,message,data}`），这里手动剥壳。
+ * @returns 更新后的 User（含 avatarUrl）
+ * @see POST /api/auth/avatar
+ */
+export function uploadAvatar(filePath: string): Promise<User> {
+  return new Promise<User>((resolve, reject) => {
+    const token = getToken()
+    uni.uploadFile({
+      url: '/api/auth/avatar',
+      filePath,
+      name: 'file',
+      header: token ? { Authorization: `Bearer ${token}` } : {},
+      success: (res) => {
+        let body: { code?: number; message?: string; detail?: unknown; data?: User } | null = null
+        try {
+          body = JSON.parse(res.data as string)
+        } catch {
+          body = null
+        }
+        if (res.statusCode === 401) {
+          clearAuth() // 与 request 层同口径：401 清登录态（页面随事件切到未登录态）
+          reject(new Error('登录已过期，请重新登录'))
+          return
+        }
+        if (!body || res.statusCode < 200 || res.statusCode >= 300) {
+          const detail = typeof body?.detail === 'string' ? body.detail : ''
+          reject(new Error(detail || body?.message || `上传失败（HTTP ${res.statusCode}）`))
+          return
+        }
+        if (body.code !== 0 || !body.data) {
+          reject(new Error(body.message || '上传失败'))
+          return
+        }
+        resolve(body.data)
+      },
+      fail: (err) => reject(new Error(err.errMsg || '上传失败')),
+    })
+  })
+}
+
+/**
+ * 恢复默认头像（需登录；删头像文件 + 清库内 URL）
+ * @returns 更新后的 User（avatarUrl 为空）
+ * @see DELETE /api/auth/avatar
+ */
+export function resetAvatar(): Promise<User> {
+  return request<User>('/api/auth/avatar', { method: 'DELETE' })
 }
 
 // ================= 收藏（需登录） =================

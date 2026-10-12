@@ -38,6 +38,19 @@ class LoginBody(BaseModel):
     password: str
 
 
+class UpdateProfileBody(BaseModel):
+    """个人资料修改入参（目前只有昵称；登录名 username 不可改）。长度策略见 `routers/auth.py`。"""
+
+    nickname: str
+
+
+class ChangePasswordBody(BaseModel):
+    """修改密码入参（校验原密码 + 新密码长度策略都在 `routers/auth.py`，那里给中文提示）。"""
+
+    oldPassword: str
+    newPassword: str
+
+
 class HistoryPut(BaseModel):
     """阅读进度入参。
 

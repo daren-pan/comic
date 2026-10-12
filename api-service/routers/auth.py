@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from core.db import users
 from core.responses import ok
@@ -22,8 +22,9 @@ from core.security import (
     make_token,
     verify_password,
 )
-from schemas import LoginBody, RegisterBody
+from schemas import ChangePasswordBody, LoginBody, RegisterBody, UpdateProfileBody
 from serializers import user_out
+from services.avatars import MAX_AVATAR_BYTES, clear_avatar, save_avatar
 
 router = APIRouter(tags=["auth"])
 
@@ -76,3 +77,49 @@ def login(body: LoginBody):
 @router.get("/api/auth/me")
 def me(user: dict = Depends(get_current_user)):
     return ok(user_out(user))
+
+
+# ---------------- 个人资料（2026-10-12，个人中心页）----------------
+# 三件事都**只改自己的**：user 来自 token，接口不接受 user_id 参数 —— 天然免越权。
+
+
+@router.put("/api/auth/me")
+def update_me(body: UpdateProfileBody, user: dict = Depends(get_current_user)):
+    """改昵称（登录名 `username` 不可改；长度口径同注册）。"""
+    nickname = body.nickname.strip()
+    if not (1 <= len(nickname) <= NICKNAME_MAX):
+        raise HTTPException(status_code=400, detail=f"昵称长度需为 1-{NICKNAME_MAX} 个字符")
+    users.update_nickname(user["id"], nickname)
+    return ok(user_out(users.get_user(user["id"])), "昵称已更新")
+
+
+@router.put("/api/auth/password")
+def change_password(body: ChangePasswordBody, user: dict = Depends(get_current_user)):
+    """改密码：先验原密码（不对 400），新密码长度口径与注册一致。"""
+    if not verify_password(body.oldPassword, user["password_hash"]):
+        raise HTTPException(status_code=400, detail="原密码不正确")
+    if not (PASSWORD_MIN <= len(body.newPassword) <= PASSWORD_MAX):
+        raise HTTPException(status_code=400, detail=f"新密码长度需为 {PASSWORD_MIN}-{PASSWORD_MAX} 位")
+    users.update_password(user["id"], hash_password(body.newPassword))
+    return ok({}, "密码已更新")
+
+
+@router.post("/api/auth/avatar")
+async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    """上传头像（multipart 字段名 `file`）。校验 / 落盘在 `services.avatars`（≤2MB、JPG/PNG/WebP/GIF）。"""
+    # 只读「上限 + 1」字节：超大文件不必整个读进内存再判
+    data = await file.read(MAX_AVATAR_BYTES + 1)
+    try:
+        url = save_avatar(user["id"], data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    users.update_avatar(user["id"], url)
+    return ok(user_out(users.get_user(user["id"])), "头像已更新")
+
+
+@router.delete("/api/auth/avatar")
+def reset_avatar(user: dict = Depends(get_current_user)):
+    """恢复默认头像（清库内 URL + 删头像文件）。"""
+    clear_avatar(user["id"])
+    users.update_avatar(user["id"], "")
+    return ok(user_out(users.get_user(user["id"])), "已恢复默认头像")

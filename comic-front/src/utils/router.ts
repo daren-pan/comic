@@ -51,6 +51,7 @@ const STATIC: Record<string, string> = {
   '/latest': 'pages/latest/index',
   '/rank': 'pages/rank/index',
   '/me': 'pages/me/index',
+  '/profile': 'pages/profile/index',
   '/messages': 'pages/messages/index',
   '/login': 'pages/login/index',
   '/admin': 'pages/admin/index',
@@ -141,6 +142,7 @@ function go(to: NavTarget, replace: boolean): void {
 const PARENTS: Record<string, string> = {
   '/rank': '/',
   '/me': '/',
+  '/profile': '/',
   '/messages': '/',
   '/login': '/',
   '/admin': '/',

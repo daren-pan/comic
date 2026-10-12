@@ -116,6 +116,8 @@ def user_out(user) -> dict:
         "username": user["username"],
         "nickname": user["nickname"] or user["username"],
         "role": user.get("role") or "user",
+        # 头像 URL（'' = 未上传 → 前端回退「首字母头像」）；上传/清空见 routers/auth.py
+        "avatarUrl": user.get("avatar_url") or "",
         "createdAt": user["created_at"],
     }
 

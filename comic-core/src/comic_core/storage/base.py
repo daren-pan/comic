@@ -314,6 +314,18 @@ class UserStore(ABC):
         """按 ID 查用户（鉴权依赖用它还原当前用户）。"""
 
     @abstractmethod
+    def update_nickname(self, user_id: str, nickname: str) -> None:
+        """改昵称（个人中心用；登录名 `username` 不可改）。"""
+
+    @abstractmethod
+    def update_password(self, user_id: str, password_hash: str) -> None:
+        """写新密码散列（调用方先验原密码、自行散列，存储层只存）。"""
+
+    @abstractmethod
+    def update_avatar(self, user_id: str, avatar_url: str) -> None:
+        """写头像 URL（`''` = 清空回默认头像；文件的落盘/清理在 api 侧 `services.avatars`）。"""
+
+    @abstractmethod
     def list_favorites(self, user_id: str) -> list[int]:
         """用户收藏的作品 ID（按收藏时间倒序）。"""
 
