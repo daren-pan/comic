@@ -265,7 +265,6 @@ function gotoLoginForComment() {
             <!-- 2026-10-07 用户要求：这行去掉「章节：N 话」与「热度 X」，只留更新时间
                  （章节数在下面「章节列表（N）」里本来就有，不必在 hero 重复） -->
             <view class="hero-line u-p">更新 {{ fmtTime(comic.updatedAt) }}</view>
-            <view class="hero-line sources u-p">数据来源：<text class="u-em">{{ comic.source }}</text></view>
             <view class="actions">
               <button class="btn u-button" @click="onPrimaryRead">
                 {{ lastRead ? `续读${lastRead.chapterTitle ?? ''}` : '▶ 开始阅读' }}
@@ -409,15 +408,6 @@ function gotoLoginForComment() {
 }
 .tag:hover { color: var(--primary-dark); border-color: var(--primary); }
 .hero-line { margin: 2px 0; color: var(--text-2); font-size: 12px; }
-.sources .u-em {
-  font-style: normal;
-  background: var(--mute);
-  border-radius: 6px;
-  padding: 1px 8px;
-  font-size: 12px;
-  margin-right: 6px;
-  color: var(--text-2);
-}
 .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .actions .btn { padding: 7px 12px; font-size: 13px; }
 .fav-notice {

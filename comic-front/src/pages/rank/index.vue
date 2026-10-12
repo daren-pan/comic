@@ -123,12 +123,8 @@ onReachBottom(loadMore)
   <Layout>
     <view>
       <view class="head">
-        <view class="section-title">🏆 热度排行</view>
+        <view class="section-title">热度排行</view>
         <view class="head-more u-a" @click="goSearch">在分类浏览中查看 ›</view>
-      </view>
-      <view class="lead u-p">
-        全库按热度从高到低排序（热度 = 起底 1000 + 浏览 ×1 + 收藏 ×2，同分按最近更新）；
-        可用标签筛选、切换排序口径。
       </view>
 
       <FilterBar
@@ -172,8 +168,6 @@ onReachBottom(loadMore)
 .head { display: flex; align-items: baseline; gap: 12px; }
 .head-more { margin-left: auto; font-size: 12px; color: var(--primary); }
 .head-more:hover { text-decoration: underline; }
-
-.lead { color: var(--text-2); font-size: 14px; margin: -8px 0 16px; }
 
 /* 单列榜单（本端只保留移动形态，2026-09-23；原桌面是 2 列）。
    PAGE_SIZE = 20 与列数无关（行式列表不分页填格），故无需同步改。 */

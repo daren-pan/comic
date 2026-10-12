@@ -46,6 +46,13 @@ const activeGroup = computed(
   () => remoteGroups.value.find((g) => g.source === activeSource.value) ?? remoteGroups.value[0] ?? null,
 )
 
+/** 来源显示名：页面不暴露源站实名（2026-10-12 用户要求）——
+ *  copymanga → 线路一，zaimanhua → 线路二；其余来源暂无别名、原样显示。 */
+const SOURCE_NAMES: Record<string, string> = { copymanga: '线路一', zaimanhua: '线路二' }
+function sourceLabel(source: string): string {
+  return SOURCE_NAMES[source] ?? source
+}
+
 async function load() {
   loading.value = true
   const q: ComicQuery = { category: category.value === '全部' ? undefined : category.value, sort: sort.value, page: page.value, pageSize }
@@ -93,12 +100,12 @@ async function onImport(item: SourceSearchItem) {
   if (importing.value) return
   importing.value = `${item.source}:${item.sourceComicId}`
   importError.value = ''
-  notice.value = `正在从 ${item.source} 导入《${item.title}》…`
+  notice.value = `正在从 ${sourceLabel(item.source)} 导入《${item.title}》…`
   try {
     const r = await importAndWait({ source: item.source, sourceComicId: item.sourceComicId })
     // 跨源不合并：别的源收过同一部作品时，这里会作为独立的一部导入（译本/进度可能不同）
     notice.value = r.alreadySameSource
-      ? `《${r.title}》已在 ${r.source} 收录过` +
+      ? `《${r.title}》已在 ${sourceLabel(r.source)} 收录过` +
         (r.newChapters ? `，本次补齐 ${r.newChapters} 话新章节` : '') + '（正在打开…）' 
       : `已导入《${r.title}》，共 ${r.chapters} 话，正在打开…`
     router.push(`/comic/${r.comicId}`)
@@ -223,14 +230,14 @@ onLoad((options) => setRoute('/search', options ?? {}))
             :class="{ on: activeSource === g.source }"
             @click="activeSource = g.source"
           >
-            {{ g.source }}<text class="u-span">{{ g.items.length }}</text>
+            {{ sourceLabel(g.source) }}<text class="u-span">{{ g.items.length }}</text>
           </button>
         </view>
 
         <view v-if="activeGroup" class="remote-group">
           <!-- 只有一个来源时不显示标签条，改为一行来源说明 -->
           <view v-if="remoteGroups.length <= 1" class="remote-src">
-            <text class="src-name u-span">{{ activeGroup.source }}</text>
+            <text class="src-name u-span">{{ sourceLabel(activeGroup.source) }}</text>
             <text class="src-count u-span">{{ activeGroup.items.length }} 条</text>
           </view>
           <view class="remote-list">
