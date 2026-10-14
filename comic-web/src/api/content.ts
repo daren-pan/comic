@@ -2,7 +2,7 @@
 import type { CategoryCount, Chapter, Comic, PageInfo, PageResult } from '../types'
 import { request } from './request'
 
-export type ComicSort = 'updated' | 'views'
+export type ComicSort = 'updated' | 'views' | 'favorites'
 
 export interface ComicQuery {
   category?: string
@@ -25,7 +25,7 @@ function qs(q: Record<string, unknown>): string {
  * 分页查询漫画列表（首页 / 搜索共用）
  * @param q.category 分类名（'全部' 视为不过滤）
  * @param q.keyword  关键词（匹配标题 / 作者 / 标签）
- * @param q.sort     排序：updated=最新更新 / views=最热
+ * @param q.sort     排序：updated=最新更新 / views=最热（默认）/ favorites=收藏最多
  * @param q.page     页码（默认 1）
  * @param q.pageSize 每页条数（默认 12）
  * @returns 分页结果 PageResult<Comic>

@@ -7,8 +7,11 @@
 //       权限不足 403。授权页那组接口门槛更高：仅超管（require_superadmin）。
 // ⚠️ 独立的「触发转存」接口已删除（2026-09-21）：巡检第 1 步本就是 lazy_transfer，无独立价值。
 import type {
+  AdminComicPage,
+  AdminScheduleConfig,
+  AdminScheduleRunNowResult,
+  AdminScheduleStatus,
   AdminTask,
-  AdminUser,
   AdminUserPage,
   LogOptions,
   LogQuery,
@@ -94,11 +97,57 @@ export function getAdminTask(taskId: string): Promise<AdminTask> {
 }
 
 /**
- * 查询最近的后台任务列表
+ * 查询后台任务列表（`GET /api/admin/tasks`）
+ *
+ * ⚠️ **前端已无调用方**：管理台原来那块「最近任务」2026-10-06 并入了消息中心
+ * （任务收尾会发一条消息，见 `api/messages.ts` 与 `stores/message.ts`）。
+ * 这个端点保留给外部/调试用，所以这里**留一个薄封装**而不是删掉 ——
+ * 需要"按任务维度看列表"时（而不是按消息维度）直接用它。
+ *
  * @see GET /api/admin/tasks
  */
-export function getAdminTasks(): Promise<AdminTask[]> {
-  return request<AdminTask[]>('/api/admin/tasks')
+export function getAdminTasks(params?: { limit?: number; mine?: boolean }): Promise<AdminTask[]> {
+  const parts: string[] = []
+  if (params?.limit) parts.push(`limit=${params.limit}`)
+  if (params?.mine) parts.push('mine=true')
+  return request<AdminTask[]>(`/api/admin/tasks${parts.length ? `?${parts.join('&')}` : ''}`)
+}
+
+// ================= 定时任务（管理台「定时任务」栏） =================
+// 节奏：**5 段 cron**（`分 时 日 月 周`），对 `sources` 里每个源执行一次采集；
+// `mode`/`limit`/`since` 与「触发采集」是同一套参数，后端最终调同一个 `sync_source`。
+// ⚠️ 采集跑在**独立进程** `comic-scheduler` 里（2026-10-06 从 api 进程搬出）：
+//    本页只写配置与"立即执行"请求，结果由执行器写回运行态 —— 所以拿不到任务号，
+//    状态里的 `executorAlive` 表示那个进程在不在（不在 = 配了也没人跑）。
+// ⚠️ 定时任务**不看**数据源开关（那张开关只管手动触发）：`sources` 留空 = 全部
+//    「代码里默认启用」的源。要采集默认关闭的源（如 mangadex），必须在页面上点名。
+
+/**
+ * 读取定时任务配置 + 运行态（下次执行时刻 / 最近一次结果 / 执行器是否在线）
+ * @see GET /api/admin/schedule
+ */
+export function getAdminSchedule(): Promise<AdminScheduleStatus> {
+  return request<AdminScheduleStatus>('/api/admin/schedule')
+}
+
+/**
+ * 保存定时任务配置
+ * @returns 保存后**实际生效**的状态：未注册的源名会被后端丢弃（记 warning）
+ * @see PUT /api/admin/schedule
+ */
+export function saveAdminSchedule(body: AdminScheduleConfig): Promise<AdminScheduleStatus> {
+  return request<AdminScheduleStatus>('/api/admin/schedule', { method: 'PUT', data: body })
+}
+
+/**
+ * 请求立即执行一轮（不等 cron 命中）
+ *
+ * ⚠️ 返回的只是"**请求已提交**"：采集在独立进程里跑，api 拿不到任务号 ——
+ * 结果要看后续 `getAdminSchedule()` 的 `running` / `lastRunAt` / `lastMessage`。
+ * @see POST /api/admin/schedule/run-now
+ */
+export function runAdminScheduleNow(): Promise<AdminScheduleRunNowResult> {
+  return request<AdminScheduleRunNowResult>('/api/admin/schedule/run-now', { method: 'POST' })
 }
 
 /**
@@ -162,4 +211,68 @@ export function getAdminUsers(params: {
  */
 export function setUserRole(userId: number, role: string): Promise<{ id: number; role: string }> {
   return request(`/api/admin/users/${userId}/role`, { method: 'POST', data: { role } })
+}
+
+// ---------------------------------------------------------------------------
+// 作品管理（管理台「作品管理」页）：上下架 + 评论开关 + 评论清理
+// 后端 `routers/admin_comics.py`，同样挂 `require_admin`（未登录 401 / 无权限 403）。
+// ⚠️ 这里的作品列表**含已下架的**（管理台正是要看到它们才能重新上架）；前台口径相反。
+// ---------------------------------------------------------------------------
+
+/**
+ * 作品列表（**含已下架**），按最近更新倒序
+ * @param keyword 关键词（匹配 标题/作者/分类/标签），空 = 不筛
+ * @see GET /api/admin/comics
+ */
+export function getAdminComics(params: {
+  keyword?: string
+  page?: number
+  pageSize?: number
+} = {}): Promise<AdminComicPage> {
+  return request<AdminComicPage>('/api/admin/comics', { params })
+}
+
+/**
+ * 上架 / 下架一部作品 —— 只改一个标记，**不删数据**，重新上架即恢复
+ * @remarks 下架后前台立刻不可见：列表 / 搜索 / 收藏 / 历史 / 详情页（404）
+ * @see POST /api/admin/comics/{comicId}/listing
+ */
+export function setComicListed(
+  comicId: number,
+  listed: boolean,
+): Promise<{ id: number; listed: boolean }> {
+  return request(`/api/admin/comics/${comicId}/listing`, { method: 'POST', data: { listed } })
+}
+
+/**
+ * 开关**单作品**评论区（全站总开关见 `setCommentSetting`）
+ * @remarks 单作品打开**不等于**能评论 —— 总开关关着时照样拦（两者是 AND）
+ * @see POST /api/admin/comics/{comicId}/comment
+ */
+export function setComicComment(
+  comicId: number,
+  enabled: boolean,
+): Promise<{ id: number; commentEnabled: boolean }> {
+  return request(`/api/admin/comics/${comicId}/comment`, { method: 'POST', data: { enabled } })
+}
+
+/** 读**全站评论总开关** @see GET /api/admin/settings/comment */
+export function getCommentSetting(): Promise<{ enabled: boolean }> {
+  return request<{ enabled: boolean }>('/api/admin/settings/comment')
+}
+
+/** 写**全站评论总开关**（关掉 = 所有作品的评论区一起停；单作品开关保持原样） @see PUT /api/admin/settings/comment */
+export function setCommentSetting(enabled: boolean): Promise<{ enabled: boolean }> {
+  return request('/api/admin/settings/comment', { method: 'PUT', data: { enabled } })
+}
+
+/**
+ * 删除一条评论（**物理删除**，不可恢复）
+ * @remarks 管理动作，后端 `require_admin`。入口在**漫画详情页的评论区**：管理员在每条评论
+ *   上直接看得到「删除」（"看到问题顺手删"的场景）—— 作品管理页不做评论浏览
+ *   （2026-10-09 用户明确「这么多评论不可能一个个去看的」）。
+ * @see DELETE /api/admin/comments/{commentId}
+ */
+export function deleteComment(commentId: number): Promise<null> {
+  return request<null>(`/api/admin/comments/${commentId}`, { method: 'DELETE' })
 }

@@ -1,7 +1,8 @@
 // 用户中心接口（认证 / 收藏 / 历史）
 // 说明：认证与收藏走登录态（JWT，请求拦截器自动附 token）；历史/最近阅读走匿名 userId（无需登录）。
+import axios from 'axios'
 import type { AuthResult, Comic, HistoryEntry, User } from '../types'
-import { getUserId } from './auth'
+import { clearAuth, getToken, getUserId } from './auth'
 import { request } from './request'
 
 /** 当前匿名 userId（URL 编码后拼进路径），未登录也恒有值 */
@@ -45,6 +46,73 @@ export function login(username: string, password: string): Promise<AuthResult> {
  */
 export function me(): Promise<User> {
   return request<User>('/api/auth/me')
+}
+
+// ---- 个人资料（个人中心页；三件事都只改当前登录账号）----
+
+/**
+ * 修改昵称（需登录）
+ * @returns 更新后的 User（调用方写回本地缓存）
+ * @see PUT /api/auth/me
+ */
+export function updateProfile(nickname: string): Promise<User> {
+  return request<User>('/api/auth/me', { method: 'PUT', data: { nickname } })
+}
+
+/**
+ * 修改密码（需登录；后端先验原密码）
+ * @see PUT /api/auth/password
+ */
+export function changePassword(oldPassword: string, newPassword: string): Promise<null> {
+  return request<null>('/api/auth/password', { method: 'PUT', data: { oldPassword, newPassword } })
+}
+
+/**
+ * 上传头像（需登录；multipart 字段名 `file`，≤2MB，JPG / PNG / WebP / GIF）
+ *
+ * 走原生 FormData + axios（multipart 上传不走 request 层的 JSON 通道）；
+ * 响应形状与 request 层一致（`{code,message,data}`），这里手动剥壳。
+ * @returns 更新后的 User（含 avatarUrl）
+ * @see POST /api/auth/avatar
+ */
+export function uploadAvatar(file: File): Promise<User> {
+  const form = new FormData()
+  form.append('file', file)
+  const token = getToken()
+  return axios
+    .post<{ code?: number; message?: string; detail?: unknown; data?: User }>(
+      '/api/auth/avatar',
+      form,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        timeout: 30000, // 上传给足时间（请求层默认 10s）
+      },
+    )
+    .then(
+      (res) => {
+        const body = res.data
+        if (!body || body.code !== 0 || !body.data) throw new Error(body?.message || '上传失败')
+        return body.data
+      },
+      (err) => {
+        const resp = err?.response as { status?: number; data?: { detail?: unknown; message?: unknown } } | undefined
+        if (resp?.status === 401) {
+          clearAuth() // 与 request 层同口径：401 清登录态（页面随事件切到未登录态）
+          throw new Error('登录已过期，请重新登录')
+        }
+        const detail = typeof resp?.data?.detail === 'string' ? resp.data.detail : ''
+        throw new Error(detail || (resp?.data?.message as string) || err?.message || '上传失败')
+      },
+    )
+}
+
+/**
+ * 恢复默认头像（需登录；删头像文件 + 清库内 URL）
+ * @returns 更新后的 User（avatarUrl 为空）
+ * @see DELETE /api/auth/avatar
+ */
+export function resetAvatar(): Promise<User> {
+  return request<User>('/api/auth/avatar', { method: 'DELETE' })
 }
 
 // ================= 收藏（需登录） =================

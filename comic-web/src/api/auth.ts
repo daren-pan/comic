@@ -1,7 +1,13 @@
 // 登录态与匿名身份（纯本地，无网络请求）
-// 职责：token/user 的 localStorage 持久化真相 + JWT 有效性判断 + 登录态变更事件广播。
+// 职责：token/user 的本地持久化真相 + JWT 有效性判断 + 登录态变更事件广播。
 // 说明：api 层只管「持久化真相 + 广播」，Pinia user store 监听 AUTH_EVENT 同步内存镜像。
+//
+// 与 comic-web 的差异仅在两处底层设施（业务逻辑一字未改）：
+//   - localStorage.*  →  utils/storage（uni 存储封装，底层落 localStorage）
+//   - window.dispatchEvent(new CustomEvent) → utils/event（uni.$emit 全局事件总线）
 import type { AuthResult, User } from '../types'
+import { emit } from '../utils/event'
+import { storage } from '../utils/storage'
 
 const TOKEN_KEY = 'comic_web_token'
 const USER_KEY_STORE = 'comic_web_user'
@@ -13,40 +19,40 @@ export const AUTH_EVENT = 'auth:changed'
 
 /** 广播登录态变更事件（setAuth / clearAuth 后触发，store 据此重读） */
 function broadcastAuthChanged(): void {
-  window.dispatchEvent(new CustomEvent(AUTH_EVENT))
+  emit(AUTH_EVENT)
 }
 
 /**
- * 读取当前 token（内存缓存 + localStorage 持久化）
+ * 读取当前 token（内存缓存 + 本地持久化）
  * @returns token 或 null（未登录）
  */
 export function getToken(): string | null {
   if (_token) return _token
-  _token = localStorage.getItem(TOKEN_KEY)
+  _token = storage.get(TOKEN_KEY)
   return _token
 }
 
 /**
- * 写入登录态（登录/注册成功后调用）：token + user 落 localStorage，并广播 auth:changed
+ * 写入登录态（登录/注册成功后调用）：token + user 落本地存储，并广播 auth:changed
  * @param result 后端返回的 AuthResult（含 token 与 user）
  */
 export function setAuth(result: AuthResult): void {
   _token = result.token
   _me = result.user
-  localStorage.setItem(TOKEN_KEY, result.token)
-  localStorage.setItem(USER_KEY_STORE, JSON.stringify(result.user))
+  storage.set(TOKEN_KEY, result.token)
+  storage.set(USER_KEY_STORE, JSON.stringify(result.user))
   broadcastAuthChanged()
 }
 
 /**
  * 只更新缓存里的 user（token 不变）—— 用于 `GET /api/auth/me` 的结果回写
- * @param user 后端返回的最新用户（含 role）；写 localStorage 并广播 auth:changed
+ * @param user 后端返回的最新用户（含 role）；写本地存储并广播 auth:changed
  * @remarks 路由守卫进管理台前会调一次 `/api/auth/me`：被取消授权后 role 会立刻变回来，
  *          不用等 token 过期，也不用重新登录。
  */
 export function setUser(user: User): void {
   _me = user
-  localStorage.setItem(USER_KEY_STORE, JSON.stringify(user))
+  storage.set(USER_KEY_STORE, JSON.stringify(user))
   broadcastAuthChanged()
 }
 
@@ -92,13 +98,13 @@ export function isTokenValid(token: string | null): boolean {
 }
 
 /**
- * 清除登录态（登出 / token 过期 401 时调用）：清空 localStorage，并广播 auth:changed
+ * 清除登录态（登出 / token 过期 401 时调用）：清空本地存储，并广播 auth:changed
  */
 export function clearAuth(): void {
   _token = null
   _me = null
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem(USER_KEY_STORE)
+  storage.remove(TOKEN_KEY)
+  storage.remove(USER_KEY_STORE)
   broadcastAuthChanged()
 }
 
@@ -111,13 +117,13 @@ export function isLoggedIn(): boolean {
 }
 
 /**
- * 读取当前登录用户（内存缓存优先，回退 localStorage）
+ * 读取当前登录用户（内存缓存优先，回退本地存储）
  * @returns User | null（未登录）
  */
 export function currentUser(): User | null {
   if (_me) return _me
   try {
-    return JSON.parse(localStorage.getItem(USER_KEY_STORE) || 'null')
+    return JSON.parse(storage.get(USER_KEY_STORE) || 'null')
   } catch {
     return null
   }
@@ -135,13 +141,13 @@ let _uid: string | null = null
  */
 export function getUserId(): string {
   if (_uid) return _uid
-  let v = localStorage.getItem(USER_KEY)
+  let v = storage.get(USER_KEY)
   if (!v) {
     v =
       typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : `u-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    localStorage.setItem(USER_KEY, v)
+    storage.set(USER_KEY, v)
   }
   _uid = v
   return v

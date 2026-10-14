@@ -1,9 +1,16 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, ref } from 'vue'
 import { useUserStore } from '../stores/user'
+import { useRoute, useRouter } from 'vue-router'
+import { parentOf } from '../utils/nav'
+import { getSeasonLogo } from '../utils/season'
+import Layout from '../components/Layout.vue'
 
+const route = useRoute()
 const router = useRouter()
+
+// 品牌标识随季节切换（与首页顶栏、抽屉同一套资源）
+const logo = getSeasonLogo()
 const userStore = useUserStore()
 const mode = ref<'login' | 'register'>('login')
 const username = ref('')
@@ -11,6 +18,42 @@ const password = ref('')
 const nickname = ref('')
 const error = ref('')
 const loading = ref(false)
+
+/** 登录成功后回哪儿：默认「我的」；带了 `?redirect=` 就回那儿（见 `normalizeRedirect`） */
+const redirectTo = ref('/me')
+/**
+ * 「放弃登录」（点返回）的去处：入口都带 `?redirect=`（详情页 / 消息页 / 守卫 / 401），
+ * 带了就回它 —— `redirect` 在 URL 上、**刷新不失效**；没带（直接打开登录页）留空 →
+ * 按层级返回（`router.back()` → 首页）。
+ */
+const backTo = ref('')
+
+/**
+ * 收敛 `?redirect=`：**只接受站内绝对路径**，其余一律回默认。
+ *
+ * 为什么必须校验：这个参数是"跳到登录页时带上的原路径"（守卫 / 401 / 消息页都会带），
+ * 但它来自 URL —— 不做校验就等于开放重定向（诱导用户点一条
+ * `…/login?redirect=https://evil.example` 的链接，登录后被带走）。
+ * 规则：必须以 `/` 开头、不能是 `//`（协议相对）、不能含 `://` 或反斜杠。
+ *
+ * ⚠️ 要**解两次**：uni 的页面栈会把 query 再编码一次，取到的是 `%252Fmessages`
+ * 这种形态（2026-10-06 实测），只解一次会得到 `%2Fmessages` 这种非法路径。
+ */
+function normalizeRedirect(raw: unknown): string {
+  let value = String(raw ?? '').trim()
+  if (!value) return '/me'
+  for (let i = 0; i < 2 && /%[0-9a-f]{2}/i.test(value); i += 1) {
+    try {
+      value = decodeURIComponent(value)
+    } catch {
+      break          // 编码坏了就按现在的样子继续校验（会被下面的规则挡掉）
+    }
+  }
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('://') || value.includes('\\')) {
+    return '/me'
+  }
+  return value
+}
 
 async function submit() {
   if (!username.value.trim() || !password.value) {
@@ -29,7 +72,8 @@ async function submit() {
     } else {
       await userStore.register(username.value.trim(), password.value, nickname.value.trim())
     }
-    router.push('/me')
+    // replace（不是 push）：登录页不该留在返回栈里 —— 否则回退会退回登录页
+    router.replace(redirectTo.value)
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : '操作失败，请重试'
   } finally {
@@ -48,51 +92,62 @@ function toggleMode() {
 }
 
 function onBack() {
-  router.back()
+  // 回「来处」优先（redirect 在 URL 上，刷新也在）；没带就按层级返回（→ 首页）
+  if (backTo.value) router.replace(backTo.value)
+  else router.replace(parentOf(route.path))
 }
+// 记住"登录后回哪儿"（redirect 在 URL 上，刷新也在）
+onMounted(() => {
+  const raw = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+  redirectTo.value = normalizeRedirect(raw)
+  backTo.value = String(raw).trim() ? normalizeRedirect(raw) : ''
+})
+
 </script>
 
 <template>
-  <div class="auth-wrap">
-    <button class="back" @click="onBack">← 返回</button>
-    <div class="auth-card">
-      <div class="brand">
-        <span class="brand-mark">漫</span>
-        <span class="brand-text">漫阅<em>COMIC</em></span>
-      </div>
-      <h1 class="title">{{ mode === 'login' ? '登录' : '注册' }}</h1>
-      <p class="sub">{{ mode === 'login' ? '登录后可同步收藏到云端' : '创建账号，收藏多端同步' }}</p>
+  <Layout>
+    <div class="auth-wrap">
+      <div class="auth-card">
+        <button class="back u-button" @click="onBack">← 返回</button>
+        <div class="brand">
+          <img class="brand-icon" :src="logo.icon"  />
+          <img class="brand-text" :src="logo.text"  />
+        </div>
+        <div class="title u-h1">{{ mode === 'login' ? '登录' : '注册' }}</div>
+        <div class="sub u-p">{{ mode === 'login' ? '登录后可同步收藏到云端' : '创建账号，收藏云端同步' }}</div>
 
-      <form @submit.prevent="submit">
-        <label class="field">
-          <span>用户名</span>
-          <input v-model="username" type="text" autocomplete="username" placeholder="3-32 个字符" />
-        </label>
+        <form @submit.prevent="submit">
+          <div class="field u-label">
+            <span class="u-span">用户名</span>
+            <input class="u-input" v-model="username" type="text" autocomplete="username" placeholder="3-32 个字符" />
+          </div>
 
-        <label v-if="mode === 'register'" class="field">
-          <span>昵称（选填）</span>
-          <input v-model="nickname" type="text" placeholder="展示名称" />
-        </label>
+          <div v-if="mode === 'register'" class="field u-label">
+            <span class="u-span">昵称（选填）</span>
+            <input class="u-input" v-model="nickname" type="text" placeholder="展示名称" />
+          </div>
 
-        <label class="field">
-          <span>密码</span>
-          <input v-model="password" type="password" autocomplete="current-password" placeholder="至少 6 位" />
-        </label>
+          <div class="field u-label">
+            <span class="u-span">密码</span>
+            <input class="u-input" v-model="password" type="password" autocomplete="current-password" placeholder="至少 6 位" />
+          </div>
 
-        <p v-if="error" class="error">{{ error }}</p>
+          <div v-if="error" class="error u-p">{{ error }}</div>
 
-        <button class="btn block" type="submit" :disabled="loading">
-          {{ loading ? '处理中…' : mode === 'login' ? '登录' : '注册' }}
+          <button class="btn block u-button" type="submit" :disabled="loading">
+            {{ loading ? '处理中…' : mode === 'login' ? '登录' : '注册' }}
+          </button>
+        </form>
+
+        <button class="switch u-button" @click="toggleMode">
+          {{ mode === 'login' ? '没有账号？去注册' : '已有账号？去登录' }}
         </button>
-      </form>
+      </div>
 
-      <button class="switch" @click="toggleMode">
-        {{ mode === 'login' ? '没有账号？去注册' : '已有账号？去登录' }}
-      </button>
+      <div class="hint u-p">最近阅读无需登录即可使用 · 收藏需要登录以跨设备同步</div>
     </div>
-
-    <p class="hint">最近阅读无需登录即可使用 · 收藏需要登录以跨设备同步</p>
-  </div>
+  </Layout>
 </template>
 
 <style scoped>
@@ -100,44 +155,40 @@ function onBack() {
   max-width: 420px;
   margin: 0 auto;
   padding: 20px 0 48px;
-  position: relative;
 }
-.back {
-  position: absolute;
-  top: 4px;
-  left: 0;
-  border: none;
-  background: none;
-  color: var(--text-2);
-  cursor: pointer;
-  font-size: 14px;
-  padding: 4px 0;
-}
-.back:hover { color: var(--primary); }
-
+/* 卡片本身作定位锚点 —— 返回按钮现在在**卡片内部**（原来锚在 .auth-wrap 上、按钮挂在卡片外）。 */
 .auth-card {
-  background: #fff;
+  position: relative;
+  background: var(--card);
   border-radius: 16px;
   padding: 32px 30px;
   box-shadow: var(--shadow-hover);
   text-align: center;
 }
-.brand { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
-.brand-mark {
-  width: 38px; height: 38px; border-radius: 10px;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  color: #fff; font-weight: 800; font-size: 21px;
-  display: flex; align-items: center; justify-content: center;
+/* 卡片内左上角的返回：绿色纯文字，绝对定位贴角，不参与卡片内容流。 */
+.back {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  border: none;
+  background: none;
+  color: #15803d;          /* 绿色（白底对比度 5.0:1，AA 达标）；调色板无绿色变量，故就地取值 */
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 0;
 }
-.brand-text { font-weight: 800; font-size: 20px; }
-.brand-text em { font-style: normal; font-size: 12px; color: var(--primary); margin-left: 4px; letter-spacing: 1px; }
+.back:hover { color: #166534; }
+.brand { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+.brand-icon { width: 38px; height: 38px; }
+/* 字标是 2:1 横排图，图上下各留白约 20% —— 高度 43px 时字面高约 26px */
+.brand-text { width: 86px; height: 43px; }
 
 .title { margin: 14px 0 4px; font-size: 24px; }
 .sub { margin: 0 0 22px; color: var(--text-2); font-size: 14px; }
 
 .field { display: block; text-align: left; margin-bottom: 14px; }
-.field span { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; font-weight: 600; }
-.field input {
+.field .u-span { display: block; font-size: 13px; color: var(--text-2); margin-bottom: 6px; font-weight: 600; }
+.field .u-input {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -147,7 +198,7 @@ function onBack() {
   transition: border 0.15s, background 0.15s;
   color: var(--text);
 }
-.field input:focus { outline: none; border-color: var(--primary); background: #fff; }
+.field .u-input:focus { outline: none; border-color: var(--primary); background: var(--card); }
 
 .error { color: #e23; font-size: 13px; margin: -4px 0 10px; text-align: left; }
 

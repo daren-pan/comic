@@ -11,7 +11,7 @@ import { useUserStore } from './stores/user'
  *
  * | 路由 | 门槛 | 谁能进 |
  * |---|---|---|
- * | `/#/admin`、`/#/admin/logs` | `requireRole(false)` | 超级管理员 + **普通管理员** |
+ * | `/#/admin`、`/#/admin/comics`、`/#/admin/schedule`、`/#/admin/logs` | `requireRole(false)` | 超级管理员 + **普通管理员** |
  * | `/#/admin/users`（授权页） | `requireRole(true)` | **仅超级管理员** |
  *
  * 授权页必须单独把门 —— 否则普通管理员反手就能把真正的超管降级（2026-09-18 实测到的漏洞）。
@@ -40,7 +40,7 @@ function requireRole(superOnly: boolean) {
     }
     const ok = superOnly ? userStore.isSuperAdmin : userStore.isAdmin
     if (!ok) {
-      useMessageStore().addSystem(
+      useMessageStore().notify(
         superOnly ? '需要超级管理员权限' : '需要管理员权限',
         `${to.fullPath} ${
           superOnly ? '仅超级管理员可访问（授权只有超级管理员能做）' : '仅管理员可访问'
@@ -63,9 +63,13 @@ export const router = createRouter({
     { path: '/comic/:id', name: 'detail', component: () => import('./views/ComicDetailView.vue') },
     { path: '/reader/:comicId/:chapterId', name: 'reader', component: () => import('./views/ReaderView.vue') },
     { path: '/me', name: 'me', component: () => import('./views/MeView.vue') },
+    { path: '/profile', name: 'profile', component: () => import('./views/ProfileView.vue') },
+    { path: '/messages', name: 'messages', component: () => import('./views/MessagesView.vue') },
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue') },
-    // 管理台与日志：超级管理员 + 普通管理员
+    // 管理台：超级管理员 + 普通管理员
     { path: '/admin', name: 'admin', component: () => import('./views/AdminView.vue'), beforeEnter: requireRole(false) },
+    { path: '/admin/comics', name: 'adminComics', component: () => import('./views/AdminComicsView.vue'), beforeEnter: requireRole(false) },
+    { path: '/admin/schedule', name: 'adminSchedule', component: () => import('./views/AdminScheduleView.vue'), beforeEnter: requireRole(false) },
     { path: '/admin/logs', name: 'logs', component: () => import('./views/LogsView.vue'), beforeEnter: requireRole(false) },
     // 授权页：**仅超级管理员**
     { path: '/admin/users', name: 'adminUsers', component: () => import('./views/AdminUsersView.vue'), beforeEnter: requireRole(true) },

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import {
   getCategories,
   getComics,
@@ -9,24 +8,48 @@ import {
   type ComicQuery,
   type ComicSort,
 } from '../api'
-import type { CategoryCount, Comic, SourceSearchGroup, SourceSearchItem } from '../types'
+import type { CategoryCount, SourceSearchGroup, SourceSearchItem } from '../types'
 import ComicCard from '../components/ComicCard.vue'
+import FilterBar from '../components/FilterBar.vue'
+import { useRoute, useRouter } from 'vue-router'
+import { usePagedList } from '../composables/usePagedList'
+import Layout from '../components/Layout.vue'
+import Pager from '../components/Pager.vue'
 
 const route = useRoute()
 const router = useRouter()
 
 const categories = ref<CategoryCount[]>([])
 const category = ref('全部')
-const sort = ref<ComicSort>('updated')
+// 默认按热度降序（2026-09-22 用户要求）：进分类页先看「现在最热的」，而不是刚更新的
+const sort = ref<ComicSort>('views')
 const keyword = ref('')
 const input = ref('')
-const comics = ref<Comic[]>([])
-const total = ref(0)
-const page = ref(1)
-// 每页条数 = 桌面列数 × 行数（5 列 × 4 行）→ 每页都是整行，末行不留空格
-// （2026-09-21 用户要求；此前 12 条 ÷ 5 列除不尽，末行空 3 格）
-const pageSize = 20
-const loading = ref(false)
+/**
+ * 列表状态机（分页 / 竞态 / 失败回退都在里面）—— 2026-10-13 抽自多页逐字重复的代码。
+ * ⚠️ `immediate: false`：首屏由 `onMounted → applyQuery` 触发（要等分类读完）。
+ */
+const {
+  items: comics, total, page, loading, error, totalPages, goPage, reload,
+} = usePagedList(
+  async (p, ps) => {
+    // 每页条数 = 3 列 × 6 行 = 18 —— 正好填满，末行不留空格（2026-09-23 与「最近更新」页统一）。
+    // ⚠️ 别再随手改成 20：20 ÷ 3 = 6 行余 2，末行就会空掉最后一格。
+    const q: ComicQuery = {
+      category: category.value === '全部' ? undefined : category.value,
+      sort: sort.value,
+      page: p,
+      pageSize: ps,
+    }
+    if (keyword.value) q.keyword = keyword.value
+    const res = await getComics(q)
+    // 站内结果先渲染，再去源站找（源站慢，不能拖住站内结果的显示）
+    if (keyword.value) void loadRemote(keyword.value)
+    else resetRemote()
+    return res
+  },
+  { pageSize: 18, immediate: false },
+)
 
 // ---- 其他来源（源站搜索）：站内搜不到时去各源站找 ----
 const remoteGroups = ref<SourceSearchGroup[]>([])
@@ -42,17 +65,11 @@ const activeGroup = computed(
   () => remoteGroups.value.find((g) => g.source === activeSource.value) ?? remoteGroups.value[0] ?? null,
 )
 
-async function load() {
-  loading.value = true
-  const q: ComicQuery = { category: category.value === '全部' ? undefined : category.value, sort: sort.value, page: page.value, pageSize }
-  if (keyword.value) q.keyword = keyword.value
-  const res = await getComics(q)
-  comics.value = res.items
-  total.value = res.total
-  loading.value = false
-  // 站内结果先渲染，再去源站找（源站慢，不能拖住站内结果的显示）
-  if (keyword.value) void loadRemote(keyword.value)
-  else resetRemote()
+/** 来源显示名：页面不暴露源站实名（2026-10-12 用户要求）——
+ *  copymanga → 线路一，zaimanhua → 线路二；其余来源暂无别名、原样显示。 */
+const SOURCE_NAMES: Record<string, string> = { copymanga: '线路一', zaimanhua: '线路二' }
+function sourceLabel(source: string): string {
+  return SOURCE_NAMES[source] ?? source
 }
 
 function resetRemote() {
@@ -89,12 +106,12 @@ async function onImport(item: SourceSearchItem) {
   if (importing.value) return
   importing.value = `${item.source}:${item.sourceComicId}`
   importError.value = ''
-  notice.value = `正在从 ${item.source} 导入《${item.title}》…`
+  notice.value = `正在从 ${sourceLabel(item.source)} 导入《${item.title}》…`
   try {
     const r = await importAndWait({ source: item.source, sourceComicId: item.sourceComicId })
     // 跨源不合并：别的源收过同一部作品时，这里会作为独立的一部导入（译本/进度可能不同）
     notice.value = r.alreadySameSource
-      ? `《${r.title}》已在 ${r.source} 收录过` +
+      ? `《${r.title}》已在 ${sourceLabel(r.source)} 收录过` +
         (r.newChapters ? `，本次补齐 ${r.newChapters} 话新章节` : '') + '（正在打开…）' 
       : `已导入《${r.title}》，共 ${r.chapters} 话，正在打开…`
     router.push(`/comic/${r.comicId}`)
@@ -119,164 +136,152 @@ function applyQuery() {
   category.value = c && categories.value.some((x) => x.name === c) ? c : '全部'
   keyword.value = k ?? ''
   input.value = k ?? ''
-  page.value = 1
-  load()
+  reload()
 }
 
 function onSearch() {
   keyword.value = input.value.trim()
   router.replace({ query: keyword.value ? { keyword: keyword.value } : {} })
-  page.value = 1
-  load()
+  reload()
 }
 
 function onCategory(c: string) {
   category.value = c
   router.replace({ query: { ...route.query, category: c } })
-  page.value = 1
-  load()
+  reload()
 }
 
 function onSort(s: ComicSort) {
   sort.value = s
-  page.value = 1
-  load()
+  reload()
 }
-
-const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
 
 onMounted(async () => {
   categories.value = await getCategories()
   applyQuery()
 })
-watch(() => route.query, applyQuery)
+// compat 层的 route.query 每次登记都会换成新对象；改看 fullPath（字符串按值比较）避免重复触发
+watch(() => route.fullPath, applyQuery)
+// uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）
+
 </script>
 
 <template>
-  <div>
-    <h2 class="section-title">{{ keyword ? '搜索结果' : '分类浏览' }}</h2>
+  <Layout>
+    <div>
+      <div class="section-title">{{ keyword ? '搜索结果' : '分类浏览' }}</div>
 
-    <div class="toolbar">
-      <form class="big-search" @submit.prevent="onSearch">
-        <input v-model="input" type="text" placeholder="输入漫画名 / 作者 / 标签…" />
-        <button type="submit">搜索</button>
-      </form>
+      <div class="toolbar">
+        <form class="big-search" @submit.prevent="onSearch">
+          <input class="u-input" v-model="input" type="text" placeholder="输入漫画名 / 作者 / 标签…" />
+          <button class="u-button" type="submit">搜索</button>
+        </form>
 
-      <div class="cats">
-        <button
-          v-for="c in categories"
-          :key="c.name"
-          class="chip-btn"
-          :class="{ on: category === c.name }"
-          @click="onCategory(c.name)"
-        >{{ c.name }}<span>{{ c.count }}</span></button>
+        <FilterBar
+          :category="category"
+          :sort="sort"
+          :categories="categories"
+          @update:category="onCategory"
+          @update:sort="onSort"
+        />
       </div>
 
-      <div class="sorts">
-        <span class="label">排序</span>
-        <button :class="{ on: sort === 'updated' }" @click="onSort('updated')">最新更新</button>
-        <button :class="{ on: sort === 'views' }" @click="onSort('views')">最热</button>
-      </div>
-    </div>
-
-    <p v-if="keyword" class="result-hint">
-      关键词「{{ keyword }}」共 {{ total }} 部作品
-    </p>
-
-    <div v-if="loading" class="empty">搜索中…</div>
-    <div v-else-if="comics.length === 0" class="empty">
-      <template v-if="keyword">站内没有「{{ keyword }}」，看看下面的其他来源</template>
-      <template v-else>没有找到相关漫画，换个关键词试试</template>
-    </div>
-    <div v-else class="grid">
-      <ComicCard v-for="c in comics" :key="c.id" :comic="c" />
-    </div>
-
-    <div v-if="totalPages() > 1" class="pager">
-      <button class="btn ghost" :disabled="page <= 1" @click="page--; load()">上一页</button>
-      <span class="page-info">{{ page }} / {{ totalPages() }}</span>
-      <button class="btn ghost" :disabled="page >= totalPages()" @click="page++; load()">下一页</button>
-    </div>
-
-    <!-- 其他来源：站内搜不到时去各源站找，点「导入并阅读」即可收录后打开 -->
-    <template v-if="keyword">
-      <h3 class="remote-title">
-        其他来源
-        <small v-if="remoteLoading" class="hint">正在搜索源站…</small>
-      </h3>
-
-      <p v-if="notice" class="notice">{{ notice }}</p>
-      <p v-if="importError" class="notice err">{{ importError }}</p>
-      <p v-if="remoteError" class="empty">{{ remoteError }}</p>
-      <p v-else-if="!remoteLoading && remoteGroups.length === 0" class="empty">
-        其他来源也没有找到「{{ keyword }}」
-      </p>
-
-      <!-- 多个站点同时命中：用标签切换来源（结果是一次全拿到的，切换不重新请求） -->
-      <div v-if="remoteGroups.length > 1" class="remote-tabs">
-        <span class="tabs-label">来源</span>
-        <button
-          v-for="g in remoteGroups"
-          :key="g.source"
-          class="remote-tab"
-          :class="{ on: activeSource === g.source }"
-          @click="activeSource = g.source"
-        >
-          {{ g.source }}<span>{{ g.items.length }}</span>
-        </button>
+      <div v-if="keyword" class="result-hint u-p">
+        关键词「{{ keyword }}」共 {{ total }} 部作品
       </div>
 
-      <div v-if="activeGroup" class="remote-group">
-        <!-- 只有一个来源时不显示标签条，改为一行来源说明 -->
-        <div v-if="remoteGroups.length <= 1" class="remote-src">
-          <span class="src-name">{{ activeGroup.source }}</span>
-          <span class="src-count">{{ activeGroup.items.length }} 条</span>
+      <div v-if="error" class="empty">{{ error }}</div>
+      <div v-else-if="loading" class="empty">搜索中…</div>
+      <div v-else-if="comics.length === 0" class="empty">
+        <template v-if="keyword">站内没有「{{ keyword }}」，看看下面的其他来源</template>
+        <template v-else>没有找到相关漫画，换个关键词试试</template>
+      </div>
+      <div v-else class="grid">
+        <ComicCard v-for="c in comics" :key="c.id" :comic="c" />
+      </div>
+
+      <Pager v-if="totalPages > 1" :page="page" :total-pages="totalPages" @change="goPage" />
+
+      <!-- 其他来源：站内搜不到时去各源站找，点「导入并阅读」即可收录后打开 -->
+      <template v-if="keyword">
+        <div class="remote-title u-h3">
+          其他来源
+          <span v-if="remoteLoading" class="hint">正在搜索源站…</span>
         </div>
-        <div class="remote-list">
-          <div
-            v-for="it in activeGroup.items"
-            :key="it.source + it.sourceComicId"
-            class="remote-item"
+
+        <div v-if="notice" class="notice u-p">{{ notice }}</div>
+        <div v-if="importError" class="notice err u-p">{{ importError }}</div>
+        <div v-if="remoteError" class="empty u-p">{{ remoteError }}</div>
+        <div v-else-if="!remoteLoading && remoteGroups.length === 0" class="empty u-p">
+          其他来源也没有找到「{{ keyword }}」
+        </div>
+
+        <!-- 多个站点同时命中：用标签切换来源（结果是一次全拿到的，切换不重新请求） -->
+        <div v-if="remoteGroups.length > 1" class="remote-tabs">
+          <span class="tabs-label u-span">来源</span>
+          <button
+            v-for="g in remoteGroups"
+            :key="g.source"
+            class="remote-tab u-button"
+            :class="{ on: activeSource === g.source }"
+            @click="activeSource = g.source"
           >
-            <img class="remote-cover" :src="it.cover" :alt="it.title" loading="lazy" @error="hideImg" />
-            <div class="remote-info">
-              <div class="remote-name">{{ it.title }}</div>
-              <div class="remote-meta">
-                {{ it.author || '未知作者' }}
-                <span v-if="it.latestChapterTitle">· 更新至 {{ it.latestChapterTitle }}</span>
+            {{ sourceLabel(g.source) }}<span class="u-span">{{ g.items.length }}</span>
+          </button>
+        </div>
+
+        <div v-if="activeGroup" class="remote-group">
+          <!-- 只有一个来源时不显示标签条，改为一行来源说明 -->
+          <div v-if="remoteGroups.length <= 1" class="remote-src">
+            <span class="src-name u-span">{{ sourceLabel(activeGroup.source) }}</span>
+            <span class="src-count u-span">{{ activeGroup.items.length }} 条</span>
+          </div>
+          <div class="remote-list">
+            <div
+              v-for="it in activeGroup.items"
+              :key="it.source + it.sourceComicId"
+              class="remote-item"
+            >
+              <img class="remote-cover u-img" :src="it.cover" :alt="it.title" loading="lazy" @error="hideImg"  />
+              <div class="remote-info">
+                <div class="remote-name">{{ it.title }}</div>
+                <div class="remote-meta">
+                  {{ it.author || '未知作者' }}
+                  <span class="u-span" v-if="it.latestChapterTitle">· 更新至 {{ it.latestChapterTitle }}</span>
+                </div>
+                <div v-if="it.tags.length" class="remote-tags">
+                  <span class="u-span" v-for="t in it.tags.slice(0, 4)" :key="t">{{ t }}</span>
+                </div>
               </div>
-              <div v-if="it.tags.length" class="remote-tags">
-                <span v-for="t in it.tags.slice(0, 4)" :key="t">{{ t }}</span>
+              <div class="remote-action">
+                <span v-if="it.comicId !== null" class="badge u-span">已收录</span>
+                <button
+                  class="btn u-button"
+                  :disabled="!!importing"
+                  @click="onImport(it)"
+                >
+                  {{
+                    it.comicId !== null
+                      ? '打开'
+                      : importing === it.source + ':' + it.sourceComicId
+                        ? '导入中…'
+                        : '导入并阅读'
+                  }}
+                </button>
               </div>
-            </div>
-            <div class="remote-action">
-              <span v-if="it.inLibrary" class="badge">已收录</span>
-              <button
-                class="btn"
-                :disabled="!!importing"
-                @click="onImport(it)"
-              >
-                {{
-                  it.inLibrary
-                    ? '打开'
-                    : importing === it.source + ':' + it.sourceComicId
-                      ? '导入中…'
-                      : '导入并阅读'
-                }}
-              </button>
             </div>
           </div>
         </div>
-      </div>
-    </template>
-  </div>
+      </template>
+    </div>
+  </Layout>
 </template>
 
 <style scoped>
 .toolbar { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
 
 .big-search { display: flex; gap: 8px; }
-.big-search input {
+.big-search .u-input {
   flex: 1;
   height: 44px;
   border: 2px solid var(--border);
@@ -285,10 +290,10 @@ watch(() => route.query, applyQuery)
   font-size: 15px;
   outline: none;
   transition: border 0.15s;
-  background: #fff;
+  background: var(--card);
 }
-.big-search input:focus { border-color: var(--primary); }
-.big-search button {
+.big-search .u-input:focus { border-color: var(--primary); }
+.big-search .u-button {
   border: none;
   background: var(--primary);
   color: #fff;
@@ -298,45 +303,16 @@ watch(() => route.query, applyQuery)
   font-weight: 700;
   cursor: pointer;
 }
-.big-search button:hover { background: var(--primary-dark); }
-
-.cats { display: flex; gap: 8px; flex-wrap: wrap; }
-.chip-btn {
-  border: 1px solid var(--border);
-  background: #fff;
-  padding: 5px 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s;
-  color: var(--text);
-}
-.chip-btn span { color: #b5aca2; font-size: 12px; margin-left: 3px; }
-.chip-btn:hover { border-color: var(--primary); color: var(--primary); }
-.chip-btn.on { background: var(--primary); border-color: var(--primary); color: #fff; }
-.chip-btn.on span { color: rgba(255, 255, 255, 0.75); }
-
-.sorts { display: flex; align-items: center; gap: 8px; }
-.sorts .label { font-size: 13px; color: var(--text-2); }
-.sorts button {
-  border: 1px solid var(--border);
-  background: #fff;
-  padding: 4px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  cursor: pointer;
-  color: var(--text-2);
-}
-.sorts button.on { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); font-weight: 600; }
+.big-search .u-button:hover { background: var(--primary-dark); }
 
 .result-hint { font-size: 13px; color: var(--text-2); margin: 0 0 12px; }
 
-.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
-@media (max-width: 900px) { .grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 560px) { .grid { grid-template-columns: repeat(2, 1fr); } }
-
-.pager { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 26px; }
-.page-info { color: var(--text-2); font-size: 14px; }
+/* 3 列 × 6 行 = 18 = 每页条数 —— 正好填满，末行不留空格。
+   ⚠️ 改列数时必须同步改 `pageSize`（两者相乘要等于每页条数），否则末行会空出来。
+   网页版 6 列 × 3 行 = 18，同样整除（见文末 .mode-web 段）。 */
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+/* 手机（≤560px）保持 3 列，只收紧间距（原先降到 2 列；2026-09-22 用户要求） */
+@media (max-width: 560px) { .grid { gap: 10px; } }
 
 /* ---- 其他来源（源站搜索 + 按需导入） ---- */
 .remote-title { margin: 34px 0 14px; font-size: 18px; display: flex; align-items: baseline; gap: 10px; }
@@ -353,14 +329,14 @@ watch(() => route.query, applyQuery)
 .remote-tabs { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .remote-tabs .tabs-label { font-size: 13px; color: var(--text-2); }
 .remote-tab {
-  border: 1px solid var(--border); background: #fff; color: var(--text-2);
+  border: 1px solid var(--border); background: var(--card); color: var(--text-2);
   padding: 5px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
   transition: all 0.15s; display: inline-flex; align-items: center;
 }
-.remote-tab span { color: #b5aca2; font-size: 12px; margin-left: 5px; }
+.remote-tab .u-span { color: #b5aca2; font-size: 12px; margin-left: 5px; }
 .remote-tab:hover { border-color: var(--primary); color: var(--primary); }
 .remote-tab.on { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
-.remote-tab.on span { color: rgba(255, 255, 255, 0.75); }
+.remote-tab.on .u-span { color: rgba(255, 255, 255, 0.75); }
 
 .remote-src { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; }
 .remote-src .src-name { font-weight: 600; }
@@ -383,7 +359,7 @@ watch(() => route.query, applyQuery)
 }
 .remote-meta { font-size: 12px; color: var(--text-2); margin-top: 3px; }
 .remote-tags { display: flex; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
-.remote-tags span {
+.remote-tags .u-span {
   font-size: 11px; padding: 1px 7px; border-radius: 6px;
   background: var(--primary-soft); color: var(--primary-dark);
 }
@@ -392,5 +368,15 @@ watch(() => route.query, applyQuery)
 .badge {
   font-size: 12px; padding: 2px 8px; border-radius: 6px;
   background: #eaf3de; color: #3b6d11;
+}
+
+/* 网页版（.mode-web，2026-10-10）：漫画网格 3 列 → 6 列（密度与首页一致；18 条 =
+   6 列 × 3 行仍整除）；中窄宽窗降 4 列、超窄窗 3 列。 */
+.mode-web .grid { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 1024px) {
+  .mode-web .grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 560px) {
+  .mode-web .grid { grid-template-columns: repeat(3, 1fr); }
 }
 </style>

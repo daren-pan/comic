@@ -1,90 +1,131 @@
-# comic-web 前端（Vue 3 + TypeScript + Vite + Pinia）
+# comic-web 前端（纯 Vue 3 + Vite + TypeScript + Pinia）
 
-漫画聚合平台的 **Web SPA** 版：数据来自 `../api-service` 的 REST API，内容由 `../crawler-service` 采集入库。
+漫画聚合平台的 **Web SPA**：数据来自 `../api-service` 的 REST API，内容由 `../crawler-service` 采集入库。
 
-> ⚠️ **已冻结**：新增功能一律做在 `comic-front`（uni-app 版，多端）；本目录只作**参考实现**，
-> 约定与逻辑**不再改动**。
+- **与 comic-front 功能等价**：页面、交互、接口调用、视觉全部对齐（`comic-front` 是同一份前端的
+  uni-app 实现，两者是"孪生"关系；2026-10-14 由前者 1:1 迁移而来，只把技术栈换成纯 Vue3 + Vite）；
+- **移动端为基准，网页版是增量**（2026-10-10 起双形态）：网页版全部写成 `.mode-web` 前缀的增量覆盖，
+  按 UA 自动判定。网页版是**全新设计**、不参照旧版；
+- 路由用标准 **vue-router**（hash 模式，构建产物可离线双击打开）；管理台守卫用**路由级
+  `beforeEnter`**（`router.ts` 的 `requireRole`）。
 
-## 页面与路由
+> **文档分工**：本文件 = 模块框架 / 页面用途 / 约定 / 命令（给人看）；
+> **[NOTES.md](NOTES.md) = 踩坑 / 实测 / 历史决策**（AI 协作时维护，踩坑即写）；
+> **各页面的具体逻辑**由其源码注释解释维护。
+
+## 目录结构
+
+```
+comic-web/
+├── index.html                # 入口（含 favicon 随季节切换的内联脚本）
+├── vite.config.ts            # vite + @vitejs/plugin-vue；/api 代理到 8000；dev 端口 5173
+├── eslint.config.mjs         # ESLint（两条禁令：裸 alert / localStorage）
+├── vitest.config.ts          # 单测配置（独立于 vite.config）
+├── tests/                    # vitest：nav 映射 / 季节 / 分页状态机 / 约定守卫
+├── public/static/logo/       # 四季站标 + favicon（季节切换见 utils/season.ts）
+└── src/
+    ├── main.ts               # createApp + Pinia + router
+    ├── App.vue               # 只挂 <RouterView />（全站布局由各页用 <Layout> 自包）
+    ├── router.ts             # 路由表（15 页）+ 管理台守卫（requireRole 三道门）
+    ├── style.css             # 全局设计变量与工具类（含夜间主题变量组）
+    ├── types.ts              # 领域类型（核心类型从后端 OpenAPI 自动生成提取）
+    ├── api/                  # request 单通道 + 业务模块；generated/ 为自动生成（勿手改）
+    ├── composables/          # 页面共享模式（usePagedList：分页/竞态/失败回退；useReachBottom）
+    ├── stores/               # Pinia：user（登录态）/ message（消息中心）
+    ├── components/           # Layout / ComicCard / Pager / StateView / FilterBar / Picker / DateInput / AdminTabs / UserAvatar
+    ├── utils/                # 适配层：storage / event / ui / theme / layout / nav / format / season / icons
+    └── views/                # 15 个页面（每页一个文件）
+```
+
+## 页面与路由（`src/router.ts`）
 
 | 路由 | 页面 | 说明 |
 |---|---|---|
-| `/` | 首页 | Banner + 热门榜单 + 最新更新 + 分类精选 |
-| `/search` | 分类浏览 / 搜索 | 关键词（标题 / 作者 / 标签）+ 分类筛选 + 排序 + 分页 |
-| `/latest` | 最近更新 | 按更新时间的卡片网格（`sort=updated`），卡片带相对时间角标 |
-| `/rank` | 排行 | 分类区块（作品数 ≥3）+ 块内按**热度**取前 10，区块滚入视口才懒加载 |
-| `/comic/:id` | 详情页 | 封面 / 简介 / 标签 / 来源标注 + 收藏 + 章节列表 |
-| `/reader/:comicId/:chapterId` | 在线阅读器 | 双阅读模式（左右滑动 / 竖排连播）、主题切换、设置面板、章节切换、进度记忆续读 |
-| `/me` | 我的 | 最近阅读（续读 / 删除）+ 我的收藏 |
-| `/login` | 登录 / 注册 | JWT 登录；收藏需登录，历史**登录后归属账号、游客用浏览器匿名 id** |
-| `/admin` | 采集管理控制台 | 按源开关 / 触发采集 / **全库失效巡检** / 触发按需导入（**需管理员**：超管与普通管理员都可） |
-| `/admin/logs` | 运行日志查询 | 按级别 / 源站 / 事件 / 作品 / 任务 / 关键字 / 时间窗筛（日志已落库 `log_record`）；**需管理员** |
-| `/admin/users` | 授权管理 | 用户列表 + 在**普通管理员 ⇄ 普通用户**之间切换；**仅超级管理员**可进 |
+| `/` | 首页 | 顶栏（站标 + 轮播播报）+ 热门榜单 + 最新更新 + 分类精选 |
+| `/search` | 分类浏览 / 搜索 | 关键词 + `FilterBar` + 分页（18/页）；站内搜不到时**搜源站并导入** |
+| `/latest` | 最近更新 | 按日期分组（组头吸顶）+ 触底自动追加 |
+| `/rank` | 排行 | 全库榜单（默认热度降序）+ `FilterBar`；触底追加 |
+| `/comic/:id` | 详情页 | 封面 / 简介 / 标签 + 收藏 + 章节列表（NEW 角标 + 正倒序）+ 评论区 + 续读 |
+| `/reader/:comicId/:chapterId` | 在线阅读器 | 双阅读模式、主题切换、章节切换、进度记忆 |
+| `/me` | 我的（书架） | 最近阅读（续读 / 删除）+ 我的收藏 |
+| `/profile` | 个人中心 | 资料（头像 / 昵称可点即改）+ 修改密码 + 退出登录 |
+| `/messages` | 消息中心 | 服务端 `message` 表、所有登录用户（按收件范围过滤）；**顶栏铃铛的落点** |
+| `/login` | 登录 / 注册 | JWT；收藏需登录，历史游客用浏览器匿名 id |
+| `/admin` | 采集管理台 | 采集 / 巡检 / 封面自愈；**需管理员** |
+| `/admin/comics` | 作品管理 | 上下架 + 评论开关（全站 + 单作品）+ 补全章节；**搜索式**（不列全部）；**需管理员** |
+| `/admin/schedule` | 定时任务配置 | cron + 动作 + 运行状态（执行器在线 / 下次执行）；**需管理员** |
+| `/admin/logs` | 运行日志查询 | 按级别 / 源站 / 事件 / 作品 / 任务 / 时间窗筛；**需管理员** |
+| `/admin/users` | 授权管理 | 普通管理员 ⇄ 普通用户；**仅超管** |
 
-三条 `/#/admin*` 路由都挂守卫（`router.ts` 的 `requireRole(superOnly)`）：未登录跳登录页（带 `redirect`）、
-进门前向 `/api/auth/me` **复核角色**（角色每请求查库，授权 / 取消立即生效）、角色不够则回首页并留一条消息。
+> 管理台四个页面顶部是**同一栏的四个选项卡**（`components/AdminTabs.vue`，导航式 —— 各页仍是独立路由，
+> 可直达可分享）；「作品管理」只进选项卡栏、不进抽屉菜单。
+> **每个页面都要用 `<Layout>` 包住自身内容**（与 comic-front 结构一致，页面代码因此零改动迁移）。
 
 ## 模块架构
 
-**API 层**（`src/api/`，axios 单通道，按职责拆子模块）
+### 适配层（`src/utils/`）
 
+| 模块 | 说明 |
+|---|---|
+| `nav.ts` | `parentOf()`（层级返回的固定上级树）+ `openNewTab()`；**顶栏返回键不依赖浏览历史** |
+| `storage.ts` | `get/set/remove`，语义与 localStorage 一致（读不到返回 `null`） |
+| `event.ts` | `emit/on/off` → `window` 自定义事件（登录态变更广播） |
+| `ui.ts` | `showAlert` / `showConfirm` / `showToast` / `showLoading`（基于原生 `<dialog>` 与动态 DOM，全站唯一弹窗出口） |
+| `theme.ts` | `useTheme()` → `{ theme, isDark, setTheme, toggleTheme }`；选择存本地、未选过时跟随系统 |
+| `layout.ts` | `useLayoutMode()` → `{ mode, isWebMode }`；**只按 UA 判定**（手机 → 移动版 / 电脑 → 网页版） |
+| `format.ts` | 时间格式化：`formatDateTime` / `formatMonthDay` / `formatCommentTime` / `formatInterval` / `formatHeat` |
+| `season.ts` | 季节判定 + 四季站标资源（`public/static/logo/`） |
+| `icons.ts` | 底栏图标（自绘 SVG → base64 data URI，明暗两套） |
+
+### 后端契约与类型生成
+
+`src/types.ts` 的核心类型（`Comic` / `AdminComic` / `Chapter` / `PageInfo` / `Comment`）**从后端 OpenAPI 自动生成提取**，
+不再手抄。后端改字段后重跑两步即可让前端类型跟上：
+
+```bash
+# ① 后端侧：导出契约快照（in-process，不要求服务在跑）
+python tools/export_openapi.py        # → api-service/openapi.json
+# ② 前端侧：生成 TS 类型
+cd comic-web && npm run gen:api       # → src/api/generated/schema.d.ts
 ```
-src/api/
-├── index.ts      barrel 汇总（组件统一 `import { ... } from '../api'`）
-├── request.ts    HTTP 请求层：axios 实例 + 拦截器 + request<T> 剥壳 + backendAlive
-├── auth.ts       登录态与匿名身份（纯本地）：token 存取 + auth:changed 广播 + getUserId
-├── content.ts    内容接口：漫画 / 章节 / 分页 / 分类（公开）
-├── user.ts       用户中心接口：认证 / 收藏（需登录）/ 历史
-└── admin.ts      管理台接口：源 / 开关 / 采集 / 巡检 / 任务 / 日志 / 授权（需管理员）
-```
-
-- **请求**：请求拦截器自动附 `Authorization: Bearer <token>`；泛型 `request<T>()` 剥掉 `{code, message, data}` 外壳；
-  401（token 过期 / 无效）→ 自动 `clearAuth()` + 跳登录页；
-- **匿名身份**：`getUserId()` 生成浏览器级匿名 UUID（`comic_web_user_id`），游客的历史无需登录即可用。
-
-**状态（Pinia）**
-
-- `stores/user.ts`：登录态响应式镜像（`token`/`user`、`isLoggedIn`/`isAdmin`/`isSuperAdmin`、`login/register/logout/refresh`）。
-  token / user 持久化在 localStorage，api 层 `setAuth`/`clearAuth` 广播 `auth:changed` 事件、store 监听后重读 → 全站同步。
-- `stores/message.ts`：**顶栏消息中心**（🔔 未读角标 + 面板 + toast）。轮询放在 store（单例）而非组件 ——
-  触发任务后 `trackTask` 占位、每 1.5s 轮询 `getAdminTask`，**离开 `/admin` 页仍会跟踪到结束**；
-  已完成消息落 localStorage（上限 50 条），刷新时仍在 running 的标记为「任务已中断」。
-
-**阅读器**（`views/ReaderView.vue`）
-
-- 左右滑动：单张居中、懒加载 + 前后页预加载、点击左右 1/4 区域翻页、`←/→` 键盘翻页；
-- 竖排连播：整章所有页垂直拼接连续滚动，滚动位置实时推导当前页；
-- 设置面板（阅读模式 / 背景主题）本地持久化；翻页即写进度，续读自动恢复页码。
-
-**图片**：由后端 `/api/covers/{id}`、`/api/images/...` 提供，前端 `utils/images.ts` 生成 SVG data URI 占位图兜底。
 
 ## 基础命令
 
+前置：后端 8000 已在运行。接口统一相对路径 `/api/*`，由 Vite proxy 转发到 `127.0.0.1:8000`。
+
 ```bash
 npm install
-npm run dev        # 开发模式 http://localhost:5173（HMR，/api 代理到 8000）
-npm run build      # 生产构建 → dist/（base='./'，hash 路由，可离线双击打开）
-npm run preview    # 预览构建产物
+npm run dev             # 开发 http://localhost:5173（HMR）
+npm run build           # 生产构建 → dist/
+npm run lint            # ESLint（禁裸 alert / localStorage）
+npm run test            # vitest（nav 映射 / 季节 / 分页状态机 / 约定守卫）
+npm run typecheck       # tsc --noEmit（.ts 类型检查）
+npm run check           # lint + typecheck + test
+npm run gen:api         # 从后端 OpenAPI 快照生成类型（见上「后端契约与类型生成」）
 ```
-
-> ⚠️ **本机 `npm` 起不来时的兜底**（例如撞 WSL / 杀软黑名单，报 `npm.ps1 cannot be loaded`）：
-> 绕过 npm 直接跑 Vite —— `node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173`。
 
 | 依赖 | 用途 | 备注 |
 |---|---|---|
-| vue / vue-router | 框架 + 路由 | hash 路由（`createWebHashHistory`），配合 `base:'./'` 任意静态托管可跑 |
-| **pinia** | 登录态 / 消息中心全局共享 | ⚠️ 用 **pinia@2**（pinia@4 要求 TS≥5.6，本项目 TS 5.4） |
-| **axios** | HTTP 请求 | 单通道接真实后端；拦截器统一 token / 解包 / 401 |
-| typescript | 类型 | 项目无 vue-tsc，类型检查靠 IDE / tsc |
+| vue 3 + **vue-router** + **pinia** | 框架 / 路由 / 全局共享 | 标准生态，无额外运行时抽象 |
+| **axios** | 请求 | 单通道封装在 `api/request.ts` |
+| `vite` 5 + `@vitejs/plugin-vue` | 构建 | `base: './'`，产物可挂任意子路径 |
+| eslint 9 / vitest 3 / openapi-typescript 7 | 门禁 / 单测 / 类型生成 | 版本兼容约束见 [NOTES.md](NOTES.md) |
 
 ## 约定
 
-- **日常只 `npm run dev`（5173），不构建产物**；只有发布成品才 `npm run build`，由后端同源托管 `dist/`。
-- **新增接口**：内容类加到 `api/content.ts`、认证 / 收藏 / 历史加到 `api/user.ts`；方法写显式返回类型
-  （`request<返回类型>(...)` + `: Promise<返回类型>` 成对），新领域类型在 `types.ts` 定义并 `import type`。
-- **后端不可达时前端报错，不降级 mock**（双通道已移除，数据以真后端为准）。
-- 本目录**不再新增功能**（见文件头「已冻结」）——新需求做在 `comic-front`。
+**写法约定（全站统一；机器门禁 = ESLint + `tests/conventions.test.ts`）**
 
----
-
-> 修复过程与验证记录写在 `.workbuddy/memory/YYYY-MM-DD.md`，不进本文件。
+- **模板只用原生标签 + 自建组件**：原生 `div` / `span` / `img` / `button` / `input` / `select` / `textarea` / `form`
+  （uni 时代的"只能用 uni 组件"约束已随迁移取消），外加 `components/` 下的自建组件。
+  ⚠️ 自建组件**必须 import**：漏了 import 时 Vue 只把它当未知标签、**控制台报警且渲染为空**。
+- **CSS 只写类选择器**：不要写 `div {}` / `.card span {}` 这类元素选择器；需要时用 `u-<原标签>` 工具类。
+- **不要绕过适配层**：禁止裸 `alert` / `confirm`、直接 `localStorage` —— 一律走 `utils/ui`、`utils/storage`
+  （ESLint 机器门禁）；返回上层一律用 `utils/nav` 的 `parentOf`（**别用 `router.back()`**，它依赖浏览历史）。
+- **自定义组件上不写 `v-model`**：统一用 `:model-value` + `@update:model-value` 显式写法
+  （`tests/conventions.test.ts` 有守卫）。
+- **表单用原生语义**：`<form @submit.prevent="...">` + `<button type="submit">`（回车走隐式提交）；
+  不在 form 里的输入框回车用 `@keyup.enter`。**`.prevent` 不能省**（原生表单提交会刷新页面）。
+- **页面取数走 `composables/usePagedList`**（分页 / 竞态 / 失败回退 / 三态）、触底加载走 `useReachBottom`：
+  不要在页面里手写 `reqId` 令牌与页码回退。
+- **表面色一律走 CSS 变量，禁止再写 `#fff`**：主题（明亮 / 夜间）就是换一套变量值，写死的白底在夜间
+  会变成「白底 + 浅字」。变量分工见 `style.css` 注释。

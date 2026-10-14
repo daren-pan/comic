@@ -14,8 +14,19 @@ import {
   getLogRecords,
   purgeLogs,
 } from '../api'
-import type { LogRecord, SourceInfo } from '../types'
+import type { LogRecord, PickerOption, SourceInfo } from '../types'
+import { showAlert, showConfirm } from '../utils/ui'
+import Layout from '../components/Layout.vue'
+import Pager from '../components/Pager.vue'
+// 管理台三个页面的同一栏选项卡（采集管理 / 定时任务 / 运行日志）
+import AdminTabs from '../components/AdminTabs.vue'
+// 日期输入：uni 的 <input> 会把 type=date 强制成 text（白名单外），故用专用组件产出原生控件
+import DateInput from '../components/DateInput.vue'
+// 下拉选择：统一走 uni <picker> 的封装（见该组件注释）
+import Picker from '../components/Picker.vue'
 
+// 挂载后置 true 渲染页面主体（门卫由路由层 beforeEnter 承担）
+const ready = ref(false)
 const items = ref<LogRecord[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -42,6 +53,25 @@ const f = ref({
 // 展开的日志行（详情含异常堆栈，要单独取一次）
 const expandedId = ref<number | null>(null)
 const detail = ref<LogRecord | null>(null)
+
+// 三个下拉的选项（首项恒为「全部」= 空串，与原生 <select> 里手写的 <option value=""> 等价）。
+// picker 只认「数组 + 下标」，由 Picker 组件负责换算，这里只提供 {value,label}。
+const levelOptions = computed<PickerOption[]>(() => [
+  { value: '', label: '全部' },
+  ...levels.value.map((lv) => ({ value: lv, label: lv })),
+])
+const sourceOptions = computed<PickerOption[]>(() => [
+  { value: '', label: '全部' },
+  ...sources.value.map((s) => ({ value: s.name, label: s.name })),
+])
+const eventOptions = computed<PickerOption[]>(() => [
+  { value: '', label: '全部' },
+  ...events.value.map((ev) => ({ value: ev, label: ev })),
+])
+const pageSizeOptions: PickerOption[] = [20, 50, 100, 200].map((n) => ({
+  value: n,
+  label: String(n),
+}))
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
@@ -83,10 +113,9 @@ function reset() {
   search()
 }
 
-function go(delta: number) {
-  const next = page.value + delta
-  if (next < 1 || next > totalPages.value) return
-  page.value = next
+/** 翻页（`Pager` 给目标页码）：展开的行跟着结果走，翻页即收起 */
+function goPage(n: number) {
+  page.value = n
   expandedId.value = null
   load()
 }
@@ -115,17 +144,20 @@ async function toggle(row: LogRecord) {
 
 async function doPurge() {
   const days = 30
-  if (!window.confirm(`删除 ${days} 天前的日志？此操作不可撤销。`)) return
+  // 用 utils/ui 的统一弹窗（全站唯一弹窗出口，见 utils/ui.ts）
+  if (!(await showConfirm(`删除 ${days} 天前的日志？此操作不可撤销。`, '清理日志'))) return
   try {
     const r = await purgeLogs(days)
-    window.alert(`已删除 ${r.deleted} 条`)
+    showAlert(`已删除 ${r.deleted} 条`)
     search()
   } catch (e) {
-    window.alert((e as Error).message || '清理失败')
+    showAlert((e as Error).message || '清理失败')
   }
 }
 
 onMounted(async () => {
+  ready.value = true
+
   const [opts, srcs] = await Promise.all([
     getLogOptions().catch(() => ({ levels: [], events: [] })),
     getAdminSources().catch(() => [] as SourceInfo[]),
@@ -135,129 +167,157 @@ onMounted(async () => {
   sources.value = srcs
   load()
 })
+
 </script>
 
 <template>
-  <div>
-    <div class="title-row">
-      <h2 class="section-title">日志查询</h2>
-      <button class="btn ghost" @click="doPurge">清理 30 天前</button>
-      <RouterLink class="btn ghost" to="/admin">← 返回采集管理</RouterLink>
-    </div>
-    <p class="lead">
-      采集 / 巡检 / 按需导入 / 读图的运行日志（与后端 <code>logs/api.log</code> 同一批记录，已落库）。
-      失败日志的正文带作品 id 与名称，点某行展开详情（含异常堆栈全文）。
-    </p>
+  <Layout>
+    <div v-if="ready">
+      <!-- 管理台同一栏的三个选项卡（采集管理 / 定时任务 / 运行日志）—— 点选项切换；
+           「清理 30 天前」是本页自己的动作，靠右放在同一栏里（见 components/AdminTabs.vue） -->
+      <div class="title-row">
+        <AdminTabs current="logs" />
+        <button class="btn ghost u-button" @click="doPurge">清理 30 天前</button>
+      </div>
+      <div class="lead u-p">
+        采集 / 巡检 / 按需导入 / 读图的运行日志（与后端 <span class="u-code">logs/api.log</span> 同一批记录，已落库）。
+        失败日志的正文带作品 id 与名称，点某行展开详情（含异常堆栈全文）。
+      </div>
 
-    <!-- 筛选条件 -->
-    <div class="filters">
-      <label>级别
-        <select v-model="f.level" @change="search">
-          <option value="">全部</option>
-          <option v-for="lv in levels" :key="lv" :value="lv">{{ lv }}</option>
-        </select>
-      </label>
-      <label>源站
-        <select v-model="f.source" @change="search">
-          <option value="">全部</option>
-          <option v-for="s in sources" :key="s.name" :value="s.name">{{ s.name }}</option>
-        </select>
-      </label>
-      <label>事件
-        <select v-model="f.event" @change="search">
-          <option value="">全部</option>
-          <option v-for="ev in events" :key="ev" :value="ev">{{ ev }}</option>
-        </select>
-      </label>
-      <label>作品 ID
-        <input v-model="f.comicId" type="number" min="1" placeholder="如 151" @keyup.enter="search" />
-      </label>
-      <label>任务 ID
-        <input v-model="f.taskId" placeholder="如 inspect-2-…" @keyup.enter="search" />
-      </label>
-      <label>起始
-        <input v-model="f.since" type="date" />
-      </label>
-      <label>截止（含当天）
-        <input v-model="f.until" type="date" />
-      </label>
-      <label class="grow">关键字
-        <input v-model="f.keyword" placeholder="正文 / 作品名 / 章节名 / 原因" @keyup.enter="search" />
-      </label>
-      <button class="btn" @click="search">查询</button>
-      <button class="btn ghost" @click="reset">重置</button>
-    </div>
+      <!-- 筛选条件 -->
+      <div class="filters">
+        <div class="u-label">级别
+          <Picker
+            class="u-select"
+            :model-value="f.level"
+            :options="levelOptions"
+            @update:model-value="f.level = String($event); search()"
+          />
+        </div>
+        <div class="u-label">源站
+          <Picker
+            class="u-select"
+            :model-value="f.source"
+            :options="sourceOptions"
+            @update:model-value="f.source = String($event); search()"
+          />
+        </div>
+        <div class="u-label">事件
+          <Picker
+            class="u-select"
+            :model-value="f.event"
+            :options="eventOptions"
+            @update:model-value="f.event = String($event); search()"
+          />
+        </div>
+        <div class="u-label">作品 ID
+          <input class="u-input" v-model="f.comicId" type="number" min="1" placeholder="如 151" @keyup.enter="search" />
+        </div>
+        <div class="u-label">任务 ID
+          <input class="u-input" v-model="f.taskId" placeholder="如 inspect-2-…" @keyup.enter="search" />
+        </div>
+        <div class="u-label">起始
+          <DateInput :model-value="f.since" @update:model-value="f.since = $event" />
+        </div>
+        <div class="u-label">截止（含当天）
+          <DateInput :model-value="f.until" @update:model-value="f.until = $event" />
+        </div>
+        <div class="grow u-label">关键字
+          <input class="u-input" v-model="f.keyword" placeholder="正文 / 作品名 / 章节名 / 原因" @keyup.enter="search" />
+        </div>
+        <button class="btn u-button" @click="search">查询</button>
+        <button class="btn ghost u-button" @click="reset">重置</button>
+      </div>
 
-    <div v-if="error" class="empty" style="color:#e23">{{ error }}</div>
+      <div v-if="error" class="empty" style="color:#e23">{{ error }}</div>
 
-    <!-- 列表 -->
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th class="c-time">时间</th>
-            <th class="c-level">级别</th>
-            <th class="c-event">事件</th>
-            <th class="c-src">源站</th>
-            <th class="c-title">作品</th>
-            <th class="c-chapter">章节</th>
-            <th class="c-pages">页数</th>
-            <th>消息</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="row in items" :key="row.id">
-            <tr class="row" :class="{ open: expandedId === row.id }" @click="toggle(row)">
-              <td class="c-time mono">{{ row.createdAt }}</td>
-              <td class="c-level"><span class="badge" :class="row.level.toLowerCase()">{{ row.level }}</span></td>
-              <td class="c-event mono">{{ row.event || '—' }}</td>
-              <td class="c-src">{{ row.source || '—' }}</td>
-              <td class="c-title" :title="row.comicTitle">{{ row.comicTitle || (row.comicId ? `#${row.comicId}` : '—') }}</td>
-              <td class="c-chapter" :title="row.chapterTitle">{{ row.chapterTitle || (row.chapterId ? `#${row.chapterId}` : '—') }}</td>
-              <td class="c-pages">{{ row.pages ?? '—' }}</td>
-              <td class="msg" :title="row.message">{{ row.message }}</td>
-            </tr>
-            <tr v-if="expandedId === row.id" class="detail-row">
-              <td colspan="8">
-                <div class="detail">
-                  <div class="kv"><b>记录器</b><span>{{ row.logger }}</span></div>
-                  <div class="kv" v-if="row.taskId"><b>任务</b><span>{{ row.taskType }} · {{ row.taskId }}</span></div>
-                  <div class="kv" v-if="row.reason"><b>原因</b><span>{{ row.reason }}</span></div>
-                  <div class="kv" v-if="row.endpoint"><b>接口/地址</b><span class="mono">{{ row.endpoint }}</span></div>
-                  <div class="kv full"><b>消息</b><span>{{ row.message }}</span></div>
-                  <template v-if="row.excType">
-                    <div class="kv"><b>异常</b><span>{{ row.excType }}</span></div>
-                    <pre class="trace">{{ detail?.excText || '（读取堆栈中…）' }}</pre>
-                  </template>
+      <!-- 列表 -->
+      <div class="table-wrap">
+        <div class="u-table">
+          <div class="u-thead">
+            <div class="u-tr">
+              <!-- 第一列是展开/收起（只有它可点，见 .c-toggle 与模板注释） -->
+              <div class="c-toggle u-th"></div>
+              <div class="c-time u-th">时间</div>
+              <div class="c-level u-th">级别</div>
+              <div class="c-event u-th">事件</div>
+              <div class="c-src u-th">源站</div>
+              <div class="c-title u-th">作品</div>
+              <div class="c-chapter u-th">章节</div>
+              <div class="c-pages u-th">页数</div>
+              <div class="msg u-th">消息</div>
+            </div>
+          </div>
+          <div class="u-tbody">
+            <template v-for="row in items" :key="row.id">
+              <!-- ⚠️ **只有第一列这个按钮可点**（原来整行 @click）：
+                   ① 其余列要能**拖选复制**日志文本，整行可点会"一拖就展开/收起"；
+                   ② 不给不可点的地方手型光标。
+                   箭头用字符画（uni 下不要用图标字体/图片）。 -->
+              <div class="row u-tr" :class="{ open: expandedId === row.id }">
+                <div
+                  class="c-toggle u-td"
+                  :title="expandedId === row.id ? '收起详情' : '展开详情'"
+                  @click.stop="toggle(row)"
+                >
+                  <span class="u-span">{{ expandedId === row.id ? '▴' : '▾' }}</span>
                 </div>
-              </td>
-            </tr>
-          </template>
-          <tr v-if="!loading && !items.length && !error">
-            <td colspan="8" class="empty">没有符合条件的日志</td>
-          </tr>
-          <tr v-if="loading">
-            <td colspan="8" class="empty">查询中…</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+                <div class="c-time mono u-td">{{ row.createdAt }}</div>
+                <div class="c-level u-td"><span class="badge u-span" :class="row.level.toLowerCase()">{{ row.level }}</span></div>
+                <div class="c-event mono u-td">{{ row.event || '—' }}</div>
+                <div class="c-src u-td">{{ row.source || '—' }}</div>
+                <div class="c-title u-td" :title="row.comicTitle">{{ row.comicTitle || (row.comicId ? `#${row.comicId}` : '—') }}</div>
+                <div class="c-chapter u-td" :title="row.chapterTitle">{{ row.chapterTitle || (row.chapterId ? `#${row.chapterId}` : '—') }}</div>
+                <div class="c-pages u-td">{{ row.pages ?? '—' }}</div>
+                <div class="msg u-td" :title="row.message">{{ row.message }}</div>
+              </div>
+              <div v-if="expandedId === row.id" class="detail-row u-tr">
+                <div class="u-td">
+                  <div class="detail">
+                    <!-- 窄屏折叠态看不到这几列（表格列在窄屏整体隐藏，见 <style> 的媒体查询），
+                         展开后在这里补齐；桌面表格已展示这几列 → `.narrow-only` 在宽屏隐藏，不重复。 -->
+                    <div class="kv narrow-only"><span class="u-b">源站</span><span class="u-span">{{ row.source || '—' }}</span></div>
+                    <div class="kv narrow-only"><span class="u-b">作品</span><span class="u-span">{{ row.comicTitle || (row.comicId ? `#${row.comicId}` : '—') }}</span></div>
+                    <div class="kv narrow-only"><span class="u-b">章节</span><span class="u-span">{{ row.chapterTitle || (row.chapterId ? `#${row.chapterId}` : '—') }}</span></div>
+                    <div class="kv narrow-only"><span class="u-b">页数</span><span class="u-span">{{ row.pages ?? '—' }}</span></div>
+                    <div class="kv"><span class="u-b">记录器</span><span class="u-span">{{ row.logger }}</span></div>
+                    <div class="kv" v-if="row.taskId"><span class="u-b">任务</span><span class="u-span">{{ row.taskType }} · {{ row.taskId }}</span></div>
+                    <div class="kv" v-if="row.reason"><span class="u-b">原因</span><span class="u-span">{{ row.reason }}</span></div>
+                    <div class="kv" v-if="row.endpoint"><span class="u-b">接口/地址</span><span class="mono u-span">{{ row.endpoint }}</span></div>
+                    <div class="kv full"><span class="u-b">消息</span><span class="u-span">{{ row.message }}</span></div>
+                    <template v-if="row.excType">
+                      <div class="kv"><span class="u-b">异常</span><span class="u-span">{{ row.excType }}</span></div>
+                      <div class="trace">{{ detail?.excText || '（读取堆栈中…）' }}</div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <div class="u-tr" v-if="!loading && !items.length && !error">
+              <div class="empty u-td">没有符合条件的日志</div>
+            </div>
+            <div class="u-tr" v-if="loading">
+              <div class="empty u-td">查询中…</div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-    <!-- 分页 -->
-    <div class="pager">
-      <span>共 {{ total }} 条 · 第 {{ page }} / {{ totalPages }} 页</span>
-      <label class="size">每页
-        <select v-model.number="pageSize" @change="onPageSize">
-          <option :value="20">20</option>
-          <option :value="50">50</option>
-          <option :value="100">100</option>
-          <option :value="200">200</option>
-        </select>
-      </label>
-      <button class="btn ghost" :disabled="page <= 1" @click="go(-1)">上一页</button>
-      <button class="btn ghost" :disabled="page >= totalPages" @click="go(1)">下一页</button>
+      <!-- 分页：总数与「每页条数」是页面自己的事（`pageSize` 可变）；翻页条走共用组件 -->
+      <div class="pager-meta">
+        <span class="u-span">共 {{ total }} 条</span>
+        <div class="size u-label">每页
+          <Picker
+            class="u-select"
+            :model-value="pageSize"
+            :options="pageSizeOptions"
+            @update:model-value="pageSize = Number($event); onPageSize()"
+          />
+        </div>
+      </div>
+      <Pager :page="page" :total-pages="totalPages" @change="goPage" />
     </div>
-  </div>
+  </Layout>
 </template>
 
 <style scoped>
@@ -268,25 +328,25 @@ onMounted(async () => {
   flex-wrap: wrap;
   margin: 28px 0 6px;
 }
-.title-row .section-title { margin: 0; }
-.title-row .btn { text-decoration: none; }
-.title-row .btn:first-of-type { margin-left: auto; }
+/* 顶部那一栏：管理台三个选项卡（见 components/AdminTabs.vue）+ 本页的「清理 30 天前」动作；
+   动作只有一个，靠右即可（原来还有"← 返回采集管理"链接，已由选项卡的第一个选项取代） */
+.title-row .btn { margin-left: auto; }
 
 .lead { color: var(--text-2); font-size: 14px; margin: 0 0 14px; }
-.lead code { background: #f0ede8; border-radius: 4px; padding: 1px 5px; }
+.lead .u-code { background: var(--mute); border-radius: 4px; padding: 1px 5px; }
 
 .filters {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 10px 12px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 14px 16px;
   margin-bottom: 14px;
 }
-.filters label {
+.filters .u-label {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -294,44 +354,82 @@ onMounted(async () => {
   color: var(--text-2);
 }
 .filters .grow { flex: 1; min-width: 200px; }
-.filters input,
-.filters select {
+/* `.date-inp`：日期控件是 DateInput 产出的**原生 .u-input**，uni 会把上面的 `.u-input` 改写成
+   `uni-input`、匹配不到它，故这里额外挂上它的类名。 */
+.filters .u-input,
+.filters .date-inp {
   font: inherit;
   font-size: 13px;
   color: var(--text);
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px 8px;
 }
-.filters input[type='date'] { min-width: 138px; }
+/* Picker 组件自带边框/内边距 → 这里只给宽度，再画一遍会变双边框 */
+.filters .u-select { min-width: 96px; }
+.filters .date-inp { min-width: 138px; }
 
 .table-wrap {
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 14px;
   overflow: auto;
   max-height: 62vh;
 }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-thead th {
+/* ⚠️ uni 没有 <table>，原版的 table/tr/th/td 已换成 view ——
+   但**光换标签就没有表格布局了**（view 默认 block，于是每个单元格各占一行、整表塌成竖排）。
+   这里用 flex 自己把表格搭回来（`display:table*` 在 uni 组件上不可靠，flex 更稳）。
+   列宽由下面的 flex-basis 显式给，最后一列「消息」吃掉剩余宽度。 */
+.u-table { width: 100%; font-size: 13px; }
+.u-tr { display: flex; align-items: stretch; }
+/* min-width:0 必须写：flex 项默认 min-width:auto，会被「最窄内容」撑宽 ——
+   表头文字短、数据文字长（如时间列），于是表头与数据行的列宽对不上、整列错位。 */
+.u-th, .u-td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); min-width: 0; }
+/* 表头吸顶：sticky 挂在 .u-thead（不是每个 .u-th）上 —— 它的包含块是**整张表**，才有可吸顶的
+   余量；挂在单元格上会被「只有一行高」的包含块锁死，等于不生效。 */
+.u-thead {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #fbfaf8;
-  color: var(--text-2);
-  font-weight: 600;
-  white-space: nowrap;
+  background: var(--surface-2);
 }
-.row { cursor: pointer; }
-.row:hover { background: #fdfbf9; }
-.row.open { background: #fff8f4; }
+.u-thead .u-th { background: var(--surface-2); color: var(--text-2); font-weight: 600; white-space: nowrap; }
+/* ⚠️ 整行**不再**是"可点"的（原来 `.row { cursor: pointer }` + 整行 @click）：
+   可点区域收进第一列的 `.c-toggle`，其余列保持普通光标 —— 否则拖选日志文本时会误触展开/收起。 */
+.row:hover { background: var(--surface-2); }
+.row.open { background: var(--primary-soft); }
+/* 第一列：展开/收起按钮（唯一可点处） */
+.c-toggle {
+  flex: 0 0 30px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--text-2);
+}
+.c-toggle:hover { color: var(--primary); }
+/* 日志是给人看和抄的 → 允许选中复制。uni 在 H5 下默认给整页 `user-select: none`，
+   不显式打开的话拖选不出选区（2026-10-07 用户反馈"想复制粘贴却用不了"）。 */
+.row .u-td, .detail-row, .detail .kv, .trace {
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* ⚠️ 必须写在上面那条之后：`.row .u-td` 特异性更高，否则箭头也会变成可选中 */
+.row .u-td.c-toggle {
+  -webkit-user-select: none;
+  user-select: none;
+}
 .mono { font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace; }
-.c-time { white-space: nowrap; color: var(--text-2); }
-.c-event, .c-src, .c-pages { white-space: nowrap; }
-.c-title, .c-chapter { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 展开行与空态行只有一格 → 让它占满整行（等价原版的 colspan="8"） */
+.u-tr > .empty { flex: 1; }
+/* 列宽（固定列不收缩；.msg 吸收剩余宽度，min-width 保证窄屏下仍可读、由 .table-wrap 横向滚） */
+.c-time    { flex: 0 0 148px; white-space: nowrap; color: var(--text-2); }
+.c-level   { flex: 0 0 76px; }
+.c-event   { flex: 0 0 128px; white-space: nowrap; }
+.c-src     { flex: 0 0 104px; white-space: nowrap; }
+.c-title   { flex: 0 0 152px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-chapter { flex: 0 0 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-pages   { flex: 0 0 56px; white-space: nowrap; }
+.msg       { flex: 1 1 0; min-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .badge {
   display: inline-block;
@@ -344,17 +442,20 @@ thead th {
 .badge.warning { background: #fff3e6; color: #b25f00; }
 .badge.error { background: #fdeceb; color: #c0392b; }
 
-.detail-row td { background: #fdfbf9; }
+.detail-row .u-td { flex: 1; background: var(--surface-2); }
 .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 18px; }
 .kv { display: flex; gap: 8px; font-size: 13px; }
-.kv b { color: var(--text-2); font-weight: 600; flex: 0 0 52px; }
+.kv .u-b { color: var(--text-2); font-weight: 600; flex: 0 0 52px; }
 .kv.full { grid-column: 1 / -1; }
-.kv span { word-break: break-all; }
+/* 窄屏专用字段（源站/作品/章节/页数）：宽屏隐藏 —— 桌面表格已有这几列，详情区再来一遍是重复。
+   ⚠️ 这条必须在下面的 @media 之前：两条选择器特异性相同，靠源码顺序决出胜负。 */
+.detail .kv.narrow-only { display: none; }
+.kv .u-span { word-break: break-all; }
 .trace {
   grid-column: 1 / -1;
   margin: 6px 0 0;
   padding: 10px 12px;
-  background: #fff;
+  background: var(--card);
   border: 1px solid var(--border);
   border-radius: 10px;
   font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
@@ -367,7 +468,7 @@ thead th {
   color: var(--text);
 }
 
-.pager {
+.pager-meta {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -375,14 +476,51 @@ thead th {
   font-size: 13px;
   color: var(--text-2);
 }
-.pager .size { display: flex; align-items: center; gap: 6px; }
-.pager select {
-  font: inherit;
-  font-size: 13px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 6px;
-  background: #fff;
-  color: var(--text);
+.pager-meta .size { display: flex; align-items: center; gap: 6px; }
+/* Picker 组件自带盒子样式（见 components/Picker.vue），这里只约束宽度 */
+.pager-meta .u-select { min-width: 72px; }
+
+/* ---- 窄屏（≤860px）：表格 → 卡片 + 伸缩展开，杜绝横向滚动条 ----
+   桌面 8 列固定宽合计 ≈ 944px，而窄屏可视只有 ~343px —— 原先靠 `.table-wrap` 横滚兜着，
+   用户要求移动端**不允许横向滑动条**，故窄屏整块换成纵向卡片：
+   折叠态只留「时间 · 级别 · 事件 + 消息」四段，点行展开看全部字段
+   （源站/作品/章节/页数在详情区补齐，见模板里的 `.kv.narrow-only`）。
+   断点与 `Layout.vue` 保持一致（只有 CSS 一处，脚本里没有宽度判断）。 */
+@media (max-width: 860px) {
+  /* ① 从根上消除横滚：去掉滚动容器与高度上限，改由页面纵向滚动 */
+  .table-wrap { overflow: visible; max-height: none; }
+
+  /* ② 表头无意义 —— 卡片每段自带语义 */
+  .u-thead { display: none; }
+
+  /* ③ 行 → 可换行卡片；展开按钮是第一列的 `.c-toggle`（不再用绝对定位的箭头） */
+  .row {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 10px 12px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+  .c-toggle { flex: 0 0 22px; }
+
+  .u-th, .u-td { padding: 0; border-bottom: 0; }
+  /* ⚠️ 必须重置列宽：桌面的 `flex: 0 0 148px` 是**主轴**方向的基准，卡片主轴仍是横向，
+     不重置的话时间列会钉死 148px、把级别与事件挤出去。 */
+  .c-time, .c-level { flex: none; }
+  .c-event { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* 折叠态隐藏这 4 列（展开后在详情区看，避免卡片又长又挤） */
+  .c-src, .c-title, .c-chapter, .c-pages { display: none; }
+  /* 消息独占一行，且不再单行截断（桌面靠 nowrap + 容器横滚，窄屏得能读全文） */
+  .msg { flex: 1 0 100%; min-width: 0; white-space: normal; word-break: break-word; }
+
+  /* ④ 展开区：单列铺开，别再按 240px 起多列 */
+  .detail { grid-template-columns: 1fr; gap: 6px; }
+  .detail-row .u-td { padding: 10px 12px; }
+  .detail .kv.narrow-only { display: flex; }
+
+  /* ⑤ 空态行 / 分页：空态补回内边距；分页允许换行（否则 3 个控件 + 文案会顶宽） */
+  .u-tbody > .u-tr > .empty { padding: 10px 12px; }
+  .pager-meta { flex-wrap: wrap; }
 }
 </style>

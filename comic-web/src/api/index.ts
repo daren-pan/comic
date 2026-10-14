@@ -1,16 +1,20 @@
 // API 服务层入口 —— 按职责拆分子模块后统一导出
-//  ├─ request.ts    HTTP 请求层（axios 实例 + 拦截器 + request<T> 剥壳）
-//  ├─ auth.ts       登录态与匿名身份（localStorage 持久化 + auth:changed 事件广播）
+//  ├─ request.ts    HTTP 请求层（uni.request 单通道 + request<T> 剥壳）
+//  ├─ auth.ts       登录态与匿名身份（本地存储持久化 + auth:changed 事件广播）
 //  ├─ content.ts    内容接口（漫画/章节/分页/分类）
+//  ├─ comments.ts   评论区（列表 / 发表）
 //  ├─ user.ts       用户中心接口（认证/收藏/历史）
-//  ├─ admin.ts      管理台接口（采集/巡检/任务）
+//  ├─ admin.ts      管理台接口（采集/巡检/任务/作品管理）
+//  ├─ messages.ts   消息中心（`/api/messages`：列表/未读数/标记已读）
 //  └─ ondemand.ts   源站搜索与按需导入（搜索页「其他来源」）
 //
-// 组件统一 `import { ... } from '../api'`，对外签名与旧单文件版完全一致。
+// 组件统一 `import { ... } from '../api'`，对外签名与 comic-web 完全一致。
 
 export * from './auth'
 export * from './request'
 export * from './content'
+export * from './comments'
 export * from './user'
 export * from './admin'
+export * from './messages'
 export * from './ondemand'

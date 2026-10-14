@@ -1,149 +1,134 @@
 <script setup lang="ts">
-// 热度排行 —— 按分类分区块，各分类内按热度（后端 heat 字段）倒序取前 N 部。
+// 热度排行 —— **一整条全库榜单**：按热度（后端 heat 字段）从高到低排，可切标签与排序口径。
 // 热度口径：1000 起底 + 浏览次数×1 + 收藏数×2（见 crawler-service/mysql_storage.py）。
 //
-// 分类很多（库内 70+ 个标签），为避免一次性发出几十个请求，这里用 IntersectionObserver
-// 做「区块进入视口才拉取该分类榜单」的懒加载；分类按作品数从多到少排列，内容多的排前面。
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import type { ComponentPublicInstance } from 'vue'
-import { getCategories, getComics } from '../api'
+// 2026-09-22 改版（用户要求）：原先「每个标签单独一个区块」——30 个标签就是 30 个区块、
+// 30 次请求，用户还得逐块看。现在改成**一条全库榜单 + 一条筛选条**（标签下拉 + 排序），
+// 翻页沿用 `onReachBottom`（见下）。
+//
+// ⚠️ 触发机制说明（2026-09-22）：comic-web 用 `IntersectionObserver` 做「区块进视口才拉」，
+// 这里改用 uni 的页面级生命周期 `onReachBottom` —— 可用性等价
+// （差别只是「滚到底」而非「进视口」触发）。
+import { onMounted, ref } from 'vue'
+import { getCategories, getComics, type ComicSort } from '../api'
 import type { CategoryCount, Comic } from '../types'
+import { useReachBottom } from '../composables/useReachBottom'
+import { useRouter } from 'vue-router'
+import { usePagedList } from '../composables/usePagedList'
+import { formatHeat } from '../utils/format'
+import Layout from '../components/Layout.vue'
+import FilterBar from '../components/FilterBar.vue'
 
-/** 每个分类榜单展示的作品数 */
-const TOP_N = 10
-/** 少于该作品数的分类不单独设榜（1~2 部排不出名次） */
-const MIN_COUNT = 3
+/** 每批拉取条数（= 一页），触底再拉下一批追加到榜尾 */
+const PAGE_SIZE = 20
 
-const cats = ref<CategoryCount[]>([])
-const lists = ref<Record<string, Comic[]>>({})
-const pending = ref<Record<string, boolean>>({})
-const ready = ref(false)
+const router = useRouter()
+const categories = ref<CategoryCount[]>([])
+const category = ref('全部')
+// 默认按热度降序（2026-09-22 用户要求）—— 排行榜的本分就是按热度排
+const sort = ref<ComicSort>('views')
+// 列表状态机全部收在 composable 里（竞态保护 / 触底追加 / 追加失败页码回退 / `ready` 语义）——
+// 此前这段与 `pages/latest` **一字不差**，见 `composables/usePagedList.ts` 的文件头。
+const { items: comics, total, loading, ready, loadMore, reload } = usePagedList<Comic>(
+  (page, pageSize) =>
+    getComics({
+      category: category.value === '全部' ? undefined : category.value,
+      sort: sort.value,
+      page,
+      pageSize,
+    }),
+  { pageSize: PAGE_SIZE },
+)
 
-const sections = new Map<string, HTMLElement>()
-let observer: IntersectionObserver | null = null
-
-async function loadCategory(name: string) {
-  if (lists.value[name] || pending.value[name]) return
-  pending.value[name] = true
-  try {
-    const res = await getComics({ category: name, sort: 'views', pageSize: TOP_N })
-    lists.value[name] = res.items
-  } catch {
-    lists.value[name] = []
-  } finally {
-    pending.value[name] = false
-  }
+function onCategory(v: string) {
+  if (v === category.value) return
+  category.value = v
+  reload()
 }
 
-/** v-for 的函数式 ref：登记区块元素，进入视口时触发该分类的榜单请求 */
-function observeSection(el: Element | ComponentPublicInstance | null, name: string) {
-  if (!el || !(el instanceof HTMLElement)) return
-  el.dataset.cat = name
-  sections.set(name, el)
-  observer?.observe(el)
+function onSort(s: ComicSort) {
+  if (s === sort.value) return
+  sort.value = s
+  reload()
+}
+
+function goSearch() {
+  router.push({ path: '/search', query: category.value === '全部' ? {} : { category: category.value } })
 }
 
 function rankClass(i: number): string {
   return i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : ''
 }
 
-/** 热度：1 万以上折算为「x.x 万」 */
-function fmtHeat(v: number): string {
-  if (v >= 10000) return `${(v / 10000).toFixed(1).replace(/\.0$/, '')} 万`
-  return String(v)
-}
+// 热度格式化已收进 `utils/format.ts` 的 `formatHeat`（2026-10-13）
 
 onMounted(async () => {
-  // 先建观察器，使区块渲染时的函数式 ref 能立即生效
-  observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue
-        const name = (entry.target as HTMLElement).dataset.cat
-        if (name) loadCategory(name)
-        observer?.unobserve(entry.target)
-      }
-    },
-    { rootMargin: '240px 0px' },
-  )
-  sections.forEach((el) => observer?.observe(el))
-
   try {
-    const all = await getCategories()
-    cats.value = all
-      .filter((c) => c.name !== '全部' && c.count >= MIN_COUNT)
-      .sort((a, b) => b.count - a.count)
+    categories.value = await getCategories()
   } catch {
-    cats.value = []
-  } finally {
-    ready.value = true
+    categories.value = []
   }
 })
 
-onBeforeUnmount(() => {
-  observer?.disconnect()
-  observer = null
-  sections.clear()
-})
+// uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）
+// 触底追加下一批（替代 IntersectionObserver）
+useReachBottom(loadMore)
+
 </script>
 
 <template>
-  <div>
-    <h2 class="section-title">🏆 热度排行</h2>
-    <p class="lead">
-      按分类分区块，每个分类内按热度从高到低取前 {{ TOP_N }} 部（热度 = 起底 1000 + 浏览 ×1 + 收藏 ×2，同分按最近更新）；
-      仅收录作品数 ≥ {{ MIN_COUNT }} 的分类，作品多的分类排在前面。
-    </p>
+  <Layout>
+    <div>
+      <div class="head">
+        <div class="section-title">热度排行</div>
+        <div class="head-more u-a" @click="goSearch">在分类浏览中查看 ›</div>
+      </div>
 
-    <div v-if="!ready" class="empty">加载中…</div>
-    <div v-else-if="cats.length === 0" class="empty">暂无排行数据</div>
+      <FilterBar
+        :category="category"
+        :sort="sort"
+        :categories="categories"
+        @update:category="onCategory"
+        @update:sort="onSort"
+      />
 
-    <template v-else>
-      <section
-        v-for="cat in cats"
-        :key="cat.name"
-        :ref="(el) => observeSection(el, cat.name)"
-        class="block"
-      >
-        <h3 class="block-head">
-          <span class="block-name">{{ cat.name }}</span>
-          <span class="block-count">{{ cat.count }} 部</span>
-          <RouterLink class="block-more" :to="{ path: '/search', query: { category: cat.name } }">查看全部 ›</RouterLink>
-        </h3>
+      <div v-if="!ready" class="empty">加载中…</div>
+      <div v-else-if="comics.length === 0" class="empty">暂无排行数据</div>
 
-        <div v-if="!lists[cat.name]" class="block-loading">加载中…</div>
-        <ol v-else class="rank">
-          <li v-for="(c, i) in lists[cat.name]" :key="c.id" class="item">
-            <span class="no" :class="rankClass(i)">{{ i + 1 }}</span>
-            <RouterLink :to="`/comic/${c.id}`" class="thumb">
-              <img :src="c.cover" :alt="c.title" loading="lazy" />
-            </RouterLink>
-            <div class="info">
-              <RouterLink :to="`/comic/${c.id}`" class="name">{{ c.title }}</RouterLink>
-              <p class="meta">{{ c.author }}</p>
-              <p class="latest">{{ c.latestChapterTitle || '暂无章节' }}</p>
+      <template v-else>
+        <div class="rank">
+          <div v-for="(c, i) in comics" :key="c.id" class="item">
+            <span class="no u-span" :class="rankClass(i)">{{ i + 1 }}</span>
+            <div class="thumb u-a" @click="router.push(`/comic/${c.id}`)">
+              <img class="u-img" :src="c.cover" :alt="c.title" loading="lazy"  />
             </div>
-            <span class="heat">🔥 {{ fmtHeat(c.heat) }}</span>
-          </li>
-        </ol>
-      </section>
-    </template>
-  </div>
+            <div class="info">
+              <div class="name u-a" @click="router.push(`/comic/${c.id}`)">{{ c.title }}</div>
+              <div class="meta u-p">{{ c.author }}</div>
+              <div class="latest u-p">{{ c.latestChapterTitle || '暂无章节' }}</div>
+            </div>
+            <span class="heat u-span">🔥 {{ formatHeat(c.heat) }}</span>
+          </div>
+        </div>
+
+        <div class="more-hint u-p">
+          <span v-if="loading">加载中…</span>
+          <span v-else-if="comics.length >= total">已到底 · 共 {{ total }} 部</span>
+          <span v-else>上滑加载更多（{{ comics.length }} / {{ total }}）</span>
+        </div>
+      </template>
+    </div>
+  </Layout>
 </template>
 
 <style scoped>
-.lead { color: var(--text-2); font-size: 14px; margin: -8px 0 18px; }
+.head { display: flex; align-items: baseline; gap: 12px; }
+.head-more { margin-left: auto; font-size: 12px; color: var(--primary); }
+.head-more:hover { text-decoration: underline; }
 
-.block { margin-bottom: 26px; }
-.block-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; font-size: 16px; }
-.block-name { font-weight: 800; }
-.block-count { font-size: 12px; color: var(--text-2); font-weight: 500; }
-.block-more { margin-left: auto; font-size: 12px; color: var(--primary); }
-.block-more:hover { text-decoration: underline; }
-.block-loading { color: var(--text-2); font-size: 13px; padding: 14px 2px; }
-
-.rank { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 14px; }
-@media (max-width: 760px) { .rank { grid-template-columns: 1fr; } }
+/* 单列榜单（本端只保留移动形态，2026-09-23；原桌面是 2 列）。
+   PAGE_SIZE = 20 与列数无关（行式列表不分页填格），故无需同步改。 */
+.rank { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: 1fr; gap: 8px 14px; }
 
 .item {
   display: flex;
@@ -159,7 +144,7 @@ onBeforeUnmount(() => {
 
 .no {
   flex: 0 0 auto;
-  width: 22px;
+  width: 26px;
   text-align: center;
   font-size: 13px;
   font-weight: 800;
@@ -170,14 +155,17 @@ onBeforeUnmount(() => {
 .no.top2 { color: #ef8b1f; }
 .no.top3 { color: #c9a227; }
 
-.thumb { flex: 0 0 auto; width: 40px; aspect-ratio: 3 / 4; border-radius: 6px; overflow: hidden; background: #eee; }
-.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 缩略图：宽度固定 40px → 高度写死 54px（= 40 × 4/3）。不用 aspect-ratio，理由同 ComicCard。 */
+.thumb { flex: 0 0 auto; width: 40px; height: 54px; border-radius: 6px; overflow: hidden; background: var(--bg); }
+.thumb .u-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .info { flex: 1; min-width: 0; }
-.name { font-size: 14px; font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.name { font-size: 14px; font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); text-decoration: none; }
 .name:hover { color: var(--primary); }
 .meta { margin: 1px 0 0; font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .latest { margin: 4px 0 0; font-size: 12px; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .heat { flex: 0 0 auto; font-size: 12px; color: #b5aca2; font-variant-numeric: tabular-nums; }
+
+.more-hint { margin: 16px 0 4px; text-align: center; font-size: 13px; color: var(--text-2); }
 </style>

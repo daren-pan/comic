@@ -1,3 +1,5 @@
+/* 全局样式（设计变量与工具类，与 comic-front 同源；纯 Web 版）。
+   根节点选择器就是 html,body —— 原 uni 版的 `page` 规则（映射 uni-page-body）已不需要。 */
 :root {
   --primary: #ff5a36;
   --primary-dark: #e0451f;
@@ -8,10 +10,38 @@
   --text: #26221f;
   --text-2: #6f675f;
   --border: #ece6df;
+  --mute: #f0f0f0;
+  --surface-2: #fbfaf8; /* 表头 / 行 hover 这类「比卡片再淡一点」的面 */
+  --track: #d9d2ca;     /* 开关滑块轨道 */
+  --scroll-thumb: #d8d0c6;
   --radius: 12px;
   --shadow: 0 2px 10px rgba(60, 40, 20, 0.07);
   --shadow-hover: 0 8px 24px rgba(60, 40, 20, 0.13);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+/* ---- 夜间主题（明亮 / 夜间可切换，见 utils/theme.ts）----
+   同一套变量名换一套值：挂在模板根 `.app-shell` 的 `.theme-dark` 上（同时挂到 `<html>`），
+   靠 CSS 变量继承作用于整棵子树。所以要新增组件样式时**别写死表面色** ——
+   卡片/顶栏/面板走 `var(--card)`，占位底色走 `var(--bg)`，静默块走 `var(--mute)`，
+   再淡一档的走 `var(--surface-2)`，滑块轨道走 `var(--track)`。
+   ⚠️ 必须排在 `:root` **之后**：两者同为单类权重，靠源码顺序取胜。 */
+.theme-dark {
+  --primary: #ff6b4a;
+  --primary-dark: #ff8a6e; /* 夜间下"深色"反而要比主色**亮**一档，hover 才看得出来 */
+  --primary-soft: rgba(255, 107, 74, 0.16);
+  --accent: #ffb02e;
+  --bg: #16130f;
+  --card: #221d19;
+  --mute: #332c26;
+  --surface-2: #1b1713;
+  --track: #4a423a;
+  --scroll-thumb: #3f3830;
+  --text: #eee9e3;
+  --text-2: #a69d94;
+  --border: #372f28;
+  --shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.55);
 }
 
 * { box-sizing: border-box; }
@@ -27,9 +57,14 @@ html, body {
 
 a { color: inherit; text-decoration: none; }
 
+.u-a { color: inherit; text-decoration: none; cursor: pointer; }
+
 .container { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
 
-.page { padding: 20px 0 48px; }
+/* ⚠️ 左右内边距必须写出来（16px）：`.page` 与 `.container` 同为单类选择器、`.page` 在后面，
+   简写 padding 会把 `.container` 的 `0 16px` **整体覆盖**成 0 —— 窄屏下内容直接贴屏幕边缘
+   （原 comic-web 同此写法，属移植过来的既有问题；2026-09-22 修）。 */
+.page { padding: 20px 16px 48px; }
 
 /* 通用按钮 */
 .btn {
@@ -48,7 +83,7 @@ a { color: inherit; text-decoration: none; }
 }
 .btn:hover { background: var(--primary-dark); transform: translateY(-1px); }
 .btn.ghost {
-  background: #fff;
+  background: var(--card);
   color: var(--text);
   border: 1px solid var(--border);
 }
@@ -92,7 +127,71 @@ a { color: inherit; text-decoration: none; }
   font-size: 15px;
 }
 
+/* ---- 模态框（utils/ui.ts 动态创建，基于原生 <dialog>）---- */
+.app-modal {
+  border: none;
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  background: var(--card);
+  color: var(--text);
+  max-width: min(420px, calc(100vw - 48px));
+  box-shadow: var(--shadow-hover);
+}
+.app-modal::backdrop { background: rgba(24, 18, 12, 0.45); }
+.app-modal-title { font-size: 16px; font-weight: 800; margin-bottom: 8px; }
+.app-modal-text { font-size: 14px; line-height: 1.7; word-break: break-word; }
+.app-modal-bar { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+/* ---- 轻提示（utils/ui.ts 的 showToast 动态创建）---- */
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%) translateY(8px);
+  max-width: calc(100vw - 48px);
+  padding: 9px 16px;
+  border-radius: 8px;
+  background: rgba(24, 18, 12, 0.82);
+  color: #fff;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 999;
+}
+.app-toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---- 等待遮罩（utils/ui.ts 的 showLoading 动态创建）---- */
+.app-loading {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+.app-loading.on { display: flex; }
+.app-loading-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-radius: var(--radius);
+  background: rgba(24, 18, 12, 0.82);
+  color: #fff;
+  font-size: 14px;
+}
+.app-loading-spin {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: app-spin 0.8s linear infinite;
+}
+@keyframes app-spin { to { transform: rotate(360deg); } }
+
 /* 滚动条 */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: #d8d0c6; border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

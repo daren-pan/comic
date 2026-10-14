@@ -1,24 +1,28 @@
 <script setup lang="ts">
 import type { Comic } from '../types'
+import { useRouter } from 'vue-router'
 
 // time：可选角标（如「3 小时前」），用于「最近更新」等需要体现时间维度的列表页；
 // 不传时卡片与原先完全一致（首页 / 分类页 / 搜索结果均不受影响）。
 defineProps<{ comic: Comic; time?: string }>()
+
+// 卡片整体可点：替代 comic-web 的 <RouterLink>，跳详情页
+const router = useRouter()
 </script>
 
 <template>
-  <RouterLink :to="`/comic/${comic.id}`" class="card">
+  <div class="card u-a" @click="router.push(`/comic/${comic.id}`)">
     <div class="cover">
-      <img :src="comic.cover" :alt="comic.title" loading="lazy" />
-      <span class="status" :class="{ done: comic.status === '已完结' }">{{ comic.status }}</span>
-      <span v-if="time" class="time">{{ time }}</span>
+      <img class="u-img" :src="comic.cover" :alt="comic.title" loading="lazy"  />
+      <span class="status u-span" :class="{ done: comic.status === '已完结' }">{{ comic.status }}</span>
+      <span v-if="time" class="time u-span">{{ time }}</span>
     </div>
     <div class="info">
-      <h3 class="title">{{ comic.title }}</h3>
-      <p class="meta">{{ comic.author }}</p>
-      <p class="update">{{ comic.latestChapterTitle }}</p>
+      <div class="title u-h3">{{ comic.title }}</div>
+      <div class="meta u-p">{{ comic.author }}</div>
+      <div class="update u-p">{{ comic.latestChapterTitle }}</div>
     </div>
-  </RouterLink>
+  </div>
 </template>
 
 <style scoped>
@@ -29,11 +33,16 @@ defineProps<{ comic: Comic; time?: string }>()
   overflow: hidden;
   box-shadow: var(--shadow);
   transition: transform 0.18s, box-shadow 0.18s;
+  text-decoration: none;
+  color: inherit;
 }
 .card:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover); }
 
-.cover { position: relative; aspect-ratio: 3 / 4; background: #eee; }
-.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 封面 3:4 比例盒：用「高度 0 + padding-bottom 撑比例」写法
+   （padding 的百分比按**包含块宽度**解析，正好得到宽度驱动的等比高度）。
+   ⚠️ absolute 子元素的包含块是祖先的 padding box，故 .status / .time 的 top/left 定位不受影响。 */
+.cover { position: relative; height: 0; padding-bottom: 133.33%; background: var(--bg); overflow: hidden; }
+.cover .u-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .status {
   position: absolute;
@@ -72,4 +81,23 @@ defineProps<{ comic: Comic; time?: string }>()
 }
 .meta { margin: 2px 0 0; font-size: 12px; color: var(--text-2); }
 .update { margin: 6px 0 0; font-size: 12px; color: var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 手机（≤560px）三列：列宽只剩 ~110px，字号 / 内边距按比例收紧，否则标题被截得只剩两三个字。
+   断点与各页 .grid 的媒体查询一致（首页 / 最近更新 / 分类 / 我的收藏）。 */
+@media (max-width: 560px) {
+  .info { padding: 7px 8px 9px; }
+  .title { font-size: 13px; }
+  .meta, .update { font-size: 11px; }
+  /* 作者名原先没截断（行内没有 ellipsis / nowrap），窄卡片下会把行撑破 */
+  .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .update { margin-top: 4px; }
+  .status { top: 5px; left: 5px; font-size: 10px; padding: 1px 6px; }
+  .time { top: 5px; right: 5px; font-size: 10px; padding: 1px 6px; }
+}
+
+/* 网页版（.mode-web，2026-10-10）：卡片更宽（列表 5 列 ≈ 217px），字号 / 内边距放宽一档。
+   hover 浮起在基础态已有（.card:hover），桌面直接生效。 */
+.mode-web .info { padding: 12px 14px 14px; }
+.mode-web .title { font-size: 16px; }
+.mode-web .meta, .mode-web .update { font-size: 13px; }
 </style>
