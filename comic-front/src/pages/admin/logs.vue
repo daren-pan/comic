@@ -20,11 +20,12 @@ import { setRoute } from '../../utils/router'
 import { requireRole } from '../../utils/guard'
 import { showAlert, showConfirm } from '../../utils/ui'
 import Layout from '../../components/Layout.vue'
+import Pager from '../../components/Pager.vue'
 // 管理台三个页面的同一栏选项卡（采集管理 / 定时任务 / 运行日志）
 import AdminTabs from '../../components/AdminTabs.vue'
 // 日期输入：uni 的 <input> 会把 type=date 强制成 text（白名单外），故用专用组件产出原生控件
 import DateInput from '../../components/DateInput.vue'
-// 下拉选择：小程序没有 <select>，统一走 uni <picker> 的封装（见该组件注释）
+// 下拉选择：统一走 uni <picker> 的封装（见该组件注释）
 import Picker from '../../components/Picker.vue'
 
 // 门卫通过前不渲染页面主体（等价 comic-web 守卫拦住时整页不出现）
@@ -115,10 +116,9 @@ function reset() {
   search()
 }
 
-function go(delta: number) {
-  const next = page.value + delta
-  if (next < 1 || next > totalPages.value) return
-  page.value = next
+/** 翻页（`Pager` 给目标页码）：展开的行跟着结果走，翻页即收起 */
+function goPage(n: number) {
+  page.value = n
   expandedId.value = null
   load()
 }
@@ -147,7 +147,7 @@ async function toggle(row: LogRecord) {
 
 async function doPurge() {
   const days = 30
-  // 用 utils/ui 的跨端弹窗：小程序没有 window，window.confirm/alert 会直接抛错
+  // 用 utils/ui 的统一弹窗（全站唯一弹窗出口，见 utils/ui.ts）
   if (!(await showConfirm(`删除 ${days} 天前的日志？此操作不可撤销。`, '清理日志'))) return
   try {
     const r = await purgeLogs(days)
@@ -310,9 +310,9 @@ onLoad(async (options) => {
         </view>
       </view>
 
-      <!-- 分页 -->
-      <view class="pager">
-        <text class="u-span">共 {{ total }} 条 · 第 {{ page }} / {{ totalPages }} 页</text>
+      <!-- 分页：总数与「每页条数」是页面自己的事（`pageSize` 可变）；翻页条走共用组件 -->
+      <view class="pager-meta">
+        <text class="u-span">共 {{ total }} 条</text>
         <view class="size u-label">每页
           <Picker
             class="u-select"
@@ -321,9 +321,8 @@ onLoad(async (options) => {
             @update:model-value="pageSize = Number($event); onPageSize()"
           />
         </view>
-        <button class="btn ghost u-button" :disabled="page <= 1" @click="go(-1)">上一页</button>
-        <button class="btn ghost u-button" :disabled="page >= totalPages" @click="go(1)">下一页</button>
       </view>
+      <Pager :page="page" :total-pages="totalPages" @change="goPage" />
     </view>
   </Layout>
 </template>
@@ -385,9 +384,9 @@ onLoad(async (options) => {
   overflow: auto;
   max-height: 62vh;
 }
-/* ⚠️ uni 没有 <table>（小程序也不支持），原版的 table/tr/th/td 已换成 view ——
+/* ⚠️ uni 没有 <table>，原版的 table/tr/th/td 已换成 view ——
    但**光换标签就没有表格布局了**（view 默认 block，于是每个单元格各占一行、整表塌成竖排）。
-   这里用 flex 自己把表格搭回来（`display:table*` 在小程序不可靠，flex 三端都稳）。
+   这里用 flex 自己把表格搭回来（`display:table*` 在 uni 组件上不可靠，flex 更稳）。
    列宽由下面的 flex-basis 显式给，最后一列「消息」吃掉剩余宽度。 */
 .u-table { width: 100%; font-size: 13px; }
 .u-tr { display: flex; align-items: stretch; }
@@ -476,7 +475,7 @@ onLoad(async (options) => {
   color: var(--text);
 }
 
-.pager {
+.pager-meta {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -484,9 +483,9 @@ onLoad(async (options) => {
   font-size: 13px;
   color: var(--text-2);
 }
-.pager .size { display: flex; align-items: center; gap: 6px; }
+.pager-meta .size { display: flex; align-items: center; gap: 6px; }
 /* Picker 组件自带盒子样式（见 components/Picker.vue），这里只约束宽度 */
-.pager .u-select { min-width: 72px; }
+.pager-meta .u-select { min-width: 72px; }
 
 /* ---- 窄屏（≤860px）：表格 → 卡片 + 伸缩展开，杜绝横向滚动条 ----
    桌面 8 列固定宽合计 ≈ 944px，而窄屏可视只有 ~343px —— 原先靠 `.table-wrap` 横滚兜着，
@@ -529,6 +528,6 @@ onLoad(async (options) => {
 
   /* ⑤ 空态行 / 分页：空态补回内边距；分页允许换行（否则 3 个控件 + 文案会顶宽） */
   .u-tbody > .u-tr > .empty { padding: 10px 12px; }
-  .pager { flex-wrap: wrap; }
+  .pager-meta { flex-wrap: wrap; }
 }
 </style>

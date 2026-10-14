@@ -8,12 +8,14 @@ import {
   type ComicQuery,
   type ComicSort,
 } from '../../api'
-import type { CategoryCount, Comic, SourceSearchGroup, SourceSearchItem } from '../../types'
+import type { CategoryCount, SourceSearchGroup, SourceSearchItem } from '../../types'
 import ComicCard from '../../components/ComicCard.vue'
 import FilterBar from '../../components/FilterBar.vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { setRoute, useRoute, useRouter } from '../../utils/router'
+import { usePagedList } from '../../composables/usePagedList'
 import Layout from '../../components/Layout.vue'
+import Pager from '../../components/Pager.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,13 +26,31 @@ const category = ref('全部')
 const sort = ref<ComicSort>('views')
 const keyword = ref('')
 const input = ref('')
-const comics = ref<Comic[]>([])
-const total = ref(0)
-const page = ref(1)
-// 每页条数 = 3 列 × 6 行 = 18 —— 正好填满，末行不留空格（2026-09-23 与「最近更新」页统一）。
-// ⚠️ 别再随手改成 20：20 ÷ 3 = 6 行余 2，末行就会空掉最后一格。
-const pageSize = 18
-const loading = ref(false)
+/**
+ * 列表状态机（分页 / 竞态 / 失败回退都在里面）—— 2026-10-13 抽自多页逐字重复的代码。
+ * ⚠️ `immediate: false`：首屏由 `onMounted → applyQuery` 触发（要等分类读完）。
+ */
+const {
+  items: comics, total, page, loading, error, totalPages, goPage, reload,
+} = usePagedList(
+  async (p, ps) => {
+    // 每页条数 = 3 列 × 6 行 = 18 —— 正好填满，末行不留空格（2026-09-23 与「最近更新」页统一）。
+    // ⚠️ 别再随手改成 20：20 ÷ 3 = 6 行余 2，末行就会空掉最后一格。
+    const q: ComicQuery = {
+      category: category.value === '全部' ? undefined : category.value,
+      sort: sort.value,
+      page: p,
+      pageSize: ps,
+    }
+    if (keyword.value) q.keyword = keyword.value
+    const res = await getComics(q)
+    // 站内结果先渲染，再去源站找（源站慢，不能拖住站内结果的显示）
+    if (keyword.value) void loadRemote(keyword.value)
+    else resetRemote()
+    return res
+  },
+  { pageSize: 18, immediate: false },
+)
 
 // ---- 其他来源（源站搜索）：站内搜不到时去各源站找 ----
 const remoteGroups = ref<SourceSearchGroup[]>([])
@@ -51,19 +71,6 @@ const activeGroup = computed(
 const SOURCE_NAMES: Record<string, string> = { copymanga: '线路一', zaimanhua: '线路二' }
 function sourceLabel(source: string): string {
   return SOURCE_NAMES[source] ?? source
-}
-
-async function load() {
-  loading.value = true
-  const q: ComicQuery = { category: category.value === '全部' ? undefined : category.value, sort: sort.value, page: page.value, pageSize }
-  if (keyword.value) q.keyword = keyword.value
-  const res = await getComics(q)
-  comics.value = res.items
-  total.value = res.total
-  loading.value = false
-  // 站内结果先渲染，再去源站找（源站慢，不能拖住站内结果的显示）
-  if (keyword.value) void loadRemote(keyword.value)
-  else resetRemote()
 }
 
 function resetRemote() {
@@ -130,31 +137,25 @@ function applyQuery() {
   category.value = c && categories.value.some((x) => x.name === c) ? c : '全部'
   keyword.value = k ?? ''
   input.value = k ?? ''
-  page.value = 1
-  load()
+  reload()
 }
 
 function onSearch() {
   keyword.value = input.value.trim()
   router.replace({ query: keyword.value ? { keyword: keyword.value } : {} })
-  page.value = 1
-  load()
+  reload()
 }
 
 function onCategory(c: string) {
   category.value = c
   router.replace({ query: { ...route.query, category: c } })
-  page.value = 1
-  load()
+  reload()
 }
 
 function onSort(s: ComicSort) {
   sort.value = s
-  page.value = 1
-  load()
+  reload()
 }
-
-const totalPages = () => Math.max(1, Math.ceil(total.value / pageSize))
 
 onMounted(async () => {
   categories.value = await getCategories()
@@ -191,7 +192,8 @@ onLoad((options) => setRoute('/search', options ?? {}))
         关键词「{{ keyword }}」共 {{ total }} 部作品
       </view>
 
-      <view v-if="loading" class="empty">搜索中…</view>
+      <view v-if="error" class="empty">{{ error }}</view>
+      <view v-else-if="loading" class="empty">搜索中…</view>
       <view v-else-if="comics.length === 0" class="empty">
         <template v-if="keyword">站内没有「{{ keyword }}」，看看下面的其他来源</template>
         <template v-else>没有找到相关漫画，换个关键词试试</template>
@@ -200,11 +202,7 @@ onLoad((options) => setRoute('/search', options ?? {}))
         <ComicCard v-for="c in comics" :key="c.id" :comic="c" />
       </view>
 
-      <view v-if="totalPages() > 1" class="pager">
-        <button class="btn ghost u-button" :disabled="page <= 1" @click="page--; load()">上一页</button>
-        <text class="page-info u-span">{{ page }} / {{ totalPages() }}</text>
-        <button class="btn ghost u-button" :disabled="page >= totalPages()" @click="page++; load()">下一页</button>
-      </view>
+      <Pager v-if="totalPages > 1" :page="page" :total-pages="totalPages" @change="goPage" />
 
       <!-- 其他来源：站内搜不到时去各源站找，点「导入并阅读」即可收录后打开 -->
       <template v-if="keyword">
@@ -258,14 +256,14 @@ onLoad((options) => setRoute('/search', options ?? {}))
                 </view>
               </view>
               <view class="remote-action">
-                <text v-if="it.inLibrary" class="badge u-span">已收录</text>
+                <text v-if="it.comicId !== null" class="badge u-span">已收录</text>
                 <button
                   class="btn u-button"
                   :disabled="!!importing"
                   @click="onImport(it)"
                 >
                   {{
-                    it.inLibrary
+                    it.comicId !== null
                       ? '打开'
                       : importing === it.source + ':' + it.sourceComicId
                         ? '导入中…'
@@ -317,9 +315,6 @@ onLoad((options) => setRoute('/search', options ?? {}))
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 /* 手机（≤560px）保持 3 列，只收紧间距（原先降到 2 列；2026-09-22 用户要求） */
 @media (max-width: 560px) { .grid { gap: 10px; } }
-
-.pager { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 26px; }
-.page-info { color: var(--text-2); font-size: 14px; }
 
 /* ---- 其他来源（源站搜索 + 按需导入） ---- */
 .remote-title { margin: 34px 0 14px; font-size: 18px; display: flex; align-items: baseline; gap: 10px; }
@@ -377,9 +372,8 @@ onLoad((options) => setRoute('/search', options ?? {}))
   background: #eaf3de; color: #3b6d11;
 }
 
-/* #ifdef H5 */
 /* 网页版（.mode-web，2026-10-10）：漫画网格 3 列 → 6 列（密度与首页一致；18 条 =
-   6 列 × 3 行仍整除）；中窄宽窗降 4 列、超窄窗 3 列。整段只进 H5 产物。 */
+   6 列 × 3 行仍整除）；中窄宽窗降 4 列、超窄窗 3 列。 */
 .mode-web .grid { grid-template-columns: repeat(6, 1fr); }
 @media (max-width: 1024px) {
   .mode-web .grid { grid-template-columns: repeat(4, 1fr); }
@@ -387,5 +381,4 @@ onLoad((options) => setRoute('/search', options ?? {}))
 @media (max-width: 560px) {
   .mode-web .grid { grid-template-columns: repeat(3, 1fr); }
 }
-/* #endif */
 </style>

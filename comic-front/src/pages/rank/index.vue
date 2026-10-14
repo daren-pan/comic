@@ -4,17 +4,18 @@
 //
 // 2026-09-22 改版（用户要求）：原先「每个标签单独一个区块」——30 个标签就是 30 个区块、
 // 30 次请求，用户还得逐块看。现在改成**一条全库榜单 + 一条筛选条**（标签下拉 + 排序），
-// 翻页沿用 `onReachBottom`（小程序没有 IntersectionObserver，见下）。
+// 翻页沿用 `onReachBottom`（见下）。
 //
-// ⚠️ 触发机制说明（2026-09-22 多端适配）：comic-web 用 `IntersectionObserver` 做「区块进视口才拉」，
-// 但**小程序没有这个 API**（且 `uni.createIntersectionObserver` 只能按选择器观察，拿不到
-// 函数式 ref 的元素）。改用 uni 的页面级生命周期 `onReachBottom` —— 三端一致、可用性等价
+// ⚠️ 触发机制说明（2026-09-22）：comic-web 用 `IntersectionObserver` 做「区块进视口才拉」，
+// 这里改用 uni 的页面级生命周期 `onReachBottom` —— 可用性等价
 // （差别只是「滚到底」而非「进视口」触发）。
 import { onMounted, ref } from 'vue'
 import { getCategories, getComics, type ComicSort } from '../../api'
 import type { CategoryCount, Comic } from '../../types'
 import { onLoad, onReachBottom } from '@dcloudio/uni-app'
 import { setRoute, useRouter } from '../../utils/router'
+import { usePagedList } from '../../composables/usePagedList'
+import { formatHeat } from '../../utils/format'
 import Layout from '../../components/Layout.vue'
 import FilterBar from '../../components/FilterBar.vue'
 
@@ -26,67 +27,29 @@ const categories = ref<CategoryCount[]>([])
 const category = ref('全部')
 // 默认按热度降序（2026-09-22 用户要求）—— 排行榜的本分就是按热度排
 const sort = ref<ComicSort>('views')
-const comics = ref<Comic[]>([])
-const total = ref(0)
-const page = ref(1)
-const loading = ref(false)
-/** 首次加载是否已完成（用于区分「加载中」与「暂无数据」） */
-const ready = ref(false)
-
-// 竞态保护：切标签/排序会连发请求，只认最后一次的结果，避免旧响应盖掉新榜
-let reqId = 0
-
-async function load(reset = false) {
-  const id = ++reqId
-  if (reset) {
-    page.value = 1
-    comics.value = []
-    total.value = 0
-  }
-  loading.value = true
-  try {
-    const res = await getComics({
+// 列表状态机全部收在 composable 里（竞态保护 / 触底追加 / 追加失败页码回退 / `ready` 语义）——
+// 此前这段与 `pages/latest` **一字不差**，见 `composables/usePagedList.ts` 的文件头。
+const { items: comics, total, loading, ready, loadMore, reload } = usePagedList<Comic>(
+  (page, pageSize) =>
+    getComics({
       category: category.value === '全部' ? undefined : category.value,
       sort: sort.value,
-      page: page.value,
-      pageSize: PAGE_SIZE,
-    })
-    if (id !== reqId) return   // 已有更新的请求发出 → 丢弃本次结果
-    comics.value = reset ? res.items : comics.value.concat(res.items)
-    total.value = res.total
-  } catch {
-    if (id !== reqId) return
-    if (reset) {
-      comics.value = []
-      total.value = 0
-    } else {
-      page.value = Math.max(1, page.value - 1)   // 追加失败 → 页码回退，下次触底重试
-    }
-  } finally {
-    if (id === reqId) {
-      loading.value = false
-      ready.value = true
-    }
-  }
-}
-
-/** 触底 → 追加下一批 */
-function loadMore() {
-  if (loading.value || comics.value.length >= total.value) return
-  page.value += 1
-  load()
-}
+      page,
+      pageSize,
+    }),
+  { pageSize: PAGE_SIZE },
+)
 
 function onCategory(v: string) {
   if (v === category.value) return
   category.value = v
-  load(true)
+  reload()
 }
 
 function onSort(s: ComicSort) {
   if (s === sort.value) return
   sort.value = s
-  load(true)
+  reload()
 }
 
 function goSearch() {
@@ -97,11 +60,7 @@ function rankClass(i: number): string {
   return i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : ''
 }
 
-/** 热度：1 万以上折算为「x.x 万」 */
-function fmtHeat(v: number): string {
-  if (v >= 10000) return `${(v / 10000).toFixed(1).replace(/\.0$/, '')} 万`
-  return String(v)
-}
+// 热度格式化已收进 `utils/format.ts` 的 `formatHeat`（2026-10-13）
 
 onMounted(async () => {
   try {
@@ -109,7 +68,6 @@ onMounted(async () => {
   } catch {
     categories.value = []
   }
-  await load(true)
 })
 
 // uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）
@@ -150,7 +108,7 @@ onReachBottom(loadMore)
               <view class="meta u-p">{{ c.author }}</view>
               <view class="latest u-p">{{ c.latestChapterTitle || '暂无章节' }}</view>
             </view>
-            <text class="heat u-span">🔥 {{ fmtHeat(c.heat) }}</text>
+            <text class="heat u-span">🔥 {{ formatHeat(c.heat) }}</text>
           </view>
         </view>
 

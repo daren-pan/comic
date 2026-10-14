@@ -12,7 +12,6 @@ import type {
   AdminScheduleRunNowResult,
   AdminScheduleStatus,
   AdminTask,
-  AdminUser,
   AdminUserPage,
   LogOptions,
   LogQuery,

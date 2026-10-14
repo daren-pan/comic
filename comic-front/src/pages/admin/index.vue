@@ -12,6 +12,8 @@ import type { PickerOption, SourceInfo } from '../../types'
 import { onLoad } from '@dcloudio/uni-app'
 import { setRoute } from '../../utils/router'
 import { requireRole } from '../../utils/guard'
+import { showAlert } from '../../utils/ui'
+import { formatDateTime, formatInterval } from '../../utils/format'
 import Layout from '../../components/Layout.vue'
 import AdminTabs from '../../components/AdminTabs.vue'
 import DateInput from '../../components/DateInput.vue'
@@ -26,7 +28,7 @@ interface SourceVM {
   running: boolean    // 是否正在触发（防重复点击）
 }
 
-// 采集模式下拉：小程序没有 <select>，统一走 Picker（见 components/Picker.vue）
+// 采集模式下拉：统一走 Picker（见 components/Picker.vue）
 const syncModeOptions: PickerOption[] = [
   { value: 'incremental', label: '增量' },
   { value: 'full', label: '全量' },
@@ -53,18 +55,8 @@ const healKeyword = ref('')      // 漫画名称或 ID（可多个，逗号/空�
 // 任务结果一律写入全局消息中心（顶栏 🔔 可见，离开本页也会继续跟踪到结束）
 const msgStore = useMessageStore()
 
-function fmtTime(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function fmtInterval(sec: number): string {
-  if (sec < 60) return `${sec}s`
-  if (sec % 3600 === 0) return `${sec / 3600}h`
-  return `${Math.round(sec / 60)}min`
-}
+// 时间 / 间隔格式化已收进 `utils/format.ts`（2026-10-13）：
+// 这里的 `fmtTime`/`fmtInterval` 与 me、schedule 两页的同名实现原本各写一份。
 
 async function load() {
   error.value = ''
@@ -88,7 +80,7 @@ async function toggleSource(vm: SourceVM) {
     const r = await toggleAdminSource(vm.info.name)
     vm.info.enabled = r.enabled
   } catch (e) {
-    alert((e as Error).message || '切换失败')
+    void showAlert((e as Error).message || '切换失败')
   }
 }
 
@@ -106,7 +98,7 @@ async function runSync(vm: SourceVM) {
     // 任务已落库：立刻刷新消息中心（先出现一条"进行中"条目，跑完由服务端补一条结果消息）
     msgStore.refresh()
   } catch (e) {
-    alert((e as Error).message || '触发采集失败')
+    void showAlert((e as Error).message || '触发采集失败')
   } finally {
     vm.running = false
   }
@@ -124,7 +116,7 @@ async function runInspect() {
     await startAdminInspect(body)
     msgStore.refresh()
   } catch (e) {
-    alert((e as Error).message || '触发失效巡检失败')
+    void showAlert((e as Error).message || '触发失效巡检失败')
   } finally {
     inspecting.value = false
   }
@@ -135,7 +127,7 @@ async function runHealCovers() {
   if (healing.value) return
   const keyword = healKeyword.value.trim()
   if (!keyword) {
-    alert('请填写漫画名称或 ID（可多个，用逗号/空格/换行分隔）')
+    void showAlert('请填写漫画名称或 ID（可多个，用逗号/空格/换行分隔）')
     return
   }
   healing.value = true
@@ -143,7 +135,7 @@ async function runHealCovers() {
     await startAdminHealCovers({ keyword })
     msgStore.refresh()
   } catch (e) {
-    alert((e as Error).message || '触发封面自愈失败')
+    void showAlert((e as Error).message || '触发封面自愈失败')
   } finally {
     healing.value = false
   }
@@ -254,8 +246,8 @@ onLoad(async (options) => {
 
             <view class="card-meta">
               <text class="u-span">库内 <text class="u-b">{{ vm.info.comicCount }}</text> 部</text>
-              <text class="u-span">间隔 <text class="u-b">{{ fmtInterval(vm.info.interval) }}</text></text>
-              <text class="u-span">上次同步 <text class="u-b">{{ fmtTime(vm.info.lastSync) }}</text></text>
+              <text class="u-span">间隔 <text class="u-b">{{ formatInterval(vm.info.interval) }}</text></text>
+              <text class="u-span">上次同步 <text class="u-b">{{ formatDateTime(vm.info.lastSync) }}</text></text>
             </view>
 
             <!-- 采集区 -->

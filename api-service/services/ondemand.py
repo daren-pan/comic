@@ -66,7 +66,7 @@ def searchable_sources() -> list[str]:
 
 
 def _to_item(source: str, brief) -> dict:
-    """ComicBrief → 前端契约。`comicId`/`inLibrary` 让前端能显示「已收录，直接打开」。"""
+    """ComicBrief → 前端契约。`comicId` 非 None 让前端能显示「已收录，直接打开」。"""
     comic_id = db.get_comic_id_by_source(source, brief.source_comic_id)
     return {
         "source": source,
@@ -78,7 +78,6 @@ def _to_item(source: str, brief) -> dict:
         "latestChapterTitle": brief.latest_chapter_title,
         "tags": list(brief.tags or []),
         "comicId": comic_id,           # 非 None = 库内已收录
-        "inLibrary": comic_id is not None,
     }
 
 

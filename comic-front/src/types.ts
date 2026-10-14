@@ -1,75 +1,81 @@
-// 领域类型 —— 与后端采集服务表结构对应：
-// comic / chapter / page（见 crawler-service/src/comic_crawler/models.py）
+// 领域类型 —— 前端消费的接口契约。
+//
+// **字段形状的事实来源是后端响应模型**（`api-service/schemas_out.py`）：
+// 核心类型直接从 `./api/generated/schema`（`npm run gen:api` 自动生成）提取 ——
+// 后端改字段后重跑生成即可，不再手抄（消除「手抄漂移」的根因）。
+// 生成是两步：后端 `python tools/export_openapi.py` → 前端 `npm run gen:api`。
+import type { components } from './api/generated/schema'
 
-export type ComicStatus = '连载中' | '已完结'
+/** OpenAPI 契约里的全部 schema（`components.schemas`） */
+type ApiSchemas = components['schemas']
 
-export interface Comic {
-  id: number
-  title: string
-  author: string
-  category: string
-  status: ComicStatus
-  description: string
-  cover: string          // 封面（svg data uri 或 url）
-  latestChapterTitle: string
-  chapterCount: number
-  views: number          // 累计浏览次数（原始计数）
-  favoriteCount: number  // 收藏人数
-  heat: number           // 热度分 = 1000（起底）+ 浏览×1 + 收藏×2，用于榜单排序
-  updatedAt: string      // 最近更新，驱动"最新更新"列表
-  source: string         // 该行来自哪个源（一行=一个源；跨源不合并，同名作品可能各占一行）
-  tags: string[]
-}
+/**
+ * 连载状态 —— **规范值只有这四个**（后端的唯一定义处是 `comic_core/status.py`）。
+ *
+ * 2026-10-13 之前：各源适配器各写一套映射（输出用词互不相同），接口层还用白名单
+ * 把认不出的写法**一律改成"连载中"** —— 于是库里 2 部已完结的作品在界面上显示成
+ * 「连载中」（54 行里 31 行的状态值不在白名单内）。现在后端统一归一，这里与之一一对应。
+ *
+ * ⚠️ 新增源若引入新状态词，后端会**原样保留**（不吞、不猜）并记一条 warning；
+ * 那种情况下要同步扩这里，否则界面会显示预期外的文本。
+ */
+export type ComicStatus = '连载中' | '已完结' | '休载' | '已取消'
 
-export interface Chapter {
-  id: number
-  comicId: number
-  title: string
-  orderNo: number
-  createdAt: string
-  isNew: boolean         // 属于「最近一批入库」的章节（详情页右上角角标）
-}
+/**
+ * 作品（前台契约）。字段形状**直接来自后端 `ComicOut`**（自动生成），
+ * `status` 在本地收窄为 `ComicStatus`（生成版是宽 `string`，见上面对该类型的说明）。
+ *
+ * 几个非显而易见字段（最终说明以后端 `schemas_out.ComicOut` 为准）：
+ * - `cover`：本平台取图端点 `/api/covers/{id}`（不是源站外链、不暴露图床路径）
+ * - `heat`：热度分 = 1000（起底）+ 浏览×1 + 收藏×2，用于榜单排序
+ * - `updatedAt`：最近更新时间，驱动「最新更新」列表
+ * - `source`：该行来自哪个源（**一行 = 一个源**；跨源不合并，同名作品可能各占一行）
+ */
+export type Comic = Omit<ApiSchemas['ComicOut'], 'status'> & { status: ComicStatus }
 
-export interface PageInfo {
-  pageNo: number
-  imageUrl: string       // 懒加载占位：svg data uri
-  width: number
-  height: number
-}
+/**
+ * 章节。字段形状来自后端 `ChapterOut`；
+ * `isNew` = 属于「最近一批入库」（详情页右上角"新"角标）。
+ */
+export type Chapter = ApiSchemas['ChapterOut']
 
-/** 评论区（`/api/comics/:id/comments`）。 */
-export interface Comment {
-  id: number
-  content: string
-  /** 作者昵称；**作者账号已删 = 「已注销用户」**（兜底文案在后端，见 serializers.to_comment） */
-  author: string
-  authorId: string
-  createdAt: string
-}
+/** 阅读器的一页（`imageUrl` 指向本站取图端点，不暴露源站地址）。字段形状来自后端 `PageOut`。 */
+export type PageInfo = ApiSchemas['PageOut']
 
-export interface CommentPage {
-  items: Comment[]
-  total: number
-  page: number
-  pageSize: number
-  /** 该作品当前**能否评论** = 全站总开关 AND 单作品开关（见后端 `services.comments`） */
-  enabled: boolean
-}
+/**
+ * 一条评论（`/api/comics/:id/comments`）。字段形状来自后端 `CommentOut`。
+ * `author`：**作者账号已删 = 「已注销用户」**（兜底文案在后端，见 `serializers.to_comment`）。
+ */
+export type Comment = ApiSchemas['CommentOut']
 
-/** 管理台「作品管理」行：`Comic` + 三个治理字段（**只给管理台**，前台契约不带）。 */
-export interface AdminComic extends Comic {
-  listed: boolean          // 上架状态（true = 上架）
-  commentEnabled: boolean  // 单作品评论开关
-  sourceComicId: string    // 源站作品 ID（「补全章节」按它精确定位，见 pages/admin/comics.vue）
-}
+/**
+ * 评论列表 —— 分页壳 + 开关状态（**合并进 `PageResult<T>` 的别名**，2026-10-13）。
+ *
+ * `enabled` = 全站总开关 AND 单作品开关。**关闭时列表接口照样 200**（只是列表为空），
+ * 详情页要能区分「还没有人评论」与「评论区已关闭」—— 所以它不能靠"空列表"猜。
+ */
+export type CommentPage = PageResult<Comment> & { enabled: boolean }
 
-export interface AdminComicPage {
-  items: AdminComic[]
-  total: number
-  page: number
-  pageSize: number
-}
+/**
+ * 管理台「作品管理」行 = `Comic` + 三个**治理字段**（只给管理台，前台契约不带）。
+ * 字段形状来自后端 `AdminComicOut`；`status` 同 `Comic` 收窄。
+ *
+ * - `listed`：上架状态（true = 上架；下架后前台立刻不可见，但数据保留）
+ * - `commentEnabled`：单作品评论开关（有效值 = 全站总开关 AND 它）
+ * - `sourceComicId`：源站作品 ID（「补全章节」按它精确定位，见 pages/admin/comics.vue）
+ */
+export type AdminComic = Omit<ApiSchemas['AdminComicOut'], 'status'> & { status: ComicStatus }
 
+/** 管理台作品列表 —— **合并进 `PageResult<T>` 的别名**（2026-10-13）。 */
+export type AdminComicPage = PageResult<AdminComic>
+
+/**
+ * 分页壳 —— **全站统一**（对应后端 `schemas_out.PageResult`）。
+ *
+ * 2026-10-13 之前有 **5 份形状一字不差**的独立 interface 各写各的
+ * （`CommentPage` / `AdminComicPage` / `AdminUserPage` / `LogQueryResult` + 本类型），
+ * 加一个字段要改五处。现在它们都是本类型的别名（保留旧名只为不动调用点）。
+ */
 export interface PageResult<T> {
   items: T[]
   total: number
@@ -227,12 +233,8 @@ export interface LogQuery {
   pageSize?: number
 }
 
-export interface LogQueryResult {
-  items: LogRecord[]
-  total: number
-  page: number
-  pageSize: number
-}
+/** 日志查询结果 —— **合并进 `PageResult<T>` 的别名**（2026-10-13）。 */
+export type LogQueryResult = PageResult<LogRecord>
 
 /** 日志查询页的筛选候选值 */
 export interface LogOptions {
@@ -241,9 +243,9 @@ export interface LogOptions {
 }
 
 /**
- * 下拉选项（跨端 `Picker` 组件用）——`value` 是绑定值、`label` 是展示文案。
+ * 下拉选项（`Picker` 组件用）——`value` 是绑定值、`label` 是展示文案。
  *
- * 为什么需要它：小程序**没有 `<select>` 组件**，统一改用 uni 的 `<picker mode="selector">`，
+ * 为什么需要它：uni 没有 `<select>` 对应物，统一改用 `<picker mode="selector">`，
  * 而 picker 只认「字符串数组 + 下标」。这个结构把「下标 ↔ 业务值」的换算收敛在
  * `components/Picker.vue` 里，页面只提供 `{value,label}[]`，逻辑与 comic-web 保持一致。
  */
@@ -262,8 +264,8 @@ export interface SourceSearchItem {
   status: string
   latestChapterTitle: string
   tags: string[]
-  comicId: number | null   // 非 null = 库内已收录，可直接打开
-  inLibrary: boolean
+  /** 非 null = 库内已收录，可直接打开（原来还有个 `inLibrary` 布尔，与它语义完全重复，已删除） */
+  comicId: number | null
 }
 
 export interface SourceSearchGroup {
@@ -294,12 +296,8 @@ export interface AdminUser {
   createdAt: string
 }
 
-export interface AdminUserPage {
-  items: AdminUser[]
-  total: number
-  page: number
-  pageSize: number
-}
+/** 授权页用户列表 —— **合并进 `PageResult<T>` 的别名**（2026-10-13）。 */
+export type AdminUserPage = PageResult<AdminUser>
 
 /**
  * 消息中心的一条消息（`message` 表，`/api/messages`）

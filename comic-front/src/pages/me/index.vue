@@ -7,6 +7,7 @@ import type { Comic, HistoryEntry } from '../../types'
 import { onLoad } from '@dcloudio/uni-app'
 import { openNewTab, setRoute, useRouter } from '../../utils/router'
 import Layout from '../../components/Layout.vue'
+import { formatDateTime } from '../../utils/format'
 
 const router = useRouter()
 const favorites = ref<Comic[]>([])
@@ -15,11 +16,7 @@ const loaded = ref(false)
 const tab = ref<'history' | 'favorites'>('history')
 const { isLoggedIn: logged } = storeToRefs(useUserStore())
 
-function fmtTime(iso: string): string {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
+// 时间格式化已收进 `utils/format.ts` 的 `formatDateTime`（2026-10-13）
 
 async function refresh() {
   const [favs, his] = await Promise.all([
@@ -40,7 +37,6 @@ async function onRemove(comicId: number) {
 
 function continueRead(h: HistoryEntry) {
   // 新标签页打开阅读器，书架保留在当前标签页（与详情页点章节的行为一致）
-  // H5 开新标签，小程序 / App 退化为同页跳转（见 utils/router.openNewTab）
   openNewTab(`/reader/${h.comicId}/${h.chapterId}`)
 }
 // uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）
@@ -69,7 +65,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
             <view class="row-main">
               <view class="u-h4">{{ h.comic?.title }}</view>
               <view class="row-sub u-p">{{ h.chapterTitle }}</view>
-              <view class="row-sub dim u-p">读到第 {{ h.pageNo }} 页 · {{ fmtTime(h.readAt) }}</view>
+              <view class="row-sub dim u-p">读到第 {{ h.pageNo }} 页 · {{ formatDateTime(h.readAt) }}</view>
             </view>
             <view class="row-actions" @click.stop>
               <button class="btn ghost sm u-button" @click="continueRead(h)">续读</button>
@@ -159,8 +155,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
   padding-bottom: 8px;
 }
 .fav-item:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
-/* 封面 3:4 比例盒：不用 aspect-ratio（小程序 WebView 视基础库版本而定），
-   用「高度 0 + padding-bottom 撑比例」（padding 百分比按包含块**宽度**解析）。 */
+/* 封面 3:4 比例盒：用「高度 0 + padding-bottom 撑比例」（padding 百分比按包含块**宽度**解析）。 */
 .fav-thumb { position: relative; height: 0; padding-bottom: 133.33%; background: var(--bg); }
 .fav-thumb .u-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .fav-item .u-p { margin: 6px 0 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
@@ -173,9 +168,8 @@ onLoad((options) => setRoute('/me', options ?? {}))
   .fav-grid { gap: 10px; }
 }
 
-/* #ifdef H5 */
 /* 网页版（.mode-web，2026-10-10）：收藏网格 3 列 → 6 列（与首页 / 列表页同密度）；
-   中窄宽窗降 4 列、超窄窗 3 列。整段只进 H5 产物。 */
+   中窄宽窗降 4 列、超窄窗 3 列。 */
 .mode-web .fav-grid { grid-template-columns: repeat(6, 1fr); }
 @media (max-width: 1024px) {
   .mode-web .fav-grid { grid-template-columns: repeat(4, 1fr); }
@@ -183,5 +177,4 @@ onLoad((options) => setRoute('/me', options ?? {}))
 @media (max-width: 560px) {
   .mode-web .fav-grid { grid-template-columns: repeat(3, 1fr); }
 }
-/* #endif */
 </style>

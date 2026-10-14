@@ -26,7 +26,7 @@
 // 点「搜索」才拉数据（2026-10-09 用户要求「不需要列出所有的漫画，只要根据搜索框输入关键字
 // 查找就可以」）。搜索范围含**已下架**的作品（与前台相反，前台一律只给已上架的）。
 // 卡片式布局（不是表格）：与「窄屏不许横向滚动条」的约定一致，不做响应式分支。
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import {
   getAdminComics,
@@ -39,23 +39,30 @@ import {
 import type { AdminComic } from '../../types'
 import { setRoute } from '../../utils/router'
 import { requireRole } from '../../utils/guard'
+import { usePagedList } from '../../composables/usePagedList'
 import AdminTabs from '../../components/AdminTabs.vue'
 import Layout from '../../components/Layout.vue'
+import Pager from '../../components/Pager.vue'
+import { formatMonthDay } from '../../utils/format'
 
-const ready = ref(false)
-const items = ref<AdminComic[]>([])
-const total = ref(0)
-const page = ref(1)
-const pageSize = 20
+const ready = ref(false)   // 门卫通过前不渲染页面主体（与列表状态无关）
 const keyword = ref('')
-const loading = ref(false)
-const error = ref('')
+
+/**
+ * 列表状态机（分页 / 竞态 / 失败回退都在里面）—— 2026-10-13 抽自多页逐字重复的代码。
+ * ⚠️ `immediate: false`：**初始不拉数据**，搜索后才出结果（见 `searched` 的说明）。
+ */
+const { items, total, page, loading, error, totalPages, goPage, refresh, reload } = usePagedList(
+  (p, ps) => getAdminComics({ keyword: keyword.value.trim() || undefined, page: p, pageSize: ps }),
+  { pageSize: 20, immediate: false },
+)
+
 const busyId = ref<number | null>(null)   // 正在切开关的那一行（防重复点击）
 /**
  * 「补全章节」的行内状态：comic_id → 文案（空 = 不显示）。
  *
  * 补章跟着那一行走（不弹全局提示）：按钮点在下方的卡片上、提示就该显示在同处，
- * 滚到页面中段时顶部提示是看不见的。`load()` 重建 items 不影响它（按 id 键）。
+ * 滚到页面中段时顶部提示是看不见的。`refresh()` 重建 items 不影响它（按 id 键）。
  */
 const fillingId = ref<number | null>(null)          // 正在补章的那一行（防重复点击）
 const fillState = ref<Record<number, string>>({})   // 补章结果文案（含「补章中…」）
@@ -71,30 +78,7 @@ const searched = ref(false)
 const globalComment = ref(true)
 const globalBusy = ref(false)
 
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
-
-function fmtDay(iso: string): string {
-  const d = new Date(iso)
-  return `${d.getMonth() + 1}月${d.getDate()}日`
-}
-
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    const r = await getAdminComics({
-      keyword: keyword.value.trim() || undefined,
-      page: page.value,
-      pageSize,
-    })
-    items.value = r.items
-    total.value = r.total
-  } catch (e) {
-    error.value = (e as Error).message || '加载作品失败'
-  } finally {
-    loading.value = false
-  }
-}
+// 日期格式化已收进 `utils/format.ts` 的 `formatMonthDay`（2026-10-13）
 
 async function loadGlobalSetting() {
   try {
@@ -110,18 +94,15 @@ function search() {
     error.value = '请输入关键词（标题 / 作者 / 分类 / 标签）后再搜索'
     return
   }
-  page.value = 1
   searched.value = true
   fillState.value = {}          // 新一轮结果不带上一轮的补章提示
-  void load()
+  reload()                       // 回第一页重拉（`reload` 内部会把页码归 1）
 }
 
-function go(delta: number) {
-  const next = page.value + delta
-  if (next < 1 || next > totalPages.value) return
-  page.value = next
+/** 翻页（`Pager` 给目标页码）：补章提示跟着结果走，翻页即清空 */
+function onPage(n: number) {
   fillState.value = {}
-  void load()
+  void goPage(n)
 }
 
 /** 上下架（后端还会再拦一次；失败把中文原因显示在面板顶部） */
@@ -192,7 +173,7 @@ async function fillChapters(c: AdminComic) {
       ? `已补齐 ${r.newChapters} 话（库内共 ${r.chapters} 话）`
       : `无缺失章节（库内共 ${r.chapters} 话）`
     // 补完章节数 / 最近更新时间可能变了 —— 重拉当前页（保持搜索词与页码；提示按 id 保留）
-    void load()
+    void refresh()
   } catch (e) {
     fillState.value[c.id] = ''
     error.value = (e as Error).message || '补章失败'
@@ -276,7 +257,7 @@ onLoad(async (options) => {
             </text>
           </view>
           <view class="i-meta u-p">
-            #{{ c.id }} · {{ c.source }} · {{ c.chapterCount }} 话 · 更新 {{ fmtDay(c.updatedAt) }}
+            #{{ c.id }} · {{ c.source }} · {{ c.chapterCount }} 话 · 更新 {{ formatMonthDay(c.updatedAt) }}
           </view>
 
           <view class="i-actions">
@@ -317,11 +298,7 @@ onLoad(async (options) => {
         </view>
       </view>
 
-      <view v-if="searched && totalPages > 1" class="pager">
-        <button class="btn ghost u-button" :disabled="page <= 1" @click="go(-1)">上一页</button>
-        <text class="page-info u-span">{{ page }} / {{ totalPages }}</text>
-        <button class="btn ghost u-button" :disabled="page >= totalPages" @click="go(1)">下一页</button>
-      </view>
+      <Pager v-if="searched && totalPages > 1" :page="page" :total-pages="totalPages" @change="onPage" />
     </view>
   </Layout>
 </template>
@@ -384,7 +361,4 @@ onLoad(async (options) => {
 .switch.on .slider::before { transform: translateX(20px); }
 .switch.sm .slider::before { width: 15px; height: 15px; }
 .switch.sm.on .slider::before { transform: translateX(17px); }
-
-.pager { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 22px; }
-.page-info { color: var(--text-2); font-size: 14px; }
 </style>

@@ -19,6 +19,8 @@ const hotComics = ref<Comic[]>([])
 const latestComics = ref<Comic[]>([])
 const catComics = ref<Record<string, Comic[]>>({})
 const loaded = ref(false)
+/** 首屏取数失败的中文原因（空 = 无错）—— 修复前是裸 await：接口挂掉 `loaded` 永远为 false，页面卡「加载中…」 */
+const loadError = ref('')
 
 // 首页每个区块的展示条数：**移动端 3**（原样）、**网页版 6**（1180px 一行铺满，2026-10-10）。
 // 取数统一按 6 条（多取 3 条成本可忽略），展示时按模式 slice —— 切换布局模式无需重新请求。
@@ -64,23 +66,43 @@ function fmtTime(iso: string): string {
   return `${Math.floor(hours / 24)} 天前`
 }
 
-onMounted(async () => {
-  categories.value = await getCategories()
-  const cats = categories.value.filter((c) => c.name !== '全部').map((c) => c.name)
+/**
+ * 首屏取数（失败可重试；各区块数据为空时自然不渲染）。
+ *
+ * 分两路 catch 是刻意的：**分类读不到不拖垮首页**（它只是分类区块的入口），
+ * 主数据（热门 / 最新 / 分类精选）失败才显示错误态 —— 修复前的裸 await 一旦
+ * 任一步抛错，后面全不执行、`loaded` 永远 false，页面永久停在「加载中…」。
+ */
+async function loadHome() {
+  loadError.value = ''
+  loaded.value = false
+  try {
+    categories.value = await getCategories()
+  } catch {
+    categories.value = []
+  }
+  try {
+    const cats = categories.value.filter((c) => c.name !== '全部').map((c) => c.name)
 
-  const [hot, latest] = await Promise.all([
-    getComics({ sort: 'views', pageSize: FETCH_N }),
-    getComics({ sort: 'updated', pageSize: MARQUEE_N }),
-  ])
-  hotComics.value = hot.items
-  marquee.value = latest.items
-  latestComics.value = latest.items
+    const [hot, latest] = await Promise.all([
+      getComics({ sort: 'views', pageSize: FETCH_N }),
+      getComics({ sort: 'updated', pageSize: MARQUEE_N }),
+    ])
+    hotComics.value = hot.items
+    marquee.value = latest.items
+    latestComics.value = latest.items
 
-  const picks = cats.slice(0, 4)
-  const res = await Promise.all(picks.map((c) => getComics({ category: c, pageSize: FETCH_N })))
-  picks.forEach((c, i) => (catComics.value[c] = res[i].items))
-  loaded.value = true
-})
+    const picks = cats.slice(0, 4)
+    const res = await Promise.all(picks.map((c) => getComics({ category: c, pageSize: FETCH_N })))
+    picks.forEach((c, i) => (catComics.value[c] = res[i].items))
+  } catch (e) {
+    loadError.value = (e as Error).message || '加载失败'
+  } finally {
+    loaded.value = true
+  }
+}
+
+onMounted(loadHome)
 // uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）
 onLoad((options) => setRoute('/', options ?? {}))
 // 轮播只在可见时自动播：切 Tab（onHide）/ 离开（onUnload）就暂停
@@ -158,7 +180,11 @@ onUnload(() => (pageVisible.value = false))
         </view>
       </template>
 
-      <view v-if="!loaded" class="empty">加载中…</view>
+      <view v-if="loadError" class="empty u-p">
+        {{ loadError }}
+        <text class="retry u-a" @click="loadHome">重试</text>
+      </view>
+      <view v-else-if="!loaded" class="empty">加载中…</view>
     </view>
   </Layout>
 </template>
@@ -184,9 +210,8 @@ onUnload(() => (pageVisible.value = false))
 .bc-swiper { height: 260px; }
 .bc-slide { position: relative; width: 100%; height: 100%; overflow: hidden; }
 /* 同图模糊铺底：竖版封面放进横条时两侧不留白。
-   ① 用 top/left/right/bottom 而不是 `inset`（小程序端 CSS 支持面更稳）；
-   ② 放大一点，盖住模糊在边缘的透明衰减；
-   ③ `filter: blur()` 在 H5 正常；小程序端若不支持，退化成"未模糊的铺底图"（仍能看，不报错）。 */
+   ① 用 top/left/right/bottom 而不是 `inset`（兼容面更稳）；
+   ② 放大一点，盖住模糊在边缘的透明衰减。 */
 .bc-bg {
   position: absolute;
   top: 0;
@@ -255,9 +280,7 @@ onUnload(() => (pageVisible.value = false))
   .section-title .hint { display: none; }
 }
 
-/* #ifdef H5 */
-/* ==================== 网页版（.mode-web，2026-10-10） ====================
-   整段只进 H5 产物（小程序 / App 恒为移动版）。 */
+/* ==================== 网页版（.mode-web，2026-10-10） ==================== */
 /* 品牌行：网页版站标已在顶部导航条里，藏掉页面内重复的那份；轮播升成整宽 hero */
 .mode-web .brand { display: none; }
 .mode-web .bc-swiper { height: 300px; }
@@ -270,5 +293,7 @@ onUnload(() => (pageVisible.value = false))
 @media (max-width: 560px) {
   .mode-web .grid { grid-template-columns: repeat(3, 1fr); }
 }
-/* #endif */
+
+/* 首屏错误态的重试入口（2026-10-13 补错误处理时加） */
+.retry { margin-left: 8px; color: var(--primary); font-weight: 700; text-decoration: underline; cursor: pointer; }
 </style>

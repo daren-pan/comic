@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { addComment, deleteComment, getChapter, getChapters, getComic, getComments, getHistoryWithDetail, isFavorite, toggleFavorite, upsertHistory } from '../../api'
+import { addComment, deleteComment, getChapters, getComic, getComments, getHistoryWithDetail, isFavorite, toggleFavorite, upsertHistory } from '../../api'
 import { useUserStore } from '../../stores/user'
 import { openNewTab, setRoute, useRoute, useRouter } from '../../utils/router'
 import { storage } from '../../utils/storage'
 import Layout from '../../components/Layout.vue'
+import { formatCommentTime, formatMonthDay } from '../../utils/format'
 import type { Chapter, Comic, Comment, HistoryEntry } from '../../types'
 
 const route = useRoute()
@@ -115,7 +116,7 @@ function goSearch(kw: string) {
   if (k) router.push({ path: '/search', query: { keyword: k } })
 }
 
-/** 新标签页打开阅读器：详情页保留在当前标签页（H5 开新标签，其他端退化为同页跳转） */
+/** 新标签页打开阅读器：详情页保留在当前标签页 */
 function openReader(chapterId: number) {
   openNewTab(`/reader/${comicId}/${chapterId}`)
 }
@@ -138,10 +139,9 @@ function onPrimaryRead() {
   if (sortedChapters.value.length) void read(sortedChapters.value[0])
 }
 
-function fmtTime(iso: string): string {
-  const d = new Date(iso)
-  return `${d.getMonth() + 1}月${d.getDate()}日`
-}
+// 短日期格式化已收进 `utils/format.ts` 的 `formatMonthDay`（2026-10-13）
+// ⚠️ 它原名 `fmtTime`，与 `pages/me`、`admin/*` 里那个「YYYY-MM-DD HH:mm」的 `fmtTime`
+// **同名不同义** —— 这正是收敛的理由之一。
 
 // ---------------- 评论区 ----------------
 //
@@ -162,17 +162,7 @@ const commentNotice = ref('')     // 发表失败时的中文提示（后端文�
 /** 还有下一页吗（列表是"加载更多"式追加，不是分页器） */
 const hasMoreComments = computed(() => comments.value.length < commentTotal.value)
 
-/** 评论时间：今天只给时分，其余给「M月D日」（与分组列表的粒度一致） */
-function fmtCommentTime(iso: string): string {
-  const d = new Date(iso)
-  const today = new Date()
-  const sameDay =
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return sameDay ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : `${d.getMonth() + 1}月${d.getDate()}日`
-}
+// 评论时间格式化已收进 `utils/format.ts` 的 `formatCommentTime`（2026-10-13）
 
 /** 拉评论（`append=false` 重载第一页；失败不打断整页 —— 评论区是"页脚"，不该把人挡在外面） */
 async function loadComments(append = false) {
@@ -264,7 +254,7 @@ function gotoLoginForComment() {
             </view>
             <!-- 2026-10-07 用户要求：这行去掉「章节：N 话」与「热度 X」，只留更新时间
                  （章节数在下面「章节列表（N）」里本来就有，不必在 hero 重复） -->
-            <view class="hero-line u-p">更新 {{ fmtTime(comic.updatedAt) }}</view>
+            <view class="hero-line u-p">更新 {{ formatMonthDay(comic.updatedAt) }}</view>
             <view class="actions">
               <button class="btn u-button" @click="onPrimaryRead">
                 {{ lastRead ? `续读${lastRead.chapterTitle ?? ''}` : '▶ 开始阅读' }}
@@ -352,7 +342,7 @@ function gotoLoginForComment() {
           <view v-for="c in comments" :key="c.id" class="c-item">
             <view class="c-head">
               <text class="c-author u-span">{{ c.author }}</text>
-              <text class="c-time u-span">{{ fmtCommentTime(c.createdAt) }}</text>
+              <text class="c-time u-span">{{ formatCommentTime(c.createdAt) }}</text>
               <text v-if="isAdmin" class="c-del u-span" @click="removeComment(c.id)">删除</text>
             </view>
             <view class="c-body u-p">{{ c.content }}</view>
@@ -549,10 +539,9 @@ function gotoLoginForComment() {
 
 .c-more { align-self: center; padding: 7px 18px; font-size: 13px; margin-top: 2px; }
 
-/* #ifdef H5 */
 /* ==================== 网页版（.mode-web，2026-10-10） ====================
    两栏：左栏（作品卡 + 简介，sticky 跟随）+ 右栏（章节 / 评论）。
-   移动端为基准，这里全部是增量覆盖；整段只进 H5 产物（小程序恒移动版）。 */
+   移动端为基准，这里全部是增量覆盖。 */
 .mode-web .detail {
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
@@ -590,5 +579,4 @@ function gotoLoginForComment() {
   .mode-web .side { position: static; }
   .mode-web .detail > .section-title { margin-top: 28px; }
 }
-/* #endif */
 </style>

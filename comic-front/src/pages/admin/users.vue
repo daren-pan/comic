@@ -17,23 +17,28 @@ import type { AdminUser } from '../../types'
 import { onLoad } from '@dcloudio/uni-app'
 import { setRoute, useRouter } from '../../utils/router'
 import { requireRole } from '../../utils/guard'
+import { showAlert } from '../../utils/ui'
+import { usePagedList } from '../../composables/usePagedList'
 import Layout from '../../components/Layout.vue'
+import Pager from '../../components/Pager.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 
 // 门卫通过前不渲染页面主体（等价 comic-web 守卫拦住时整页不出现）
-const ready = ref(false)
-const items = ref<AdminUser[]>([])
-const total = ref(0)
-const page = ref(1)
-const pageSize = ref(20)
+const ready = ref(false)   // ← 这是「门卫过没过」的标志，与列表状态无关
 const keyword = ref('')
-const loading = ref(false)
-const error = ref('')
 const busyId = ref<number | null>(null)  // 正在改的那一行（防重复点击）
 
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+/**
+ * 列表状态机（分页 / 竞态 / 失败回退都在里面）—— 2026-10-13 抽自多页逐字重复的代码。
+ * ⚠️ `immediate: false`：**门卫通过后**才拉数据（见 `onLoad`）。
+ */
+const { items, total, page, loading, error, totalPages, goPage, reload } = usePagedList(
+  (p, ps) => getAdminUsers({ keyword: keyword.value.trim() || undefined, page: p, pageSize: ps }),
+  { pageSize: 20, immediate: false },
+)
+
 const myId = computed(() => userStore.user?.id ?? null)
 
 const ROLE_LABEL: Record<string, string> = {
@@ -53,35 +58,8 @@ function rowHint(u: AdminUser): string {
   return ''
 }
 
-/** 拉取当前页（keyword 为空即全量列出） */
-async function load() {
-  loading.value = true
-  error.value = ''
-  try {
-    const r = await getAdminUsers({
-      keyword: keyword.value.trim() || undefined,
-      page: page.value,
-      pageSize: pageSize.value,
-    })
-    items.value = r.items
-    total.value = r.total
-  } catch (e) {
-    error.value = (e as Error).message || '加载用户失败'
-  } finally {
-    loading.value = false
-  }
-}
-
 function search() {
-  page.value = 1
-  load()
-}
-
-function go(delta: number) {
-  const next = page.value + delta
-  if (next < 1 || next > totalPages.value) return
-  page.value = next
-  load()
+  reload()   // 回第一页重拉（`reload` 内部会把页码归 1）
 }
 
 /** 普通管理员 ⇄ 普通用户（授权 / 取消授权）。后端还会再拦一次。 */
@@ -93,7 +71,7 @@ async function toggleRole(u: AdminUser) {
     const r = await setUserRole(u.id, target)
     u.role = r.role
   } catch (e) {
-    alert((e as Error).message || '设置角色失败')
+    void showAlert((e as Error).message || '设置角色失败')
   } finally {
     busyId.value = null
   }
@@ -105,7 +83,7 @@ onLoad(async (options) => {
   // 门卫：**仅超级管理员**（等价 comic-web 的 beforeEnter: requireRole(true)）
   if (!(await requireRole(true, '/admin/users'))) return
   ready.value = true
-  void load()
+  reload()
 })
 
 </script>
@@ -182,11 +160,7 @@ onLoad(async (options) => {
         </view>
       </view>
 
-      <view v-if="items.length" class="pager">
-        <button class="btn ghost sm u-button" :disabled="page <= 1" @click="go(-1)">上一页</button>
-        <text class="dim u-span">第 {{ page }} / {{ totalPages }} 页</text>
-        <button class="btn ghost sm u-button" :disabled="page >= totalPages" @click="go(1)">下一页</button>
-      </view>
+      <Pager v-if="items.length" :page="page" :total-pages="totalPages" @change="goPage" />
     </view>
   </Layout>
 </template>
@@ -219,7 +193,7 @@ onLoad(async (options) => {
 }
 .total { color: var(--text-2); font-size: 13px; }
 
-/* ⚠️ uni 没有 <table>（小程序也不支持），原版的 table/tr/th/td 已换成 view ——
+/* ⚠️ uni 没有 <table>，原版的 table/tr/th/td 已换成 view ——
    光换标签就没有表格布局了（view 默认 block，整表会塌成竖排），这里用 flex 搭回来。
    窄屏放不下就横向滚（固定列不收缩 + 昵称列 min-width），别指望像真表格那样自动压缩。 */
 .user-table {
@@ -274,15 +248,6 @@ onLoad(async (options) => {
 .lock { font-size: 13px; cursor: help; }
 
 .btn.sm { padding: 5px 12px; font-size: 13px; }
-
-.pager {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  justify-content: center;
-  margin-top: 14px;
-  font-size: 13px;
-}
 
 /* ---- 窄屏（≤860px）：表格 → 卡片，杜绝横向滚动条 ----
    5 列固定宽合计 ≈ 710px（180 + 昵称≥120 + 120 + 160 + 130），窄屏可视只有 ~343px。

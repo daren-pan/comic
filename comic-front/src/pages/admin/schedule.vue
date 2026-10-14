@@ -33,6 +33,7 @@ import { showAlert, showConfirm } from '../../utils/ui'
 
 const msgStore = useMessageStore()
 import Layout from '../../components/Layout.vue'
+import { formatDateTime } from '../../utils/format'
 import AdminTabs from '../../components/AdminTabs.vue'
 import DateInput from '../../components/DateInput.vue'
 import Picker from '../../components/Picker.vue'
@@ -57,7 +58,7 @@ const form = ref({
   since: '' as string,
 })
 
-// 采集模式下拉：小程序没有 <select>，统一走 Picker（见 components/Picker.vue）
+// 采集模式下拉：统一走 Picker（见 components/Picker.vue）
 const modeOptions: PickerOption[] = [
   { value: 'incremental', label: '增量' },
   { value: 'full', label: '全量' },
@@ -130,12 +131,7 @@ function applyStatus(s: AdminScheduleStatus) {
   }
 }
 
-function fmt(iso: string | null): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
+// 时间格式化已收进 `utils/format.ts` 的 `formatDateTime`（2026-10-13）
 
 function statusText(): string {
   const s = status.value
@@ -306,15 +302,15 @@ onUnload(stopPolling)
             <text class="badge u-span" :class="status.lastStatus || 'idle'">{{ statusText() }}</text>
           </view>
           <view class="kv u-p">
-            <text class="k u-label">下次执行</text><text class="v u-code">{{ fmt(status.nextRunAt) }}</text>
-            <text class="k u-label">最近执行</text><text class="v u-code">{{ fmt(status.lastRunAt) }}</text>
+            <text class="k u-label">下次执行</text><text class="v u-code">{{ formatDateTime(status.nextRunAt) }}</text>
+            <text class="k u-label">最近执行</text><text class="v u-code">{{ formatDateTime(status.lastRunAt) }}</text>
             <text class="k u-label">本轮源</text><text class="v u-code">{{ status.sources.join('、') || '—' }}</text>
             <text class="k u-label">结果</text><text class="v u-code">{{ status.lastMessage || '—' }}</text>
             <text class="k u-label">任务号</text><text class="v u-code">{{ status.lastTaskId || '—' }}</text>
             <text class="k u-label">执行器</text>
             <text class="v u-code" :style="{ color: status.executorAlive ? '#1f7a44' : '#c0392b' }">{{ executorText() }}</text>
-            <text class="k u-label">执行器心跳</text><text class="v u-code">{{ fmt(status.heartbeatAt) }}</text>
-            <text class="k u-label">服务器时间</text><text class="v u-code">{{ fmt(status.serverTime) }}</text>
+            <text class="k u-label">执行器心跳</text><text class="v u-code">{{ formatDateTime(status.heartbeatAt) }}</text>
+            <text class="k u-label">服务器时间</text><text class="v u-code">{{ formatDateTime(status.serverTime) }}</text>
           </view>
         </view>
 
@@ -483,7 +479,7 @@ onUnload(stopPolling)
 .hint { color: var(--text-2); font-size: 12px; }
 .sw { transform: scale(0.85); }
 
-/* 数据源多选：点一下切换（避免引入自定义组件 + v-model 的多端坑） */
+/* 数据源多选：点一下切换（不引入自定义组件，直接用手写 chips） */
 .chips {
   display: flex;
   flex-wrap: wrap;
