@@ -26,8 +26,7 @@ html uni-input { font-family: Arial; }
 /* ① uni 的 <form> 会在子元素外面**再包一层 <span>**（uni-form 内部实现，写死的），
  *    于是 `.xxx { display: flex }` 落在 uni-form 上、真正的子元素却在那层 span 里 →
  *    **flex 从未生效**：搜索框和搜索按钮各占一行、还按占位符宽度收缩。
- *    `display: contents` 让这层 span 不产生盒子 → 子元素重新变成 uni-form 的直接 flex 子项。
- *    （小程序/App 端 uni 不注入这层 span，本规则自然空转，同一份模板照样正确。） */
+ *    `display: contents` 让这层 span 不产生盒子 → 子元素重新变成 uni-form 的直接 flex 子项。 */
 uni-form > span { display: contents; }
 
 /* ② uni-button：把「原生 <button> 的默认表现」补回来。
@@ -95,11 +94,3 @@ html uni-input .uni-input-input { height: auto; }
  *    ⚠️ 权重：`.uni-label-pointer` 是 (0,1,0)，`html uni-label` 只有 (0,0,2) **压不过**，
  *       必须写成 `html uni-label.uni-label-pointer` = (0,1,2)。 */
 html uni-label.uni-label-pointer { cursor: default; }
-
-/* ⑦ 小程序端的 `button` 归一化在 **App.vue 的 <style>** 里，不在这里。
- *
- * 原因：**条件编译只在 uni 会预处理的文件里生效（.vue 的 style 算，独立 .css 文件不算）** —— 
- * 写成独立 .css 时那对标记只是普通注释、会被压缩器一并去掉，于是规则**两端都生效**：H5 上
- * `<button>` 编译成 `<uni-button>`，而 uni-button 内部还有一个原生 button，会同时命中内外两层，
- * padding 叠加成双份、按钮变宽 —— 正好破坏本文件为对齐原生度量做的归一化（已实测确认）。
- */

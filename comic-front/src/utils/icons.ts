@@ -1,13 +1,13 @@
 // 底栏图标：自绘 SVG → base64 data URI，喂给 uni 的 <image>。
 //
-// 为什么不把裸 <svg> 写进模板：项目约定「模板只用 uni 组件」，<image> 是 uni 组件、
-//   三端（H5 桌面 / H5 移动 / App）行为一致，而裸 <svg> 绕过了这层。
+// 为什么不把裸 <svg> 写进模板：项目约定「模板只用 uni 组件」，<image> 是 uni 组件
+//   （桌面 / 移动行为一致），而裸 <svg> 绕过了这层。
 // 为什么不引图标库：只为 3 个图标引依赖不划算，自绘零依赖、样式可控。
 //
 // 颜色写死在 SVG 里（<image> 不认 currentColor），所以选中/未选中各生成一份，
 // 且**夜间主题要再生成一套** —— 默认态用的是 --text-2，夜间该值变亮，图标不跟着换就看不见了。
 //
-// 用 base64 而非 encodeURIComponent：base64 data URI 是各端 <image> 最通用的形式。
+// 用 base64 而非 encodeURIComponent：base64 data URI 是 uni <image> 最通用的形式。
 // 不用 btoa：部分运行环境没有这个全局；SVG 内容全是 ASCII，故只需 ASCII 版编码器。
 
 const B64CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'

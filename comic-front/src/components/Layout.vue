@@ -5,15 +5,15 @@
 //   - `<RouterView />` → `<slot />`（uni 无全局 outlet，改由每个页面用 <Layout> 包住自身内容）；
 //   - `useRoute/useRouter` 来自 utils/router（compat 层，签名与 vue-router 同形）；
 //   - `<RouterLink>` → `<view class="u-a" @click>`：`<a>` 在本项目里是**布局容器**
-//     （.nav-links 的 flex 子项 / .mobile-menu 自己就是 display:flex），而小程序规定
-//     `<text>` 内不得放 `<view>`/`<image>` 等块级组件，故统一映射成 `view` + `u-a` 类。
+//     （.nav-links 的 flex 子项 / .mobile-menu 自己就是 display:flex），
+//     故统一映射成 `view` + `u-a` 类。
 //
 // ⚠️ **两套形态**（2026-10-10 起）：**移动端为基准**（2026-09-23 定的形态，就是本文件
 //    与各页 <style> 的主体规则），网页版是**新增的增量覆盖**（`.mode-web` 前缀，见文末
 //    「网页版顶栏」段）。模式由 utils/layout.ts 管理（**只按 UA 判定**；2026-10-12 起
-//    手动切换键已移除），**仅 H5 有效** —— 小程序 / App 恒为移动版。
-//    网页版专属元素（品牌 / 主导航 / 用户区 / 主题键）用 `#ifdef H5` +
-//    `v-if="isWebMode"` 双重守护：小程序构建时整块被条件编译剥掉，不留死代码。
+//    手动切换键已移除）。
+//    网页版专属元素（品牌 / 主导航 / 用户区 / 主题键）由 `v-if="isWebMode"` 守护，
+//    移动版下不渲染。
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from '../utils/router'
@@ -121,8 +121,7 @@ const NAV_LINKS = [
 // 左上角 ☰ 打开。菜单是 fixed 覆盖层、**不占文档流**，所以不会把下面的页面挤下去
 // （旧实现是 .nav 里的普通块级元素，展开会把整页顶下去，已废弃）。
 //
-// 进场/收起都走 CSS 动画（从**右侧**滑出，见 <style> 里的 drawer-in / drawer-out）：
-// 不用 `<transition>` 组件 —— **小程序不支持**，会被当成未知组件。
+// 进场/收起都走 CSS 动画（从**右侧**滑出，见 <style> 里的 drawer-in / drawer-out）。
 const MENU_ANIM_MS = 240 // 必须与 .mobile-menu / .menu-mask 的 animation-duration 一致
 let menuTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -166,9 +165,8 @@ watch(() => route.path, () => {
   <view class="app-shell" :class="{ 'theme-dark': isDark }">
     <view class="nav">
       <view class="container nav-inner">
-        <!-- 网页版左区：品牌 + 主导航（`#ifdef H5` + v-if 双重守护 —— 小程序构建整块剥掉，
-             移动版下不渲染）。样式见文末「网页版顶栏」段。 -->
-        <!-- #ifdef H5 -->
+        <!-- 网页版左区：品牌 + 主导航（v-if="isWebMode" 守护 —— 移动版下不渲染）。
+             样式见文末「网页版顶栏」段。 -->
         <template v-if="isWebMode">
           <view class="logo" @click="router.push('/')">
             <image class="logo-icon" :src="logo.icon" mode="aspectFit" />
@@ -187,7 +185,6 @@ watch(() => route.path, () => {
             <view v-if="isSuperAdmin" class="nav-link u-a" :class="{ on: route.path === '/admin/users' }" @click="router.push('/admin/users')">授权</view>
           </view>
         </template>
-        <!-- #endif -->
 
         <view class="nav-right">
           <!-- 提交语义走 uni 的 form-type（不是 HTML 的 type="submit"，那在 uni 里不触发提交）；
@@ -198,11 +195,9 @@ watch(() => route.path, () => {
           </form>
 
           <!-- 网页版：主题切换（网页模式下抽屉不可达，这件设置项放顶栏）。 -->
-          <!-- #ifdef H5 -->
           <template v-if="isWebMode">
             <button class="icon-btn u-button" @click="toggleTheme()" :title="isDark ? '切换到明亮主题' : '切换到夜间主题'">{{ isDark ? '☀️' : '🌙' }}</button>
           </template>
-          <!-- #endif -->
 
           <!-- 消息中心：**面向所有登录用户**的通知（任务消息、维护公告、定向通知…）。
                两种形态都是「跳独立消息页」。
@@ -217,7 +212,6 @@ watch(() => route.path, () => {
 
           <!-- 网页版右区：用户（登录 → 头像胶囊 + 退出；未登录 → 登录按钮）。
                胶囊点进「个人中心」（2026-10-12 从「书架」改指）；退出即 onLogout（清登录态 + 回首页）。 -->
-          <!-- #ifdef H5 -->
           <template v-if="isWebMode">
             <template v-if="isLoggedIn">
               <view class="user-chip" @click="router.push('/profile')">
@@ -228,7 +222,6 @@ watch(() => route.path, () => {
             </template>
             <button v-else class="login-link u-button" @click="router.push('/login')">登录</button>
           </template>
-          <!-- #endif -->
 
           <!-- 移动版：返回上一层 + 菜单键 ☰（返回键网页版不渲染，由桌面导航替代；
                ☰ 在网页版**宽窗**由 CSS 隐藏，窄窗（≤860px）恢复显示 —— 桌面导航放不下时
@@ -335,7 +328,7 @@ watch(() => route.path, () => {
 /* 模板根：主题切换的挂载点（`.theme-dark` 一挂，整棵子树的 CSS 变量随之切换，见 utils/theme.ts）。
    ⚠️ 这里**不能写** position / z-index / transform / filter —— 任何一样都会形成层叠上下文或
    包含块，里面那两个 position:fixed 的抽屉/遮罩就压不过外面的底栏了（它们本就为此放在 .nav 之外）。
-   min-height:100vh 是给小程序兜底：那边 page 元素背景不随主题变，靠这层铺满视口。
+   min-height:100vh：短内容页也铺满整屏（背景色由本层承载，与 html 上的主题类双保险）。
    .nav 的 sticky 以本层为包含块，而本层铺满整页，所以吸顶行为与加包裹前一致。 */
 .app-shell {
   min-height: 100vh;
@@ -467,7 +460,7 @@ watch(() => route.path, () => {
 .toast-close:hover { color: var(--text); }
 .toast-text { font-size: 13px; font-weight: 600; margin-top: 4px; }
 .toast-detail { font-size: 12px; color: var(--text-2); margin-top: 2px; }
-/* 同上：`<transition>` 在小程序不可用，用 CSS 动画替代「出现」 */
+/* 同上：用 CSS 动画替代 `<transition>` 组件表达「出现」 */
 .toast { animation: toast-in 0.25s ease; }
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(20px); }
@@ -530,7 +523,7 @@ watch(() => route.path, () => {
 /* ---- 移动端菜单：全屏覆盖层（二级页面）。fixed 定位，不占文档流 ----
    抽屉从屏幕**右侧滑出**（而不是原地淡入/弹出）：进场 translateX(100%) → 0，
    收起再滑回 -100%，遮罩同步淡入淡出。
-   ⚠️ 不用 `<transition>`：小程序不支持该组件；这里用 CSS 动画表达。 */
+   ⚠️ 过渡不用 `<transition>` 组件，统一用 CSS 动画表达。 */
 .menu-mask {
   display: block;
   position: fixed;
@@ -560,14 +553,11 @@ watch(() => route.path, () => {
 }
 .mobile-menu.closing { animation: drawer-out 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) forwards; }
 
-/* 网页版样式只进 H5 产物（小程序 / App 恒为移动版、`.mode-web` 永不出现）——
-   整段由条件编译包裹，mp 构建时剥掉、不留死 CSS（先例：App.vue 的 MP-WEIXIN 段）。
-   ⚠️ 这段里**只放网页版规则**，别把移动端规则写进来。 */
-/* #ifdef H5 */
 /* ==================== 网页版顶栏（2026-10-10） ====================
    移动端为基准（上面全部规则），网页版是 `.mode-web` 前缀的**增量覆盖**。
-   `.mode-web` 挂在 H5 的 <html> 上（见 utils/layout.ts），小程序 / App 不产生该前缀；
-   元素的可见性由模板的 `#ifdef H5` + `v-if="isWebMode"` 控制，这里只管样式与排布。 */
+   `.mode-web` 挂在 <html> 上（见 utils/layout.ts）；
+   元素的可见性由模板的 `v-if="isWebMode"` 控制，这里只管样式与排布。
+   ⚠️ 这段里**只放网页版规则**，别把移动端规则写进来。 */
 
 /* 顶栏整体：略高一点、间距放宽 */
 .mode-web .nav-inner { gap: 16px; height: 64px; }
@@ -658,5 +648,4 @@ watch(() => route.path, () => {
 
 /* 网页版内容底部不需要给底栏留白（底栏整块不渲染） */
 .mode-web .page { padding-bottom: 48px; }
-/* #endif */
 </style>

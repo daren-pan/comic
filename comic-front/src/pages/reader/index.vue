@@ -1,12 +1,12 @@
 <script setup lang="ts">
 // 阅读器（由 comic-web 的 ReaderView 移植）。
 //
-// ⚠️ 多端适配说明（2026-09-22）：comic-web 的交互全部建立在 H5 API 上，小程序端**全都不可用**：
-//   - `PointerEvent`            → 改为 `touchstart/touchend`（小程序/H5 触屏）+ 保留 pointer（H5 桌面鼠标拖拽）
-//   - `requestAnimationFrame`   → 改为 `setTimeout` 节流（小程序没有 rAF）
-//   - `element.scrollTo`        → 改为 `scroll-view` 的 `scroll-into-view`（小程序普通 view 不能滚）
-//   - `getBoundingClientRect`   → 改为 `uni.createSelectorQuery().boundingClientRect`（三端同一套）
-//   - `e.clientX`               → 小程序把坐标放在 `e.detail.x`，统一由 `eventX()` 取
+// ⚠️ 实现说明（2026-09-22 移植时相对 comic-web 原实现的改造）：
+//   - `PointerEvent`            → 增加 `touchstart/touchend` 双轨（触屏设备）+ 保留 pointer（桌面鼠标拖拽）
+//   - `requestAnimationFrame`   → 改为 `setTimeout` 节流
+//   - `element.scrollTo`        → 改为 `scroll-view` 的 `scroll-into-view`
+//   - `getBoundingClientRect`   → 改为 `uni.createSelectorQuery().boundingClientRect`
+//   - `e.clientX`               → 统一由 `eventX()` 取（优先 `clientX`，兜底 `detail.x`）
 //   - `e.currentTarget`         → 进度条点击改为按需量轨道位置（只在点击时量，不是热路径）
 // **业务判定规则一字未改**：滑动阈值 60px / 800ms、左右热区各 25%、当前页取"视口中心最近的那页"。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -50,8 +50,8 @@ function isNear(p: number) {
   return Math.abs(p - pageNo.value) <= 1
 }
 
-// ---------------- 跨端坐标 / 测量 ----------------
-/** 取事件里的横坐标：H5 是 `clientX`，小程序把坐标放在 `detail.x` */
+// ---------------- 坐标 / 测量 ----------------
+/** 取事件里的横坐标（优先 `clientX`，兜底 `detail.x`） */
 function eventX(e: unknown): number {
   const ev = e as { clientX?: number; detail?: { x?: number } }
   return ev.clientX ?? ev.detail?.x ?? 0
@@ -68,7 +68,7 @@ function touchPoint(e: unknown): { x: number; y: number } | null {
   return { x: t.clientX ?? t.pageX ?? 0, y: t.clientY ?? t.pageY ?? 0 }
 }
 
-/** 量一个节点的位置（uni 的跨端选择器查询） */
+/** 量一个节点的位置（uni 的选择器查询） */
 function measureOne(selector: string, cb: (rect: any) => void) {
   uni.createSelectorQuery().select(selector).boundingClientRect((r: any) => cb(r ?? null)).exec()
 }
@@ -154,7 +154,7 @@ function goPage(p: number) {
 }
 
 // ---------------- 竖排连播：滚动定位 + 当前页推导 ----------------
-/** 滚到某页顶部：用 `scroll-into-view`（跨端可用）。同一个 id 连设两次不会触发，
+/** 滚到某页顶部：用 `scroll-into-view`。同一个 id 连设两次不会触发，
  *  故先清空再于 nextTick 设回 —— uni 的惯用写法。 */
 function scrollToPage(p: number) {
   scrollAnchor.value = ''
@@ -164,7 +164,7 @@ function scrollToPage(p: number) {
 }
 
 let measureTimer: ReturnType<typeof setTimeout> | undefined
-/** 滚动回调：节流后量一次（原实现用 requestAnimationFrame 节流，小程序没有 rAF） */
+/** 滚动回调：节流后量一次（`setTimeout` 节流） */
 function onScroll() {
   if (!isVertical.value) return
   if (measureTimer) return
@@ -175,7 +175,7 @@ function onScroll() {
 }
 
 /** 取「离视口中心最近的那一页」为当前页 —— 与 comic-web 的判定规则完全一致，
- *  只是把 getBoundingClientRect 换成 uni 的选择器查询（三端同 API）。 */
+ *  只是把 getBoundingClientRect 换成 uni 的选择器查询。 */
 function measureCurrentPage() {
   measureOne('#pages-scroll', (vr) => {
     if (!vr || !vr.height) return
@@ -233,7 +233,7 @@ function onPointerDown(e: PointerEvent) {
 function onPointerUp(e: PointerEvent) {
   endSwipe(e.clientX, e.clientY)
 }
-// 小程序 / H5 触屏：touch 事件
+// 触屏：touch 事件（与上面的 pointer 事件双轨：触摸屏走 touch、桌面鼠标走 pointer）
 function onTouchStart(e: unknown) {
   const p = touchPoint(e)
   if (p) beginSwipe(p.x, p.y)
@@ -247,13 +247,9 @@ function cancelSwipe() {
   swipe.value.active = false
 }
 
-// 视口宽度：H5 用 window.innerWidth，其他端回退 uni 系统信息
+// 视口宽度
 function viewportWidth(): number {
-  // #ifdef H5
   return window.innerWidth
-  // #endif
-  // eslint-disable-next-line no-unreachable
-  return uni.getSystemInfoSync().windowWidth
 }
 
 // 点击处理：
@@ -307,23 +303,16 @@ function beginSeek(e: unknown) {
   lastSeekEvent = e
   // 拖动期间别让两根栏按 2.6s 计时自己滑走（松手后 commitSeek 会重新计时）
   clearTimeout(hideTimer)
-  // 桌面鼠标拖动：move/up 可能跑到轨道外面，所以挂到 window 上
+  // 桌面鼠标拖动：move/up 可能跑到轨道外面，所以挂到 document 上
   // （触摸不需要 —— touchmove/touchend 会一直投递给 touchstart 的目标元素）
-  if (typeof document !== 'undefined') {
-    document.addEventListener('mousemove', onDocMove)
-    document.addEventListener('mouseup', onDocUp)
-  }
-  // H5 直接同步量：`uni.createSelectorQuery` 是异步的，**快速点击**会在测量回来之前就 mouseup，
+  document.addEventListener('mousemove', onDocMove)
+  document.addEventListener('mouseup', onDocUp)
+  // 直接同步量：`uni.createSelectorQuery` 是异步的，**快速点击**会在测量回来之前就 mouseup，
   // 于是提交到上一次的页号（实测点 25% 处停在了上一次拖到的 51/73）。
-  const el = typeof document !== 'undefined' ? document.querySelector('#progress-track') : null
+  const el = document.querySelector('#progress-track')
   if (el) {
     const r = el.getBoundingClientRect()
     applyTrackRect({ left: r.left, width: r.width })
-  } else {
-    // 小程序等没有 document 的端：走 uni 的异步测量，并在回调里补算 / 补提交
-    measureOne('#progress-track', (r) => {
-      if (r && r.width) applyTrackRect(r)
-    })
   }
 }
 
@@ -352,10 +341,8 @@ function onDocUp() {
 function endSeek() {
   if (!seeking.value) return
   seeking.value = false
-  if (typeof document !== 'undefined') {
-    document.removeEventListener('mousemove', onDocMove)
-    document.removeEventListener('mouseup', onDocUp)
-  }
+  document.removeEventListener('mousemove', onDocMove)
+  document.removeEventListener('mouseup', onDocUp)
   if (trackRect) commitSeek()
   else seekEndedPending = true // 测量还没回来：等 applyTrackRect 补提交
 }
@@ -424,17 +411,13 @@ onMounted(async () => {
   }
   if (rec) upsertHistory({ comicId, chapterId: chapterId.value, pageNo: rec.pageNo })
 
-  // 键盘事件仅 H5 有（小程序 / App 无键盘）
-  // #ifdef H5
+  // 键盘事件（桌面浏览器）
   window.addEventListener('keydown', onKey)
-  // #endif
   pokeBar()
 })
 
 onBeforeUnmount(() => {
-  // #ifdef H5
   window.removeEventListener('keydown', onKey)
-  // #endif
   clearTimeout(measureTimer)
   clearTimeout(hideTimer)
 })
@@ -524,9 +507,8 @@ onBeforeUnmount(() => {
             <button class="btn u-button" :disabled="!hasNext" @click="nextChapter">下一章</button>
           </view>
         </view>
-        <!-- 竖排连播的滚动容器：**小程序里普通 view 不能滚**，必须用 scroll-view
-             （原来靠 .reader.vertical 的 overflow-y:auto，那是 H5 专有）。
-             跳页用 scroll-into-view 定位到对应页块的 id（跨端可用）。 -->
+        <!-- 竖排连播的滚动容器：用 uni 的 scroll-view，
+             跳页用 scroll-into-view 定位到对应页块的 id。 -->
         <scroll-view
           v-else
           id="pages-scroll"
@@ -621,7 +603,7 @@ onBeforeUnmount(() => {
       <!-- 底部进度条：可点击、也可**拖动**跳页（拖动中显示预览页号，松手才翻页）。
            ⚠️ 只绑 touch + mouse：uni 的模板编译器**不认 `@pointerdown` 这类 pointer 事件**（静默丢弃，
               实测处理器根本不触发；根节点上那套 pointer 翻页绑定同理是死的）。
-              触摸覆盖移动端 / 小程序，鼠标覆盖 H5 桌面端。
+              触摸覆盖触屏设备，鼠标覆盖桌面端。
            ⚠️ 每个事件都要 `.stop`：否则会冒泡到根节点，触发阅读器自己的点击显隐/左右滑动翻页。 -->
       <view class="bottombar" :class="{ hide: !showBar }" @click.stop>
         <view
@@ -904,8 +886,7 @@ onBeforeUnmount(() => {
 
 /* ---- 竖排模式：一连串图片 ---- */
 .vertical-stage { padding-top: 0; overflow: visible; }
-/* 竖排连播的滚动容器：absolute 铺满 stage（stage 已是全高，两根悬浮栏盖在上面）。
-   小程序里普通 view 不能滚，滚动必须交给 scroll-view。 */
+/* 竖排连播的滚动容器：absolute 铺满 stage（stage 已是全高，两根悬浮栏盖在上面）。 */
 .pages-scroll { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
 /* 隐掉滚动条：uni 的 scroll-view 内层在桌面 Chrome 下**会实占 8px 宽**，
    于是竖排图片被挤到 382px、右边露出一条黑边（实测 offsetWidth - clientWidth = 8）。
@@ -1028,19 +1009,15 @@ onBeforeUnmount(() => {
 .page-no { color: #fff; font-size: 13px; min-width: 60px; text-align: right; text-shadow: 0 1px 3px rgba(0,0,0,0.75); }
 .reader.light .page-no { color: #1a1a1a; text-shadow: none; }
 
-/* 两个弹层（设置 / 目录）的出现动画 —— 原来用 `<transition name="fade">`，
-   而**小程序不支持 transition 组件**，改用 CSS 动画（视觉效果一致，离开时直接移除）。 */
+/* 两个弹层（设置 / 目录）的出现动画 —— 用 CSS 动画表达（离开时直接移除）。 */
 .settings-mask, .menu-mask { animation: fade-in 0.2s ease; }
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
-/* #ifdef H5 */
 /* ==================== 网页版（.mode-web，2026-10-10） ====================
    阅读器是全屏 fixed 层（两种形态都盖住顶栏，沉浸阅读）。桌面加宽正文列 ——
-   竖排图片宽度上限 720px → 880px（手机端不变；横排本来就是「高度受限」，无需改）。
-   整段只进 H5 产物（小程序恒移动版）。 */
+   竖排图片宽度上限 720px → 880px（手机端不变；横排本来就是「高度受限」，无需改）。 */
 .mode-web .vertical-stage .page-img { width: min(100vw, 880px); }
-/* #endif */
 </style>

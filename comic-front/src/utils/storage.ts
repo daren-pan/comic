@@ -1,6 +1,6 @@
 // 存储适配层 —— 把 comic-web 里散落的 `localStorage.*` 调用统一收敛到这里。
 //
-// 底层换成 uni 的跨端存储 API：H5 落到 localStorage，小程序/App 落到各自原生存储。
+// 底层是 uni 的存储 API（H5 落到 localStorage）。
 // **语义与 localStorage 保持一致**（字符串存取、读不到返回 null），
 // 这样 api/stores 里的读写逻辑一行都不用改。
 

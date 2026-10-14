@@ -115,7 +115,7 @@ onLoad((options) => {
           <image class="brand-text" :src="logo.text" mode="aspectFit" />
         </view>
         <view class="title u-h1">{{ mode === 'login' ? '登录' : '注册' }}</view>
-        <view class="sub u-p">{{ mode === 'login' ? '登录后可同步收藏到云端' : '创建账号，收藏多端同步' }}</view>
+        <view class="sub u-p">{{ mode === 'login' ? '登录后可同步收藏到云端' : '创建账号，收藏云端同步' }}</view>
 
         <form @submit="submit">
           <view class="field u-label">

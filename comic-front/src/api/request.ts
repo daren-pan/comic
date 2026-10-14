@@ -7,7 +7,7 @@
 //
 // 两处 uni 与 axios 的差异已在实现里抹平：
 //   1) uni.request 没有 axios 的 `params` 选项 → 本层把 params 序列化进 query string；
-//   2) 401 跳登录页：axios 版改 `window.location.hash`，这里改用页面栈 redirectTo（跨端可用）。
+//   2) 401 跳登录页：axios 版改 `window.location.hash`，这里改用 uni 的页面跳转 redirectTo。
 import { clearAuth, getToken, isLoggedIn } from './auth'
 
 // 后端统一响应结构 {code, message, data}

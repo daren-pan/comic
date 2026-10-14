@@ -1,6 +1,6 @@
 /* 全局样式（与 comic-web/src/style.css 同一套设计变量与工具类，逻辑不变）。
-   uni-app 差异：根节点选择器由 html,body 换成 page（H5 会映射到页面根容器 uni-page-body），
-   另外补一条 H5 专属的 html/body 重置（非 H5 端没有 body，条件编译掉）。 */
+   uni-app 差异：根节点选择器由 html,body 换成 page（H5 下映射到页面根容器 uni-page-body），
+   另外补一条 html/body 重置（uni 页面容器之外还有 html/body 本身）。 */
 :root {
   --primary: #ff5a36;
   --primary-dark: #e0451f;
@@ -47,7 +47,6 @@
 
 * { box-sizing: border-box; }
 
-/* #ifdef H5 */
 html, body {
   margin: 0;
   padding: 0;
@@ -56,7 +55,6 @@ html, body {
   font-size: 15px;
   line-height: 1.6;
 }
-/* #endif */
 
 page {
   margin: 0;

@@ -1,8 +1,7 @@
-// 弹窗兼容层 —— `window.alert` / `window.confirm` 的跨端替身（只有 L0 碰平台 API）。
+// 弹窗兼容层 —— 全站唯一的弹窗出口（只有 L0 碰平台 API）。
 //
-// 为什么必须换：**小程序没有 `window`**，`window.alert(...)` 是**直接抛错**（不是"没反应"），
-// 而管理台的失败提示与「清理日志」确认都在用它。
-// uni 的 `uni.showModal` 三端一致：H5 渲染 uni 自己的弹窗组件，小程序走原生 `wx.showModal`。
+// 统一走 uni 的 `uni.showModal`（渲染 uni 自己的弹窗组件，样式与交互全站一致）；
+// 页面里**不再直接写 `window.alert` / `window.confirm`**（ESLint 已禁，见 eslint.config.mjs）。
 //
 // 为什么还要包一层，而不是调用点直接写 uni.showModal：
 //   1. 调用点只关心「提示一句」/「确认还是取消」，直接写要铺 4 行回调；

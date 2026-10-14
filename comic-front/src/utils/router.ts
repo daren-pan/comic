@@ -8,7 +8,7 @@
 //   1) 参数获取：页面统一用 uni 的 `onLoad(options)` 取参数（uni 惯例），
 //      本模块的 `route` 只承载「当前路径 + 查询参数」，供顶栏高亮 / 查询页读取。
 //   2) 同页查询变更（如搜索页改筛选）：uni 不允许 navigateTo 自身 →
-//      H5 下用 history.replaceState 同步地址栏，其他端为纯本地状态（行为可用）。
+//      改用 history.replaceState 同步地址栏（本地路由状态同步更新）。
 
 import { reactive } from 'vue'
 
@@ -112,12 +112,10 @@ function go(to: NavTarget, replace: boolean): void {
   const url = `/${toUniUrl(to)}`
   const target = url.split('?')[0]
 
-  // uni 不允许 navigateTo 到当前页 → 同页变更走「本地状态 + H5 地址栏同步」
+  // uni 不允许 navigateTo 到当前页 → 同页变更走「本地状态 + 地址栏同步」
   if (target === currentPagePath()) {
     if (typeof to !== 'string') setRoute(route.path, to.query ?? {})
-    // #ifdef H5
     history.replaceState(null, '', `#${url}`)
-    // #endif
     return
   }
 
@@ -172,16 +170,8 @@ export function useRouter() {
   }
 }
 
-/**
- * 「新标签页打开」：H5 用 window.open 开新标签（详情页/书架的「续读」语义）；
- * 小程序 / App 没有新标签页概念 → 退化为同页跳转，保证功能可用。
- */
+/** 「新标签页打开」：用 window.open 开新标签（详情页/书架的「续读」语义）。 */
 export function openNewTab(to: string): void {
   const url = `/${toUniUrl(to)}`
-  // #ifdef H5
   window.open(`${location.origin}${location.pathname}#${url}`, '_blank')
-  // #endif
-  // #ifndef H5
-  uni.navigateTo({ url })
-  // #endif
 }

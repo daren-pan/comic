@@ -38,8 +38,7 @@ const router = useRouter()
 }
 .card:hover { transform: translateY(-4px); box-shadow: var(--shadow-hover); }
 
-/* 封面 3:4 比例盒：**不用 `aspect-ratio`** —— 小程序 WebView 视基础库/系统版本而定
-   （需 Chrome 88+ / iOS 15+），改用「高度 0 + padding-bottom 撑比例」这一到处都能用的写法
+/* 封面 3:4 比例盒：用「高度 0 + padding-bottom 撑比例」写法
    （padding 的百分比按**包含块宽度**解析，正好得到宽度驱动的等比高度）。
    ⚠️ absolute 子元素的包含块是祖先的 padding box，故 .status / .time 的 top/left 定位不受影响。 */
 .cover { position: relative; height: 0; padding-bottom: 133.33%; background: var(--bg); overflow: hidden; }
@@ -96,11 +95,9 @@ const router = useRouter()
   .time { top: 5px; right: 5px; font-size: 10px; padding: 1px 6px; }
 }
 
-/* #ifdef H5 */
 /* 网页版（.mode-web，2026-10-10）：卡片更宽（列表 5 列 ≈ 217px），字号 / 内边距放宽一档。
-   hover 浮起在基础态已有（.card:hover），桌面直接生效。整段只进 H5 产物（小程序恒移动版）。 */
+   hover 浮起在基础态已有（.card:hover），桌面直接生效。 */
 .mode-web .info { padding: 12px 14px 14px; }
 .mode-web .title { font-size: 16px; }
 .mode-web .meta, .mode-web .update { font-size: 13px; }
-/* #endif */
 </style>

@@ -3,7 +3,7 @@
 // 说明：api 层只管「持久化真相 + 广播」，Pinia user store 监听 AUTH_EVENT 同步内存镜像。
 //
 // 与 comic-web 的差异仅在两处底层设施（业务逻辑一字未改）：
-//   - localStorage.*  →  utils/storage（uni 跨端存储，H5 落 localStorage）
+//   - localStorage.*  →  utils/storage（uni 存储封装，底层落 localStorage）
 //   - window.dispatchEvent(new CustomEvent) → utils/event（uni.$emit 全局事件总线）
 import type { AuthResult, User } from '../types'
 import { emit } from '../utils/event'

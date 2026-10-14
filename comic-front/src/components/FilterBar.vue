@@ -7,10 +7,10 @@
  * 改条件/加排序项只改这里。
  *
  * 标签用 `Picker` 而不是 chip 平铺：库内 30 个标签平铺会占掉整屏、把结果推到下面，
- * 下拉只占一行。小程序没有 `<select>`，所以必须走 Picker（见 components/Picker.vue）。
+ * 下拉只占一行。走 Picker（见 components/Picker.vue）。
  *
- * ⚠️ 自定义组件上不能写 `v-model`（小程序编译报错）→ 这里用 `:model-value` +
- * `@update:model-value`，对外的 props/emits 也照此命名，调用方同样不能对它写 `v-model`。
+ * ⚠️ 自定义组件上不写 `v-model` → 这里用 `:model-value` +
+ * `@update:model-value`，对外的 props/emits 也照此命名，调用方同样不写 `v-model`。
  */
 import { computed } from 'vue'
 import Picker from './Picker.vue'
