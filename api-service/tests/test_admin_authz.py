@@ -265,7 +265,7 @@ class TestFirstUserBecomesSuperadmin(_UsersReset):
     def test_existing_normal_admin_blocks_bootstrap(self):
         """库里已有普通管理员（但没有超管）时，注册通道**不再**造超管 —— 免得被抢注册提权。
 
-        （这种异常态由 `tools/add_user_role.py` 把最早的 admin 提升为超管来修，不靠注册通道猜。）
+        （这种异常态由迁移 `0004_add_user_role.sql` 把最早的 admin 提升为超管来修，不靠注册通道猜。）
         """
         USERS.rows = [USERS.make(1, "alice", ROLE_ADMIN)]
         register(RegisterBody(username="mallory", password="secret123", nickname=""))

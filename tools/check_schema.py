@@ -1,17 +1,12 @@
 """体检：库里的表是否与 DDL 真源一致（上线最常漏的就是"新表没建"）。
 
-为什么需要单独一个脚本：`up.sh --migrate` 里的迁移脚本都是**按需**干活的 ——
-表已存在时它们只打印一句「已存在，未改动」就退出，**看不出来到底建上了没有**；
-而漏表的后果是运行期才炸（管理台任务列表 / 消息中心直接报错）。本脚本**只读不写**：
-把 schema 里 `CREATE TABLE` 的表名与库里的实际表名对一遍，缺谁一目了然。
+为什么需要它：迁移都是"一次性"干活的，**看不出来到底建上了没有**；而漏表的后果是
+运行期才炸（管理台任务列表 / 消息中心直接报错）。本脚本**只读不写**：把 schema 里
+`CREATE TABLE` 的表名与库里的实际表名对一遍，缺谁一目了然。
+（统一执行器 `tools/migrate.sh --check` 已内置同样的体检；本脚本保留作独立备用。）
 
 用法（在 comic 仓库根目录）：
     cd crawler-service && .venv/Scripts/python.exe ../tools/check_schema.py
-
-容器里（`up.sh --migrate` 与自检就是这么调的）：
-    docker compose -f deploy/docker-compose.yml run --rm \\
-        -v ../tools:/app/tools:ro -v ../comic-core/sql:/app/comic-core/sql:ro \\
-        comic-app python tools/check_schema.py
 
 退出码：`0` = 表齐全；`1` = 缺表（并打印怎么补）。
 """
@@ -77,8 +72,8 @@ def main() -> int:
 
     print(f"  [缺表] 缺 {len(missing)} 张表：{', '.join(missing)}")
     print("     补表（幂等，可重复跑）——")
-    print("       容器/上线：bash deploy/up.sh --migrate")
-    print("       本地直跑：cd crawler-service && .venv/Scripts/python.exe ../tools/add_admin_task_table.py")
+    print("       统一执行器：bash tools/migrate.sh（只跑未执行过的迁移）")
+    print("       上线入口  ：bash deploy/up.sh --migrate")
     return 1
 
 

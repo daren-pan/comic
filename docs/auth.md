@@ -247,7 +247,7 @@ def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer
 | 两道门 `require_admin` / `require_superadmin` | `api-service/core/security.py` |
 | 管理台端点 / 授权页端点 | `api-service/routers/admin.py` · `routers/admin_users.py` |
 | 角色变更规则（禁改自己 / 禁授超管 / 禁改超管） | `api-service/services/accounts.py` |
-| 补 `user.role` 列 / 定首个超管 / 转移超管 | `tools/add_user_role.py` |
+| 补 `user.role` 列 / 定首个超管 / 转移超管 | 迁移 `0004_add_user_role.sql`（`tools/migrations/`） |
 | 鉴权守卫测试（结构 + 边界） | `api-service/tests/test_admin_authz.py` |
 
 ---
@@ -262,7 +262,7 @@ def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer
 
 | 值 | 名字 | 能做什么 | 怎么产生 |
 |---|---|---|---|
-| `superadmin` | **超级管理员** | 管理台（`/#/admin`）+ 运行日志（`/#/admin/logs`）+ **授权页**（`/#/admin/users`） | **全库唯一**：库里没有任何特权用户时，首个注册用户自动成为超管；转移用 `tools/add_user_role.py --superadmin <用户名>` |
+| `superadmin` | **超级管理员** | 管理台（`/#/admin`）+ 运行日志（`/#/admin/logs`）+ **授权页**（`/#/admin/users`） | **全库唯一**：库里没有任何特权用户时，首个注册用户自动成为超管；转移用 `tools/migrations/0004_add_user_role.sql` 文件尾的手工 SQL |
 | `admin` | 普通管理员 | 管理台 + 日志；**进不了授权页**（授不了权） | 由超管在授权页授予（不能在授权页授予 `superadmin`） |
 | `user`（默认） | 普通用户 | 只能浏览 / 收藏 / 历史；访问 `/api/admin/*` 一律 **403** | 默认 |
 
@@ -277,10 +277,10 @@ def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer
 - **全新库**：`routers/auth.py` 的注册接口里，若 `count_privileged() == 0`（既没有超管也没有普通管理员），
   就把这个新用户设为 `superadmin` —— 部署完**直接注册第一个账号**即可，无需任何手动步骤。
   ⚠️ 所以站点对外且**尚无特权用户**时，谁先注册谁就是超管 —— 部署好请**立刻注册**；
-- **已有库**：跑 `tools/add_user_role.py`（`deploy/up.sh --migrate` 已包含）。它加完列后若发现
-  "没有任何超管"，会把**最早的特权用户**（没有则最早注册的用户）提升为超管，
+- **已有库**：跑 `bash tools/migrate.sh`（`deploy/up.sh --migrate` 已包含）。迁移 `0004_add_user_role.sql`
+  加完列后若发现"没有任何超管"，会把**最早的特权用户**（没有则最早注册的用户）提升为超管，
   避免升级完没人能进授权页；
-- **转移 / 修复**：`tools/add_user_role.py --superadmin <用户名>` —— 把指定用户设为超管，
+- **转移 / 修复**：按 `tools/migrations/0004_add_user_role.sql` 文件尾的手工 SQL —— 把指定用户设为超管，
   **并把原超管降为普通管理员**（保持"全库唯一"）。要服务器权限，属运维动作。
 
 ### 8.3 鉴权怎么落（两道门 + 三条硬规则）

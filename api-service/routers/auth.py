@@ -2,7 +2,7 @@
 
 **首个注册用户自动成为超级管理员**（用户 2026-09-18 决策）：库里**一个特权用户都没有**
 （既没有 `superadmin` 也没有 `admin`）时，新注册的用户直接给 `superadmin`，否则给默认的 `user`。
-这样全新部署**不用任何手动步骤**就能进管理台与授权页（老库由 `tools/add_user_role.py` 补）。
+这样全新部署**不用任何手动步骤**就能进管理台与授权页（老库由迁移 `0004_add_user_role.sql` 补，见 tools/migrations/）。
 
 ⚠️ 两个注意点：
 - `superadmin` **全库只有一个**，注册通道不会造第二个（授权页也授不了，见 `services/accounts.py`）；

@@ -178,30 +178,24 @@ docker compose -f deploy/docker-compose.yml up -d
   docker run --rm -e COMIC_MYSQL_HOST=... comic-crawler:1.0.0 python -m comic_crawler.cli inspect   # 失效巡检
   docker run --rm comic-crawler:1.0.0 python -m comic_crawler.cli list                             # 看已注册源
   ```
-- **现有库升级**（不是全新初始化）时，新表/索引/去约束用 `tools/` 里的迁移脚本补。镜像里**不带**
-  `tools/`（全新部署由 `mysql_schema.sql` 建全表，用不到它们），需要在容器里跑就把目录挂进去。
-  这些脚本都是**幂等**的，可以照抄（注意 `-f` 后面的路径按你的实际位置写）：
+- **现有库升级**（不是全新初始化）用统一迁移执行器（`tools/migrate.sh` + `tools/migrations/*.sql`）：
+  只跑**未执行过**的迁移（记录在 `schema_migration` 表），SQL 直接喂给 mysql 容器执行
+  （不依赖 Python、不需要挂载、不改 compose）：
   ```bash
-  cd deploy    # 相对挂载路径按 compose 文件所在目录解析，服务器与 Git Bash 都成立
-  # ⚠️ 两个挂载缺一不可：tools = 脚本本体；comic-core/sql = 脚本抠 DDL 的唯一真源
-  #    （api 镜像只装了 wheel，里面没有 comic-core/sql —— 少了它，真要建表/加列时会直接失败）
-  M='-v ../tools:/app/tools:ro -v ../comic-core/sql:/app/comic-core/sql:ro'
-  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_log_table.py
-  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_perf_indexes.py
-  docker compose -f docker-compose.yml run --rm $M comic-app python tools/drop_fingerprint_unique.py
-  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_user_role.py
-  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_admin_task_table.py
-  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_message_table.py
-  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_comic_listing_and_comment.py
-  docker compose -f docker-compose.yml run --rm $M comic-app python tools/add_table_comments.py
-  docker compose -f docker-compose.yml run --rm $M comic-app python tools/check_schema.py   # 体检：表齐不齐
+  # 在仓库根目录
+  bash tools/migrate.sh --list     # 看哪些待执行（不改库）
+  bash tools/migrate.sh            # 执行未跑过的（结束后自动体检：库表 vs schema）
   ```
-  懒得逐条敲就 **`bash deploy/up.sh --migrate`** —— 起完服务自动把上面这些跑一遍，最后体检、缺表就报错。
+  **存量库首次接入**：库里还没有记录表 → 先跑一次 `bash tools/migrate.sh --baseline`
+  （把现有迁移标记为已执行、不执行；之后只跑新迁移）。
+  ⚠️ `up.sh --migrate` 走的是默认执行模式（**不含** baseline），顺序不能反；不确定库的状态时
+  **别 baseline** —— 直接跑、遇错 `--mark <文件名>` 登记，直到跑通（详见 `tools/README.md`）。
+  懒得想这些就 **`bash deploy/up.sh --migrate`** —— 起完服务自动跑一遍。
 
-> ⚠️ 两个前提：① **已有数据卷不会重跑 mysql 的初始化脚本**（MySQL 的规矩）—— 新表只能靠这一步补；
-> ② 迁移脚本的 DDL 是**从 `comic-core/sql/mysql_schema.sql` 抠出来的**（唯一真源，不重抄一份），
-> 而 api 镜像只装了 wheel、里面没有 `comic-core/sql` —— 所以容器里跑要把它一起挂上（见上面的 `$M`）。
-> 不挂的话"真要建表/加列"时会在容器里读不到文件直接失败；而表已存在时脚本早退，平时看不出来。
+> ⚠️ 三个前提：① **已有数据卷不会重跑 mysql 的初始化脚本**（MySQL 的规矩）—— 新表只能靠迁移补；
+> ② **全新库不需要跑迁移**（`mysql_schema.sql` 建全表）—— 误跑会报「已存在」，属预期；
+> ③ 迁移文件是**历史快照**（写死、冻结）—— 以后改 schema 时"改 schema + 加一个新迁移"两步一起走，
+> 命名规范与命令见 `tools/README.md`。
 
 ## 2. 方式 B：直接在仓库里跑（**本地开发用这个**）
 

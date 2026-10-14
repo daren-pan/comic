@@ -39,12 +39,12 @@
 - **结论**：新增 `status.py`（**4 个规范值**：`连载中` / `已完结` / `休载` / `已取消` +
   别名表（含繁体）+ `normalize_status()`）。**未命中保留原文 + warning** —— 不吞、不猜。
   各源 adapter 与接口层都调同一个函数；删掉接口层白名单兜底；配套存量迁移
-  `tools/migrate_comic_status.py`（默认 dry-run，`--apply` 才真改）。
+  `tools/migrations/0009_migrate_comic_status.sql`（由 tools/migrate.sh 统一执行）。
 - **实测**：迁移 31 行（`连载` 29 → `连载中`、`完结` 2 → `已完结`）；迁移后分布
   `连载中 52 / 已完结 2`；接口实证 `id=8「電鋸人」` / `id=57「現實闖關」` 由「显示为连载中」
   修复为「已完结」。**迁移只 UPDATE `status`、不碰 `sync_time`** —— 排序未受影响（已实测）。
 - **位置**：`src/comic_core/status.py`、`crawler-service/tests/test_status.py`（10 例）、
-  `tools/migrate_comic_status.py`。
+  `tools/migrations/0009_migrate_comic_status.sql`。
 
 ### 1.3 ⚠️ 不做迁移会污染"最近更新"排序
 

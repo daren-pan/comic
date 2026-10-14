@@ -100,11 +100,14 @@ docker compose -f deploy/docker-compose.yml up -d
 **2)** 前端 `npm run build`（两个入口）→ **3)** 调 `build.sh`（生成产物 + 按序构建镜像）→
 **4)** `compose up -d`（comic-web / comic-front + scheduler）→ **5)** 自检（mysql healthy → 容器内 `/api/health` →
 数据目录可写 → 入口 HTTP 码 + **前端身份**）。**幂等**：重复跑就是更新代码 + 重新构建 + `up -d`，不会清数据。
-加了 `--migrate` 就在 4 与 5 之间多跑一步"已有库迁移"（`add_log_table` / `add_perf_indexes` /
-`drop_fingerprint_unique` / `add_user_role` / `add_admin_task_table` / `add_message_table` /
-`add_comic_listing_and_comment` / `add_table_comments`，逐个挂
-`../tools` **与 `../comic-core/sql`** 进容器执行，都是幂等的；跑完再用 `tools/check_schema.py` 体检一遍，
-缺表就当场失败）。⚠️ **已有数据卷不会重跑 mysql 的初始化脚本** —— 新表只能靠这一步补。
+加了 `--migrate` 就在 4 与 5 之间多跑一步"已有库迁移"（`bash tools/migrate.sh` 统一执行器：
+只跑**未执行过**的迁移，记录在 `schema_migration` 表；把 `tools/migrations/*.sql` 直接喂给
+mysql 容器执行，不依赖 Python / 不需要挂载；跑完自动体检）。⚠️ 两个前提：
+① **已有数据卷不会重跑 mysql 的初始化脚本** —— 新表只能靠这一步补；
+② **存量库首次接入**：`--migrate` 走的是默认执行模式（**不含** baseline）—— 先**手动**跑一次
+`bash tools/migrate.sh --baseline`（登记现状、不执行），之后 `--migrate` 才只跑新迁移；
+⚠️ 顺序不能反、不确定库状态时别 baseline（详见 `tools/README.md`「存量库首次接入」）；
+全新库**不需要** `--migrate`。
 
 ### 只重建前端镜像
 

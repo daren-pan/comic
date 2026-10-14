@@ -8,7 +8,7 @@
 
 | 值 | 名字 | 能做什么 | 谁来产生 |
 |---|---|---|---|
-| `superadmin` | 超级管理员 | 管理台 + 日志 + **授权页** | **只有"首个注册用户"**（或 `tools/add_user_role.py --superadmin <用户名>` 手动转移） |
+| `superadmin` | 超级管理员 | 管理台 + 日志 + **授权页** | **只有"首个注册用户"**（或按 `tools/migrations/0004_add_user_role.sql` 尾部的手工 SQL 转移） |
 | `admin` | 普通管理员 | 管理台 + 日志，**不能授权** | 由超管在授权页授予 |
 | `user` | 普通用户（默认） | 无管理台权限 | 默认 / 超管取消授权 |
 
@@ -18,7 +18,7 @@
 - **不能改自己**：唯一的超管把自己降级后再也没人能进授权页（只能上服务器改库）；
 - **不能改超级管理员**：超管全库唯一且不可被降级 —— 这条与上一条一起，保证"降级超管"这件事
   **在接口层面根本不可能发生**（要被授权的普通管理员想动超管，连入口都进不来）。
-  真要转移超管身份，走 `tools/add_user_role.py --superadmin <用户名>`（要服务器权限，属运维动作）。
+  真要转移超管身份，按 `tools/migrations/0004_add_user_role.sql` 尾部的手工 SQL（要服务器权限，属运维动作）。
 """
 from __future__ import annotations
 
@@ -55,10 +55,10 @@ def set_role(user_id: int, role: str, actor: dict) -> bool:
     改自己、授予 `superadmin`、目标是超级管理员。
     """
     if role not in ASSIGNABLE_ROLES:
-        raise ValueError(f"只能授予 {' / '.join(ASSIGNABLE_ROLES)}（超级管理员全库唯一，如需转移请用 tools/add_user_role.py）")
+        raise ValueError(f"只能授予 {' / '.join(ASSIGNABLE_ROLES)}（超级管理员全库唯一，如需转移请见 tools/migrations/0004_add_user_role.sql 尾部的手工 SQL）")
     if int(actor["id"]) == int(user_id):
         raise ValueError("不能修改自己的角色（避免把自己锁在管理台外）")
     target = users.get_user(str(user_id))
     if target and target.get("role") == ROLE_SUPERADMIN:
-        raise ValueError("不能修改超级管理员的角色（如需转移请用 tools/add_user_role.py --superadmin <用户名>）")
+        raise ValueError("不能修改超级管理员的角色（如需转移请见 tools/migrations/0004_add_user_role.sql 尾部的手工 SQL）")
     return users.set_user_role(str(user_id), role)

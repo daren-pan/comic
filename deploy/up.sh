@@ -17,10 +17,9 @@
 #    bash deploy/up.sh --skip-build        # 前端没改，跳过 npm build（快很多；旧名 --skip-web 仍可用）
 #    bash deploy/up.sh --skip-pull         # 不更新代码，直接按当前工作区构建
 #    bash deploy/up.sh --collect           # 【已废弃】定时执行器现在默认启动，加了只是兼容旧脚本
-#    bash deploy/up.sh --migrate           # 起完服务后，对**已有库**跑一遍幂等迁移脚本
-#                                          #   （老环境升级用；全新库不需要 —— 建表脚本已带全）
-#                                          #   补：admin_task / message / message_read 等新表
-#                                          #   靠它建（已有数据卷**不会**重跑 mysql 的初始化脚本）
+#    bash deploy/up.sh --migrate           # 起完服务后跑一遍"未执行过的"数据库迁移（tools/migrate.sh）
+#                                          #   （老环境升级用；全新库不需要 —— 建表脚本已带全；
+#                                          #    存量库首次接入先 bash tools/migrate.sh --baseline）
 #    bash deploy/up.sh -h
 #
 #  说明：
@@ -28,8 +27,9 @@
 #      真正会丢数据的只有 `docker compose down -v`（删数据库卷）与手动删数据目录。
 #    · 开头会把代码更新到最新，并打出「更新了哪几条提交」，避免"改了没生效"；
 #      只有拿不到新代码时（不是 git 工作区 / 断网 / 冲突）才按当前工作区继续构建。
-#    · ⚠️ 前端只有一个：**comic-front**（移动 / 网页两套布局由它按 UA 自动切换）。
-#      comic-web 的镜像部署已于 2026-10-10 下线；`--front` 保留兼容（加不加都一样）。
+#    · 前端**两个入口、功能等价**（2026-10-14 comic-web 恢复镜像部署）：
+#      **comic-web**（纯 Vue3，网页端宿主 85）/ **comic-front**（uni-app，移动端宿主 86）——
+#      默认都起，`--web` / `--front` 可只起其一。
 #    · H5 产物用**相对路径**引用资源（manifest 里 h5.router.base = "./"）、路由是 hash 模式，
 #      直接放站点根目录就能跑，不需要额外配 base 或 history 回退。
 # ============================================================
@@ -221,26 +221,17 @@ compose up -d "${TARGETS[@]}"
 #    · sql    —— 脚本的建表 DDL 是**从 schema 文件抠出来的**（唯一真源，不重抄一份），
 #                而 api 镜像只装了 wheel、里面没有 comic-core/sql —— 不挂的话"真要建表/加列"时
 #                会在容器里读不到文件直接失败；表已存在时脚本早退，所以这个坑平时看不出来。
-MIGRATE_MOUNTS=(-v ../tools:/app/tools:ro -v ../comic-core/sql:/app/comic-core/sql:ro)
 if [ "$MIGRATE" = "1" ]; then
-  step "[4.5] 迁移已有库（幂等；全新库可跳过）"
-  echo "   挂载 ../tools 与 ../comic-core/sql 到容器，逐个跑（都支持重复执行）"
-  for t in add_log_table.py add_perf_indexes.py drop_fingerprint_unique.py add_user_role.py \
-           add_admin_task_table.py add_message_table.py add_comic_listing_and_comment.py \
-           add_table_comments.py; do
-    echo "   → tools/$t"
-    compose run --rm "${MIGRATE_MOUNTS[@]}" comic-app python "tools/$t" \
-      || die "tools/$t 失败 —— 单独跑它看详细输出：
-  docker compose -f deploy/docker-compose.yml run --rm ${MIGRATE_MOUNTS[*]} comic-app python tools/$t"
-  done
-  echo "   ✅ 迁移脚本全部执行完（都是幂等的，没有改动就是已经迁过）"
-  # 迁移脚本"按需"干活：表已存在时只打印「已存在，未改动」，看不出到底建上没有 ——
-  # 补一次只读体检，缺表就当场失败（漏表的后果是运行期才炸）。
-  compose run --rm "${MIGRATE_MOUNTS[@]}" comic-app python tools/check_schema.py \
-    || die "迁移后仍缺表（见上面列出的缺哪些）—— 本地直跑复现：cd crawler-service && .venv/Scripts/python.exe ../tools/check_schema.py"
-  echo "   提示：add_user_role.py 若发现库里**没有超级管理员**，会把最早的特权用户提升为 superadmin"
-  echo "         （转移超管身份：tools/add_user_role.py --superadmin <用户名>）"
-  echo "         （否则升级后谁都进不去管理台）；之后的授权在管理台「授权」页做"
+  step "[4.5] 迁移已有库（统一执行器：只跑未执行过的迁移）"
+  # 执行器（tools/migrate.sh）把 SQL 直接喂给 mysql 容器执行，执行记录在 schema_migration 表；
+  # 不依赖 Python / 不需要挂载 comic-app。跑完自动体检（库表 vs schema）。
+  # ⚠️ 存量库**首次接入**：库里还没有记录表 → 会重跑全部迁移 → 已生效的会报错；
+  #    先跑一次 `bash tools/migrate.sh --baseline`（把现有迁移标记为已执行、不执行），之后正常。
+  bash "$ROOT/tools/migrate.sh" || die "迁移失败 —— 单独跑看详细输出：bash tools/migrate.sh"
+  echo "   提示：全新库不需要 --migrate（建库脚本已带全表）；存量库首次接入先 --baseline"
+  echo "   提示：转移超级管理员身份（替换 <用户名> 后手工执行）：
+         UPDATE user SET role='admin' WHERE role='superadmin' AND username <> '<用户名>';
+         UPDATE user SET role='superadmin' WHERE username='<用户名>';"
   echo "   提示：指纹（comic.fingerprint）只作"可能重复"的观察字段，若也要对齐可手动跑
          tools/rebuild_fingerprint.py（它会往容器内 /app/backup 写回滚 SQL，宿主上跑更方便）"
 fi
@@ -267,7 +258,7 @@ fi
 
 # 表是否齐（老库没跑 --migrate 的典型症状：管理台任务列表 / 消息中心运行期报错）——
 # 非致命：全新库由 mysql 初始化脚本建全表，只有老库才需要补
-if compose run --rm "${MIGRATE_MOUNTS[@]}" comic-app python tools/check_schema.py >/dev/null 2>&1; then
+if bash "$ROOT/tools/migrate.sh" --check >/dev/null 2>&1; then
   echo "   表齐全（含 admin_task / message / message_read）✅"
 else
   echo "   ⚠️ 缺表：跑一次 bash deploy/up.sh --migrate 补（已有数据卷不会重跑 mysql 的初始化脚本）"
@@ -322,13 +313,26 @@ probe_entry() {  # probe_entry <人话名字> <端口> <期望产物: uni|plain>
 step "[6/6] 完成"
 compose ps
 
-ENTRIES="
-  前端（comic-front，宿主 FRONT_PORT=$FRONT_PORT）
+# 只列**实际启动**的入口（单起某一个时不显示另一个，避免"以为起了"）
+ENTRIES=""
+if [ "$WANT_WEB" = "1" ]; then
+  ENTRIES+="
+  前端 · 网页端（comic-web，宿主 WEB_PORT=$WEB_PORT）
+    站点        http://127.0.0.1:$WEB_PORT/
+    管理台      http://127.0.0.1:$WEB_PORT/#/admin        （需管理员登录）
+    授权页      http://127.0.0.1:$WEB_PORT/#/admin/users
+    日志页      http://127.0.0.1:$WEB_PORT/#/admin/logs
+    接口文档    http://127.0.0.1:$WEB_PORT/docs"
+fi
+if [ "$WANT_FRONT" = "1" ]; then
+  ENTRIES+="
+  前端 · 移动端（comic-front，宿主 FRONT_PORT=$FRONT_PORT）
     站点        http://127.0.0.1:$FRONT_PORT/          （移动 / 网页两套布局按 UA 自动切换）
     管理台      http://127.0.0.1:$FRONT_PORT/#/pages/admin/index   （需管理员登录）
     授权页      http://127.0.0.1:$FRONT_PORT/#/pages/admin/users
     日志页      http://127.0.0.1:$FRONT_PORT/#/pages/admin/logs
     接口文档    http://127.0.0.1:$FRONT_PORT/docs"
+fi
 
 cat <<EOF
 

@@ -114,7 +114,7 @@
   那 2 部已完结作品在界面上**一律显示"连载中"**（信息被静默吞掉）。
 - **根因**：`status` 从未做过归一（各源各写一套转换），接口层用兜底"藏住"了不一致。
 - **结论**：删掉兜底，改调 `comic_core.status.normalize_status()`（唯一定义处）；配套存量迁移
-  （`tools/migrate_comic_status.py`，默认 dry-run）。**归一化只做一次、只在一个地方**。
+  （`tools/migrations/0009_migrate_comic_status.sql`）。**归一化只做一次、只在一个地方**。
 - **位置**：`serializers.py`（`to_comic` 的 status 处理）。
 
 ---
