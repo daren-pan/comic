@@ -250,9 +250,13 @@ onBeforeUnmount(() => {
   height: 100%;
   filter: blur(20px) brightness(0.55);
   transform: scale(1.15);
+  /* 原生 <img> 要显式 cover 才是 uni 的 aspectFill（铺满裁切，不拉伸） */
+  object-fit: cover;
 }
-/* 完整封面居中：aspectFit 不裁切（这是 B 方案与"横幅裁切"的区别） */
-.bc-fg { position: relative; width: 100%; height: 100%; }
+/* 完整封面居中：aspectFit 不裁切（这是 B 方案与"横幅裁切"的区别）。
+   ⚠️ 原生 <img> 默认 object-fit: fill 会把竖版封面拉伸变形 —— 必须显式 contain，
+   才是 uni <image mode="aspectFit"> 的语义（迁移时漏了，2026-10-14 补）。 */
+.bc-fg { position: relative; width: 100%; height: 100%; object-fit: contain; }
 /* 文案压在图底：加一层渐变保证任何封面上都读得清 */
 .bc-caption {
   position: absolute;

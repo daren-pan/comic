@@ -36,5 +36,5 @@ const letter = computed(() => (props.name || '我').slice(0, 1))
   flex: none;
   overflow: hidden;
 }
-.uavatar-img { width: 100%; height: 100%; display: block; }
+.uavatar-img { width: 100%; height: 100%; display: block; object-fit: cover; }
 </style>

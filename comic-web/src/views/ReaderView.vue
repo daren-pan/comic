@@ -859,6 +859,9 @@ onBeforeUnmount(() => {
      高度直接吃满视口 —— 上下那两段由**半透明悬浮栏**盖着，图片能透出来。 */
   width: min(100vw, calc(100vh * 0.705));
   height: 100vh;
+  /* 原生 <img> 默认 fill（拉伸变形）—— 显式 contain 才配得上上面那句
+     "在框内等比缩放、不裁剪"（uni aspectFit 的语义，迁移时漏了，2026-10-14 补） */
+  object-fit: contain;
   border-radius: 4px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.5);
 }
