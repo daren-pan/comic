@@ -253,7 +253,7 @@ class TestWeebCentralAdapter(unittest.TestCase):
         self.assertEqual(first.source_comic_id, "01J76XYD3Q2Q7HYYMB3FSDPSKC")
         self.assertEqual(first.title, "Eleceed")
         self.assertEqual(first.author, "Son JeHo, Zhena")
-        self.assertEqual(first.status, "连载")
+        self.assertEqual(first.status, "连载中")
         self.assertEqual(first.tags, ["Action", "Comedy", "Shounen"])
         self.assertTrue(first.cover_url.endswith("01J76XYD3Q2Q7HYYMB3FSDPSKC.jpg"))
         self.assertEqual(
@@ -263,8 +263,8 @@ class TestWeebCentralAdapter(unittest.TestCase):
         # 搜索结果没有「最新章节 / 更新时间」（由详情接口补齐）
         self.assertEqual(first.latest_chapter_title, "")
         self.assertIsNone(first.source_updated_at)
-        # 第二条：Status=Complete 也映射为「完结」
-        self.assertEqual(items[1].status, "完结")
+        # 第二条：Status=Complete 也映射为「已完结」
+        self.assertEqual(items[1].status, "已完结")
         self.assertEqual(items[1].tags, ["Adventure", "Comedy"])
         # 端点与参数：走 /search/data（不是 /search/simple），关键词经 urlencode
         self.assertEqual(len(fake.calls), 1)
@@ -350,7 +350,7 @@ class TestWeebCentralAdapter(unittest.TestCase):
         detail = self.ad.fetch_comic_detail(brief)
         self.assertEqual(detail.title, "Who's That Long-Haired Senior?")
         self.assertEqual(detail.author, "Bulgwanhu, Zhena")
-        self.assertEqual(detail.status, "连载")
+        self.assertEqual(detail.status, "连载中")
         self.assertEqual(detail.tags, ["Romance", "Shoujo"])
         self.assertEqual(detail.category, "Romance")
         self.assertTrue(detail.description.startswith("Read Who's That Long-Haired Senior?"))

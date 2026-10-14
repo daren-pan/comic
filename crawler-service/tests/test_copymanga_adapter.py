@@ -7,7 +7,7 @@
 - `fetch_comic_detail`：标题/作者/状态/标签/分类/简介/封面 + 章节 index+1 连续唯一、
   `groups` 在 results 层级、`is_lock` -> restricted；
 - `_pick_group`：优先 default / default 为空时退化为章节最多的组 / 无 groups；
-- `_status_of`：已完結 -> 完结，連載中 -> 连载，缺失 -> 空串；
+- `_status_of`：已完結 -> 已完结，連載中 -> 连载中，缺失 -> 空串（规范值定义见 comic_core.status）；
 - `fetch_chapter_pages`：contents[].url -> PageInfo（跳空项）；
 - `fetch_source_page_urls`：重拉 + 章级缓存（只请求一次）；
 - `search_comics` / `_parse_date` / `parse_comic_ref`；
@@ -194,7 +194,7 @@ class TestCopymangaAdapter(unittest.TestCase):
             "https://sd.mangafunb.fun/d/dianjuren/cover/1689304034.jpg.328x422.jpg",
         )
         self.assertEqual(b.detail_url, "https://copy4000.com/comic/dianjuren")
-        self.assertEqual(b.status, "连载")  # 列表不给状态，默认连载（详情覆盖）
+        self.assertEqual(b.status, "连载中")  # 列表不给状态，默认规范值（详情覆盖）
         self.assertEqual(b.tags, [])        # 列表 theme 实测恒为空
         self.assertEqual(b.source_updated_at, datetime(2026, 9, 16))
 
@@ -268,7 +268,7 @@ class TestCopymangaAdapter(unittest.TestCase):
         )
         self.assertEqual(d.title, "電鋸人")
         self.assertEqual(d.author, "藤本タツキ")
-        self.assertEqual(d.status, "完结")            # 已完結 -> 完结
+        self.assertEqual(d.status, "已完结")          # 已完結 -> 已完结
         self.assertEqual(d.tags, ["格鬥", "奇幻"])
         self.assertEqual(d.category, "格鬥")
         self.assertFalse(d.restricted)               # is_lock=False
@@ -420,9 +420,9 @@ class TestCopymangaAdapter(unittest.TestCase):
         self.assertEqual(self.ad._pick_group(None), "")
 
     def test_status_of(self):
-        self.assertEqual(self.ad._status_of({"status": {"display": "已完結"}}), "完结")
-        self.assertEqual(self.ad._status_of({"status": {"display": "連載中"}}), "连载")
-        self.assertEqual(self.ad._status_of({"status": {"display": "连载"}}), "连载")
+        self.assertEqual(self.ad._status_of({"status": {"display": "已完結"}}), "已完结")
+        self.assertEqual(self.ad._status_of({"status": {"display": "連載中"}}), "连载中")
+        self.assertEqual(self.ad._status_of({"status": {"display": "连载"}}), "连载中")
         self.assertEqual(self.ad._status_of({}), "")
         self.assertEqual(self.ad._status_of({"status": None}), "")
 

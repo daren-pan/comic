@@ -64,6 +64,7 @@ from comic_core.models import (
     ComicListResult,
     PageInfo,
 )
+from comic_core.status import STATUS_FINISHED, STATUS_ONGOING
 from ..base import CrawlerAdapter
 from ..registry import register
 
@@ -301,7 +302,7 @@ class CopymangaAdapter(CrawlerAdapter):
             # 封面地址原样入库（与详情路径一致，不剥缩略后缀）
             cover_url=str(row.get("cover") or "").strip(),
             # 列表不给连载状态，先按默认「连载」；详情接口会覆盖成真实状态
-            status="连载",
+            status=STATUS_ONGOING,    # 列表页不给状态 → 占位，详情会覆盖（2026-10-13 起用规范值）
             category=tags[0] if tags else "",
             tags=tags,
             latest_chapter_title="",
@@ -387,15 +388,20 @@ class CopymangaAdapter(CrawlerAdapter):
 
     @staticmethod
     def _status_of(info: dict) -> str:
-        """源站连载状态 -> 项目口径（连载 / 完结）。
+        """源站连载状态 -> 规范值（连载中 / 已完结）。
 
         按 `status.display` 文本判定（实测取值 `連載中` / `已完結`）而不是 `value` 码 ——
         文本稳、码值含义不明（站点未公开映射表）。
+
+        ⚠️ 这里**不调** `normalize_status`：源站给的是"連載中"这类短语，
+        而别名表是**精确匹配**，用不了"含 完/結 字就算完结"这种模糊判定。
+        所以本函数保留自己的判定，只把**输出值**换成规范常量 ——
+        （2026-10-13：此前各源输出用词不一，库里并存 `连载`/`连载中`/`完结` 三种写法。）
         """
         disp = str((info.get("status") or {}).get("display") or "")
         if not disp:
             return ""
-        return "完结" if ("完" in disp or "結" in disp or "结" in disp) else "连载"
+        return STATUS_FINISHED if ("完" in disp or "結" in disp or "结" in disp) else STATUS_ONGOING
 
     @staticmethod
     def _author_text(authors: Any) -> str:

@@ -160,7 +160,7 @@ class TestMangaDexAdapter(unittest.TestCase):
         self.assertEqual(first.source, "mangadex")
         self.assertEqual(first.source_comic_id, "m1")
         self.assertEqual(first.title, "测试漫画A")  # zh 优先
-        self.assertEqual(first.status, "连载")
+        self.assertEqual(first.status, "连载中")
         self.assertEqual(
             first.cover_url,
             "https://uploads.mangadex.org/covers/m1/m1-cover.jpg",

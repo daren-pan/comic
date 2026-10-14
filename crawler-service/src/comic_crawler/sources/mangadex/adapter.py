@@ -43,6 +43,7 @@ from comic_core.models import (
     ComicListResult,
     PageInfo,
 )
+from comic_core.status import normalize_status
 from ..base import CrawlerAdapter
 from ..registry import register
 
@@ -443,12 +444,11 @@ class MangaDexAdapter(CrawlerAdapter):
 
     @staticmethod
     def _status_text(s: str | None) -> str:
-        return {
-            "ongoing": "连载",
-            "completed": "完结",
-            "hiatus": "休载",
-            "cancelled": "已取消",
-        }.get(s or "", "")
+        """源站状态 → 规范值（映射表已上移到 `comic_core.status`，2026-10-13）。
+
+        ⚠️ 保持"拿不到返回空串"的语义：调用方用 `or comic.status` 兜底成旧值。
+        """
+        return normalize_status(s) if s else ""
 
     @staticmethod
     def _authors(relationships: list[dict]) -> str:

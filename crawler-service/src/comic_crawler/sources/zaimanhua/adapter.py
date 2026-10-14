@@ -36,6 +36,7 @@ from comic_core.models import (
     ComicListResult,
     PageInfo,
 )
+from comic_core.status import normalize_status
 from ..base import CrawlerAdapter
 from ..registry import register
 
@@ -159,13 +160,17 @@ class ZaimanhuaAdapter(CrawlerAdapter):
         # 所以这里只认明确的 `is_lock`；「究竟读不读得了」交给 scheduling/ondemand
         # 实测探测一章（`_probe_readable`）。
 
+        # 状态写法归一（2026-10-13）：`_tag_text` 只负责取文本，映射统一走 comic_core.status；
+        # 拿不到时保留上一轮的旧值（`or comic.status`）
+        raw_status = self._tag_text(info.get("status"))
+
         return ComicDetail(
             source=self.source_name,
             source_comic_id=comic.source_comic_id,
             title=title,
             author=author,
             cover_url=cover_url,
-            status=self._tag_text(info.get("status")) or comic.status,
+            status=normalize_status(raw_status) if raw_status else comic.status,
             category=self._tag_text(info.get("types")) or comic.category,
             tags=tags,
             description=info.get("description") or title,
@@ -297,7 +302,7 @@ class ZaimanhuaAdapter(CrawlerAdapter):
                 [a.strip() for a in str(row.get("authors") or "").split(",") if a.strip()]
             ),
             cover_url=(row.get("cover") or "").strip(),
-            status=(row.get("status") or "连载").strip(),
+            status=normalize_status(row.get("status")),
             category=self._tag_text(row.get("types")) or "",
             tags=tags,
             latest_chapter_title=(

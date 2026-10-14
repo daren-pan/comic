@@ -56,6 +56,7 @@ from comic_core.models import (
     ComicListResult,
     PageInfo,
 )
+from comic_core.status import normalize_status
 from ..base import CrawlerAdapter
 from ..registry import register
 
@@ -82,7 +83,9 @@ NO_NUM_BASE = 10000  # 无编号章节高位兜底，仿番外 10000+ 防冲突
 # 仅测试时可在管理台「触发采集」把数量上限填 1，临时只抓最近 1 部（受控样本，勿写死为默认值）。
 MAX_ITEMS = 60        # 单次列表最多收录条数（首页最近更新区约 32 部，留余量）
 MAX_CHAPTERS = 2000   # 单部最多收录章节数（防极端长连载失控）
-STATUS_MAP = {"ongoing": "连载", "completed": "完结", "complete": "完结", "hiatus": "休载", "cancelled": "已取消"}
+# 状态映射已上移到 `comic_core.status.normalize_status`（2026-10-13）：
+# 此前四个源各写一套映射、输出用词互不相同，导致库内并存三种写法。
+# 本项目其余源同样走那个函数 —— 新增源不要再就地写映射表。
 
 
 def _utc(dt: datetime) -> datetime:
@@ -343,7 +346,7 @@ class WeebCentralAdapter(CrawlerAdapter):
             title=title,
             author=", ".join(authors),
             cover_url=card.xpath(".//img/@src").get("").strip(),
-            status=STATUS_MAP.get(raw_status.lower(), raw_status or "连载"),
+            status=normalize_status(raw_status),
             tags=[t for t in tags if t],
             detail_url=href if href.startswith("http") else f"{BASE}{href}",
         )
@@ -398,11 +401,14 @@ class WeebCentralAdapter(CrawlerAdapter):
 
     @staticmethod
     def _series_status(sel: Selector) -> str:
-        """Status: <a>Ongoing</a> -> '连载'（映射 STATUS_MAP）。"""
+        """Status: <a>Ongoing</a> → 规范值（映射见 `comic_core.status`）。
+
+        ⚠️ 保持"拿不到返回空串"的语义：调用方用 `or comic.status` 兜底成旧值。
+        """
         raw = (
             sel.xpath("//li[contains(., 'Status:')]//a/text()").get("").strip()
         )
-        return STATUS_MAP.get(raw.lower(), "")
+        return normalize_status(raw) if raw else ""
 
     @staticmethod
     def _series_tags(sel: Selector) -> list[str]:
