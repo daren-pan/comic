@@ -10,7 +10,7 @@
 #             两个前端产物目录    --复制---->  deploy/web/dist/、deploy/front/dist/
 #                                          （默认 comic-web/dist、comic-front/dist/build/h5）
 #  步骤 2  按依赖顺序构建镜像
-#             mysql → crawler → api → scheduler → front
+#             mysql → crawler → api → scheduler → web / front
 #
 #  其中 mysql 镜像是本项目**独占**的数据库（MySQL 8.0，见 docker-compose.yml）——数据卷首次
 #  启动时会自动执行烘在镜像里的建库脚本，10 张表直接建好。
@@ -195,13 +195,18 @@ check_leftovers() {  # check_leftovers <源目录> <产物目录> <显示前缀>
   fi
 }
 
-echo "   deploy/front/dist/（$(find "$DEPLOY/front/dist" -type f | wc -l | tr -d ' ') 个文件）"
-check_leftovers "$FRONT_SRC" "$DEPLOY/front/dist" "deploy/front/dist"
-check_leftovers "$WEB_SRC" "$DEPLOY/web/dist" "deploy/web/dist"
+if [ "$BUILD_WEB" = "1" ]; then
+  echo "   deploy/web/dist/（$(find "$DEPLOY/web/dist" -type f | wc -l | tr -d ' ') 个文件）"
+  check_leftovers "$WEB_SRC" "$DEPLOY/web/dist" "deploy/web/dist"
+fi
+if [ "$BUILD_FRONT" = "1" ]; then
+  echo "   deploy/front/dist/（$(find "$DEPLOY/front/dist" -type f | wc -l | tr -d ' ') 个文件）"
+  check_leftovers "$FRONT_SRC" "$DEPLOY/front/dist" "deploy/front/dist"
+fi
 
 # ---------- 步骤 2：按序构建镜像 ----------
 echo
-echo "-> [2/2] 构建镜像（顺序：mysql → crawler → api → scheduler → front）"
+echo "-> [2/2] 构建镜像（顺序：mysql → crawler → api → scheduler → web / front）"
 # 用**相对路径**而不是绝对路径：Git Bash 的 pwd 给出 /d/... 这种 POSIX 形式，
 # 直接传给 docker.exe（Windows 程序）会报 "unable to prepare context: path ... not found"。
 cd "$DEPLOY"
