@@ -5,13 +5,15 @@
 #  依次做六件事：
 #    0) 更新代码（`git pull`，只快进不合并；--skip-pull 跳过）
 #    1) 前置检查（docker / compose v2 / deploy/.env / 运行时数据目录）
-#    2) 构建前端产物（comic-front/dist/build/h5）
+#    2) 构建前端产物（comic-web/dist + comic-front/dist/build/h5）
 #    3) 调 deploy/build.sh：生成 wheel、复制前端产物，按序构建镜像
-#    4) docker compose up -d（起 comic-front + 它依赖的 app/mysql + 定时执行器 scheduler）
+#    4) docker compose up -d（起两个前端入口 + 它依赖的 app/mysql + 定时执行器 scheduler）
 #    5) 自检：mysql 健康 → 容器内接口可用 → 数据目录可写 → 入口 HTTP 码
 #
 #  用法：
-#    bash deploy/up.sh                     # 构建并起服务（前端只有 comic-front 一个）
+#    bash deploy/up.sh                     # 构建并起服务（两个前端入口都起：网页端 85 + 移动端 86）
+#    bash deploy/up.sh --web               # 只起网页端（comic-web）
+#    bash deploy/up.sh --front             # 只起移动端（comic-front）
 #    bash deploy/up.sh --skip-build        # 前端没改，跳过 npm build（快很多；旧名 --skip-web 仍可用）
 #    bash deploy/up.sh --skip-pull         # 不更新代码，直接按当前工作区构建
 #    bash deploy/up.sh --collect           # 【已废弃】定时执行器现在默认启动，加了只是兼容旧脚本
@@ -37,11 +39,13 @@ SKIP_BUILD=0
 SKIP_PULL=0
 COLLECT=0
 MIGRATE=0
+WANT_WEB=0
+WANT_FRONT=0
 for a in "$@"; do
   case "$a" in
-    --front)     : ;;                     # 兼容保留：前端只有一个（comic-front），加不加都一样
-    --web)       echo "!! comic-web 的镜像部署已下线（2026-10-10）：现在唯一前端是 comic-front（移动 / 网页布局由它按 UA 自动切换）" >&2; exit 1 ;;
-    --skip-build|--skip-web) SKIP_BUILD=1 ;;  # --skip-web 是旧名（前端不再分 web / front）
+    --web)       WANT_WEB=1 ;;    # 只起网页端（comic-web）
+    --front)     WANT_FRONT=1 ;;  # 只起移动端（comic-front）
+    --skip-build|--skip-web) SKIP_BUILD=1 ;;  # --skip-web 是旧名（--skip-build 的前身）
     --skip-pull) SKIP_PULL=1 ;;
     --collect)   COLLECT=1 ;;
     --migrate)   MIGRATE=1 ;;
@@ -50,6 +54,12 @@ for a in "$@"; do
     *) echo "!! 未知参数：$a（-h 看用法）" >&2; exit 1 ;;
   esac
 done
+
+# 默认两个前端入口都起（指定 --web / --front 则只起其中一个）
+if [ "$WANT_WEB" = "0" ] && [ "$WANT_FRONT" = "0" ]; then
+  WANT_WEB=1
+  WANT_FRONT=1
+fi
 
 # `--collect` 已废弃（2026-10-06）：scheduler 现在**默认启动**，留着只是为了不打断旧脚本
 if [ "$COLLECT" = "1" ]; then
@@ -68,7 +78,8 @@ die()  { printf '!! %s\n' "$*" >&2; exit 1; }
 #    这也是 build.sh 里一律用相对路径的同一个原因。
 compose() { docker compose -f docker-compose.yml "$@"; }
 
-# ---------- 前端产物目录（可用 FRONT_DIST 覆盖）----------
+# ---------- 前端产物目录（WEB_DIST / FRONT_DIST 可覆盖）----------
+WEB_DIST="${WEB_DIST:-$ROOT/comic-web/dist}"
 FRONT_DIST="${FRONT_DIST:-$ROOT/comic-front/dist/build/h5}"
 abs() {  # abs <路径>：相对路径按仓库根解析
   case "$1" in
@@ -77,6 +88,7 @@ abs() {  # abs <路径>：相对路径按仓库根解析
     *) printf '%s' "$ROOT/$1" ;;
   esac
 }
+WEB_DIST="$(abs "$WEB_DIST")"
 FRONT_DIST="$(abs "$FRONT_DIST")"
 
 # 要起哪些 compose 服务（依赖链会自动带上 comic-app 与 comic-mysql）
@@ -84,7 +96,10 @@ FRONT_DIST="$(abs "$FRONT_DIST")"
 # ⚠️ scheduler（定时任务执行器）**始终列进来**：管理台「定时任务」栏配的东西靠它执行，
 #    2026-10-06 起它已从 api 进程搬成独立服务、也不再藏在 --profile collect 后面 ——
 #    "配了却没容器跑"是最难发现的失败，不如默认就起来。
-TARGETS=(comic-front comic-scheduler)
+TARGETS=()
+[ "$WANT_WEB" = "1" ]   && TARGETS+=(comic-web)
+[ "$WANT_FRONT" = "1" ] && TARGETS+=(comic-front)
+TARGETS+=(comic-scheduler)
 
 # ---------- 0. 更新代码 ----------
 # 「改了代码没生效」的头号原因就是漏了这一步（2026-09-18 排查）。放在最前面，
@@ -156,32 +171,45 @@ echo "   数据目录: $DATA_HOST ✅"
 
 # ---------- 2. 前端 ----------
 step "[2/6] 前端产物"
-if [ "$SKIP_BUILD" = "1" ]; then
-  [ -d "$FRONT_DIST" ] || die "--skip-build 但 $FRONT_DIST 不存在，去掉该参数重跑"
-  echo "   前端：跳过（--skip-build），复用 $FRONT_DIST"
-else
-  command -v npm >/dev/null 2>&1 || die "没找到 npm —— 构建前端需要 Node.js 18+（只想跳过前端就用 --skip-build）"
-  if [ ! -d "$ROOT/comic-front/node_modules" ]; then
-    echo "   前端：npm install（首次）"
-    ( cd "$ROOT/comic-front" && npm install )
+
+# 两个前端共用同一套「装依赖 → 算源码哈希 → 未变则跳过构建」逻辑
+build_front() {  # build_front <人话名字> <项目目录> <产物目录> <构建命令...>
+  local label="$1" dir="$2" dist="$3"; shift 3
+  if [ "$SKIP_BUILD" = "1" ]; then
+    [ -d "$dist" ] || die "--skip-build 但 $dist 不存在，去掉该参数重跑"
+    echo "   $label：跳过（--skip-build），复用 $dist"
+    return 0
   fi
-  FRONT_HASH="$(find "$ROOT/comic-front/src" "$ROOT/comic-front/package.json" "$ROOT/comic-front/vite.config.*" -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1 || true)"
-  FRONT_HASH_FILE="$FRONT_DIST/.build_hash"
-  if [ -d "$FRONT_DIST" ] && [ -f "$FRONT_HASH_FILE" ] && [ "$(cat "$FRONT_HASH_FILE" 2>/dev/null)" = "$FRONT_HASH" ]; then
-    echo "   前端：源码未变更，跳过构建（强制重建：删除 $FRONT_DIST）"
+  if [ ! -d "$dir/node_modules" ]; then
+    echo "   $label：npm install（首次）"
+    ( cd "$dir" && npm install )
+  fi
+  local hash hash_file
+  hash="$(find "$dir/src" "$dir/package.json" "$dir/vite.config.*" "$dir/index.html" -type f 2>/dev/null | sort | xargs md5sum 2>/dev/null | md5sum | cut -d' ' -f1 || true)"
+  hash_file="$dist/.build_hash"
+  if [ -d "$dist" ] && [ -f "$hash_file" ] && [ "$(cat "$hash_file" 2>/dev/null)" = "$hash" ]; then
+    echo "   $label：源码未变更，跳过构建（强制重建：删除 $dist）"
   else
-    echo "   前端：npm run build:h5"
-    ( cd "$ROOT/comic-front" && npm run build:h5 )
-    echo "$FRONT_HASH" > "$FRONT_HASH_FILE"
+    echo "   $label：$*"
+    ( cd "$dir" && "$@" )
+    echo "$hash" > "$hash_file"
   fi
-  [ -d "$FRONT_DIST" ] || die "前端构建后仍然没有 $FRONT_DIST"
-fi
+  [ -d "$dist" ] || die "$label 构建后仍然没有 $dist"
+}
+
+command -v npm >/dev/null 2>&1 || die "没找到 npm —— 构建前端需要 Node.js 18+（只想跳过前端就用 --skip-build）"
+[ "$WANT_WEB" = "1" ]   && build_front "网页端" "$ROOT/comic-web"   "$WEB_DIST"   npm run build
+[ "$WANT_FRONT" = "1" ] && build_front "移动端" "$ROOT/comic-front" "$FRONT_DIST" npm run build:h5
 
 # ---------- 3. 产物 + 镜像 ----------
-step "[3/6] 生成 wheel/产物 + 按序构建镜像（mysql → crawler → api → scheduler → front）"
-# 产物目录用 FRONT_SRC 指给 build.sh；它复制前会清空目标目录，不会出现两套 hash 产物混在一起。
-echo "   前端产物来源: $FRONT_DIST"
-FRONT_SRC="$FRONT_DIST" bash "$DEPLOY/build.sh"
+step "[3/6] 生成 wheel/产物 + 按序构建镜像（mysql → crawler → api → scheduler → web/front）"
+# 产物目录用 WEB_SRC / FRONT_SRC 指给 build.sh；它复制前会清空目标目录，不会出现两套 hash 产物混在一起。
+[ "$WANT_WEB" = "1" ]   && echo "   网页端产物来源: $WEB_DIST"
+[ "$WANT_FRONT" = "1" ] && echo "   移动端产物来源: $FRONT_DIST"
+BUILD_ARGS=()
+[ "$WANT_WEB" = "1" ]   && BUILD_ARGS+=(--web)
+[ "$WANT_FRONT" = "1" ] && BUILD_ARGS+=(--front)
+WEB_SRC="$WEB_DIST" FRONT_SRC="$FRONT_DIST" bash "$DEPLOY/build.sh" "${BUILD_ARGS[@]}"
 
 # ---------- 4. 起服务 ----------
 step "[4/6] 启动服务（${TARGETS[*]}）"
@@ -257,10 +285,11 @@ fi
 # nginx 在 comic-app 的 uvicorn 真正开始监听前会返回 502，而 `up -d` 早就返回了，
 # 所以要重试几次，而不是刚起来就打一枪。
 env_val() { grep -E "^$1=" "$DEPLOY/.env" 2>/dev/null | tail -1 | cut -d= -f2- || true; }
+WEB_PORT="$(env_val WEB_PORT)"; WEB_PORT="${WEB_PORT:-85}"
 FRONT_PORT="$(env_val FRONT_PORT)"; FRONT_PORT="${FRONT_PORT:-86}"
 
-probe_entry() {  # probe_entry <人话名字> <端口>
-  local label="$1" port="$2" code="" html=""
+probe_entry() {  # probe_entry <人话名字> <端口> <期望产物: uni|plain>
+  local label="$1" port="$2" want="$3" code="" html=""
   if ! command -v curl >/dev/null 2>&1; then return 0; fi
   for _ in $(seq 1 12); do
     code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$port/" 2>/dev/null || true)"
@@ -273,16 +302,21 @@ probe_entry() {  # probe_entry <人话名字> <端口>
   if [ "$code" = "502" ]; then
     echo "     ⚠️ 502：nginx 已起，但上游 comic-app 还没就绪 —— 过几秒再试即可"
   fi
-  # 确认产物是 comic-front：uni 的 index.html 带 <!--app-html--> 占位注释（认不出会明确告警）
+  # 确认产物类型：uni 的 index.html 带 <!--app-html--> 占位注释；纯 Web 产物没有
   html="$(curl -s --max-time 5 "http://127.0.0.1:$port/" 2>/dev/null || true)"
   case "$html" in
-    *app-html*) echo "     前端产物: comic-front（uni-app H5）✅" ;;
     "") : ;;
-    *)  echo "     前端产物: ⚠️ 认不出来（index.html 不像 comic-front 产物，检查镜像是否建错）" ;;
+    *app-html*)
+      if [ "$want" = "uni" ]; then echo "     前端产物: comic-front（uni-app H5）✅"
+      else echo "     前端产物: ⚠️ 是 comic-front 产物，但本入口应是 comic-web（镜像建错？）"; fi ;;
+    *)
+      if [ "$want" = "uni" ]; then echo "     前端产物: ⚠️ 不像 comic-front 产物（检查镜像是否建错）"
+      else echo "     前端产物: comic-web（纯 Vue3）✅"; fi ;;
   esac
 }
 
-probe_entry "前端" "$FRONT_PORT"
+[ "$WANT_WEB" = "1" ]   && probe_entry "网页端" "$WEB_PORT" plain
+[ "$WANT_FRONT" = "1" ] && probe_entry "移动端" "$FRONT_PORT" uni
 
 # ---------- 6. 汇总 ----------
 step "[6/6] 完成"

@@ -9,9 +9,10 @@ rem             crawler-service\  --wheel-->  deploy\crawler\dist\comic_crawler-
 rem             api-service\      --wheel-->  deploy\api\dist\comic_api-<版本>.whl
 rem             comic-scheduler\  --wheel-->  deploy\scheduler\dist\comic_scheduler-<版本>.whl
 rem             comic-core\sql\mysql_schema.sql --复制--> deploy\mysql\sql\
-rem             comic-front\dist\build\h5 --复制--> deploy\front\dist\ （前端产物）
+rem             comic-web\dist      --复制-->  deploy\web\dist\    （网页端产物）
+rem             comic-front\dist\build\h5 --复制--> deploy\front\dist\ （移动端产物）
 rem  步骤 2  按依赖顺序构建镜像
-rem             mysql -> crawler -> api -> scheduler -> front
+rem             mysql -> crawler -> api -> scheduler -> web/front
 rem
 rem  其中 mysql 镜像是本项目**独占**的数据库（MySQL 8.0，见 docker-compose.yml）——数据卷首次
 rem  启动时会自动执行烘在镜像里的建库脚本，10 张表直接建好。
@@ -26,15 +27,18 @@ rem     （见下面 :buildimg 调用处的 "core=%DEPLOY%core"）——
 rem     少了它，pip 装 comic-crawler / comic-api / comic-scheduler 时会去 PyPI 找 comic-core 并直接报错。
 rem     wheel 的拓扑顺序固定为 comic-core -> crawler -> api / scheduler（后三个的 METADATA 里都声明了上游）。
 rem
-rem  前端镜像（comic-front）**自带 nginx**：静态产物 + 反代在同一个容器里，所以没有
-rem  "反代活着但产物不在"的悬空状态。⚠️ comic-web 的镜像部署已于 2026-10-10 下线
-rem  （旧前端保留在仓库里仅作参考实现），deploy\web\ 目录已删除。
+rem  两个前端镜像（comic-web / comic-front）**各自带 nginx**：静态产物 + 反代在同一个容器里，
+rem  所以没有"反代活着但产物不在"的悬空状态。两者功能等价（移动 / 网页双形态），
+rem  区别只在实现：comic-web = 纯 Vue3 + Vite，comic-front = uni-app。
 rem
-rem  用法：deploy\build.bat                （构建全部：mysql + 各 wheel + comic-front 镜像）
+rem  用法：deploy\build.bat                （构建全部：mysql + 各 wheel + 两个前端镜像）
+rem        deploy\build.bat --web          （只构建网页端 comic-web:1.0.0）
+rem        deploy\build.bat --front        （只构建移动端 comic-front:1.0.0）
 rem        deploy\build.bat -h             （Linux/macOS: ./deploy/build.sh）
 rem        构建完启动：docker compose -f deploy\docker-compose.yml up -d
 rem
-rem  前端来源：默认 comic-front\dist\build\h5（可用 set FRONT_SRC=... 覆盖）。
+rem  前端来源：网页端默认 comic-web\dist（可用 set WEB_SRC=... 覆盖）；
+rem        移动端默认 comic-front\dist\build\h5（可用 set FRONT_SRC=... 覆盖）。
 rem
 rem  可选：依赖从 PyPI 下载，国内或网速慢的机器先设 PIP_INDEX 换源（crawler / api 两层用它装依赖）：
 rem        set PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
@@ -47,24 +51,28 @@ for %%i in ("%~dp0..") do set "ROOT=%%~fi"
 set "DEPLOY=%~dp0"
 
 rem ---------- 参数 ----------
-rem --front 兼容保留（前端只有一个，加不加都一样）；--web 已下线，明确报错
+set "BUILD_WEB=0"
+set "BUILD_FRONT=0"
 :parse
 if "%~1"=="" goto parsed
-if /i "%~1"=="--front" (
-  shift
-  goto parse
-)
-if /i "%~1"=="--web" (
-  echo !! comic-web 的镜像部署已下线（2026-10-10）：现在唯一前端是 comic-front
-  exit /b 1
-)
+if /i "%~1"=="--web"   set "BUILD_WEB=1"
+if /i "%~1"=="--front" set "BUILD_FRONT=1"
 if /i "%~1"=="-h"      goto usage
 if /i "%~1"=="--help"  goto usage
-echo !! 未知参数：%~1（-h 看用法）
-exit /b 1
+if /i not "%~1"=="--web" if /i not "%~1"=="--front" (
+  echo !! 未知参数：%~1（-h 看用法）
+  exit /b 1
+)
+shift
+goto parse
 :parsed
+if "%BUILD_WEB%%BUILD_FRONT%"=="00" (
+  set "BUILD_WEB=1"
+  set "BUILD_FRONT=1"
+)
 
 rem 前端产物来源（见文件头）
+if not defined WEB_SRC   set "WEB_SRC=%ROOT%\comic-web\dist"
 if not defined FRONT_SRC set "FRONT_SRC=%ROOT%\comic-front\dist\build\h5"
 
 rem ---------- 选定 Python 解释器 ----------
@@ -115,14 +123,26 @@ echo    comic-core\sql\mysql_schema.sql  --复制--^>  deploy\mysql\sql\
 if not exist "%DEPLOY%mysql\sql" mkdir "%DEPLOY%mysql\sql"
 copy /y "%ROOT%\comic-core\sql\mysql_schema.sql" "%DEPLOY%mysql\sql\mysql_schema.sql" >nul
 
-echo    comic-front\dist\build\h5  --复制--^>  deploy\front\dist\
-if not exist "%FRONT_SRC%" (
-  echo    !! 前端产物目录不存在：%FRONT_SRC%
-  echo       先构建前端：cd comic-front ^&^& npm run build:h5
-  exit /b 1
+if "%BUILD_WEB%"=="1" (
+  echo    comic-web\dist  --复制--^>  deploy\web\dist\
+  if not exist "%WEB_SRC%" (
+    echo    !! 网页端产物目录不存在：%WEB_SRC%
+    echo       先构建前端：cd comic-web ^&^& npm run build
+    exit /b 1
+  )
+  if exist "%DEPLOY%web\dist" rd /s /q "%DEPLOY%web\dist"
+  robocopy "%WEB_SRC%" "%DEPLOY%web\dist" /E /XD __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
 )
-if exist "%DEPLOY%front\dist" rd /s /q "%DEPLOY%front\dist"
-robocopy "%FRONT_SRC%" "%DEPLOY%front\dist" /E /XD __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
+if "%BUILD_FRONT%"=="1" (
+  echo    comic-front\dist\build\h5  --复制--^>  deploy\front\dist\
+  if not exist "%FRONT_SRC%" (
+    echo    !! 移动端产物目录不存在：%FRONT_SRC%
+    echo       先构建前端：cd comic-front ^&^& npm run build:h5
+    exit /b 1
+  )
+  if exist "%DEPLOY%front\dist" rd /s /q "%DEPLOY%front\dist"
+  robocopy "%FRONT_SRC%" "%DEPLOY%front\dist" /E /XD __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
+)
 
 echo.
 echo -^> 产物检查
@@ -142,11 +162,12 @@ echo.
 echo -^> 遗留检查（前端产物目录有、源目录已没有的文件）
 set "LEFT="
 call :leftovers "%DEPLOY%front\dist" "%FRONT_SRC%"
+call :leftovers "%DEPLOY%web\dist" "%WEB_SRC%"
 if not defined LEFT echo    无遗留文件
 
 rem ---------- 步骤 2：按序构建镜像 ----------
 echo.
-echo -^> [2/2] 构建镜像（顺序：mysql -^> crawler -^> api -^> scheduler -^> front）
+echo -^> [2/2] 构建镜像（顺序：mysql -^> crawler -^> api -^> scheduler -^> web/front）
 if defined PIP_INDEX echo    [PyPI 源] %PIP_INDEX%
 call :buildimg mysql   comic-mysql:1.0.0   || exit /b 1
 call :buildimg crawler comic-crawler:1.0.0 "core=%DEPLOY%core" || exit /b 1
@@ -158,7 +179,8 @@ call :buildimg api     comic-api:1.0.0     "crawler=%DEPLOY%crawler" "core=%DEPL
 rem scheduler 同样要读两个上游 wheel（采集层里有 cron 引擎与一轮执行，内核里有路径与存储），
 rem 所以挂同样的两个命名上下文。它**不是** api 的衍生镜像 —— 两者平级，各自独立启停。
 call :buildimg scheduler comic-scheduler:1.0.0 "crawler=%DEPLOY%crawler" "core=%DEPLOY%core" || exit /b 1
-call :buildimg front   comic-front:1.0.0   || exit /b 1
+if "%BUILD_WEB%"=="1"   call :buildimg web   comic-web:1.0.0     || exit /b 1
+if "%BUILD_FRONT%"=="1" call :buildimg front comic-front:1.0.0   || exit /b 1
 
 echo.
 echo OK  镜像已就绪
@@ -169,8 +191,9 @@ exit /b 0
 
 :usage
 echo 用法：deploy\build.bat
-echo        构建全部（mysql + 各 wheel + comic-front 镜像）
-echo        --front 兼容保留（前端只有一个，加不加都一样）
+echo        构建全部（mysql + 各 wheel + 两个前端镜像）
+echo        --web    只构建网页端（comic-web:1.0.0）
+echo        --front  只构建移动端（comic-front:1.0.0）
 echo        详细说明见本文件头部注释
 exit /b 0
 

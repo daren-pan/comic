@@ -7,7 +7,8 @@
 #             crawler-service/   --wheel-->  deploy/crawler/dist/comic_crawler-<版本>.whl
 #             api-service/       --wheel-->  deploy/api/dist/comic_api-<版本>.whl
 #             comic-scheduler/   --wheel-->  deploy/scheduler/dist/comic_scheduler-<版本>.whl
-#             <前端产物目录>     --复制---->  deploy/front/dist/  （默认 comic-front/dist/build/h5）
+#             两个前端产物目录    --复制---->  deploy/web/dist/、deploy/front/dist/
+#                                          （默认 comic-web/dist、comic-front/dist/build/h5）
 #  步骤 2  按依赖顺序构建镜像
 #             mysql → crawler → api → scheduler → front
 #
@@ -24,17 +25,20 @@
 #     少了它，pip 装 comic-crawler / comic-api / comic-scheduler 时会去 PyPI 找 comic-core 并直接报错。
 #     wheel 的拓扑顺序固定为 **comic-core → crawler → api / scheduler**（后三个的 METADATA 里都声明了上游）。
 #
-#  前端镜像（comic-front）**自带 nginx**：静态产物 + 反代在同一个容器里，所以没有
-#  "反代活着但产物不在"的悬空状态。⚠️ comic-web 的镜像部署已于 2026-10-10 下线
-#  （旧前端保留在仓库里仅作参考实现），deploy/web/ 目录已删除。
+#  两个前端镜像（comic-web / comic-front）**各自自带 nginx**：静态产物 + 反代在同一个容器里，
+#  所以没有"反代活着但产物不在"的悬空状态。两者功能等价（移动 / 网页双形态），
+#  区别只在实现：comic-web = 纯 Vue3 + Vite，comic-front = uni-app。
 #
-#  用法：./deploy/build.sh                 # 构建全部（mysql + 各 wheel + comic-front 镜像）
+#  用法：./deploy/build.sh                 # 构建全部（mysql + 各 wheel + 两个前端镜像）
+#        ./deploy/build.sh --web           # 只重建网页端（comic-web）
+#        ./deploy/build.sh --front         # 只重建移动端（comic-front）
 #        ./deploy/build.sh -h              （Windows: deploy\build.bat）
 #        —— 一般**不用单独跑它**：一键脚本 `deploy/up.sh` 已经把
 #           「前端 npm build → 本脚本 → compose up -d → 自检」串好了。
 #        单独构建后启动：docker compose -f deploy/docker-compose.yml up -d
 #
-#  前端来源：默认取 comic-front/dist/build/h5，可用环境变量 **FRONT_SRC=<目录>** 覆盖；
+#  前端来源：网页端默认取 comic-web/dist（**WEB_SRC** 可覆盖）、移动端默认取
+#        comic-front/dist/build/h5（**FRONT_SRC** 可覆盖）；
 #        产物目录在复制前会先清空（避免不同 hash 的旧产物混在一起）。
 #
 #  PyPI 源：镜像构建时装依赖走哪个源 —— 依次取 环境变量 PIP_INDEX → deploy/.env 的 PIP_INDEX
@@ -48,15 +52,22 @@
 set -euo pipefail
 
 # ---------- 参数 ----------
+BUILD_WEB=0
+BUILD_FRONT=0
 for a in "$@"; do
   case "$a" in
-    --front) : ;;   # 兼容保留：前端只有一个（comic-front），加不加都一样
-    --web)   echo "!! comic-web 的镜像部署已下线（2026-10-10）：现在唯一前端是 comic-front" >&2; exit 1 ;;
+    --web)   BUILD_WEB=1 ;;    # 只重建网页端（comic-web）
+    --front) BUILD_FRONT=1 ;;  # 只重建移动端（comic-front）
     -h|--help)  # 打印文件头那段说明（按内容定位，不写死行号，免得改了头部就漏出正文）
                 awk 'NR==1{next} {sub(/^# ?/,"")} NR>2 && /^=+$/ {print; exit} {print}' "$0"; exit 0 ;;
     *) echo "!! 未知参数：$a（-h 看用法）" >&2; exit 1 ;;
   esac
 done
+
+if [ "$BUILD_WEB" = "0" ] && [ "$BUILD_FRONT" = "0" ]; then
+  BUILD_WEB=1
+  BUILD_FRONT=1
+fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEPLOY="$ROOT/deploy"
@@ -71,6 +82,7 @@ abs() {  # abs <路径>
 }
 
 # 前端产物来源（见文件头）
+WEB_SRC="$(abs "${WEB_SRC:-$ROOT/comic-web/dist}")"
 FRONT_SRC="$(abs "${FRONT_SRC:-$ROOT/comic-front/dist/build/h5}")"
 
 # ---------- 选定 Python 解释器 ----------
@@ -143,7 +155,12 @@ copy_front() {  # copy_front <源目录> <deploy 子目录> <人话名字>
   copy_tree "$src" "$DEPLOY/$out/dist" .
 }
 
-copy_front "$FRONT_SRC" front "前端" "cd comic-front && npm run build:h5"
+if [ "$BUILD_WEB" = "1" ]; then
+  copy_front "$WEB_SRC" web "网页端" "cd comic-web && npm run build"
+fi
+if [ "$BUILD_FRONT" = "1" ]; then
+  copy_front "$FRONT_SRC" front "移动端" "cd comic-front && npm run build:h5"
+fi
 
 # ---------- 产物检查 ----------
 echo
@@ -180,6 +197,7 @@ check_leftovers() {  # check_leftovers <源目录> <产物目录> <显示前缀>
 
 echo "   deploy/front/dist/（$(find "$DEPLOY/front/dist" -type f | wc -l | tr -d ' ') 个文件）"
 check_leftovers "$FRONT_SRC" "$DEPLOY/front/dist" "deploy/front/dist"
+check_leftovers "$WEB_SRC" "$DEPLOY/web/dist" "deploy/web/dist"
 
 # ---------- 步骤 2：按序构建镜像 ----------
 echo
@@ -209,11 +227,12 @@ SCHEDULER_PID=$!
 wait $CRAWLER_PID   || { echo "!! comic-crawler 构建失败" >&2; exit 1; }
 wait $API_PID       || { echo "!! comic-api 构建失败" >&2; exit 1; }
 wait $SCHEDULER_PID || { echo "!! comic-scheduler 构建失败" >&2; exit 1; }
-build_img front comic-front:1.0.0
+if [ "$BUILD_WEB" = "1" ]; then build_img web comic-web:1.0.0; fi
+if [ "$BUILD_FRONT" = "1" ]; then build_img front comic-front:1.0.0; fi
 
 echo
 echo "OK  镜像已就绪"
-docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep -E "comic-(mysql|crawler|api|scheduler|front)" || true
+docker images --format "  {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep -E "comic-(mysql|crawler|api|scheduler|web|front)" || true
 echo
 echo "启动：docker compose -f deploy/docker-compose.yml up -d"
 echo "查看：docker compose -f deploy/docker-compose.yml ps"

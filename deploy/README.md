@@ -4,7 +4,8 @@
 
 ```
 deploy/
-├── front/     Dockerfile + nginx.conf + dist/（前端产物）    → comic-front:1.0.0  自带 nginx，宿主 86
+├── web/       Dockerfile + nginx.conf + dist/（前端产物）    → comic-web:1.0.0    纯 Vue3，自带 nginx，宿主 85
+├── front/     Dockerfile + nginx.conf + dist/（前端产物）    → comic-front:1.0.0  uni-app，自带 nginx，宿主 86
 ├── core/      dist/comic_core-*.whl                          → **无镜像**（纯库，只作命名构建上下文 `core`）
 ├── crawler/   Dockerfile + dist/comic_crawler-*.whl          → comic-crawler:1.0.0  采集层（可单独当 CLI 镜像）
 ├── scheduler/ Dockerfile + dist/comic_scheduler-*.whl        → comic-scheduler:1.0.0 定时任务执行器（独立进程）
@@ -12,7 +13,7 @@ deploy/
 ├── mysql/     Dockerfile + sql/（建库脚本产物）              → comic-mysql:1.0.0    本项目独占的库
 ├── build.sh / build.bat                                      生成产物 + 按序构建这些镜像
 ├── up.sh                                                     **一键**：前端 build + 上面这些 + up -d + 自检
-├── docker-compose.yml                                        编排：comic-mysql + comic-app + comic-scheduler + comic-front
+├── docker-compose.yml                                        编排：comic-mysql + comic-app + comic-scheduler + comic-web + comic-front
 └── .env.example                                              配置模板（`deploy/.env` 已 gitignore）
 ```
 
@@ -23,24 +24,24 @@ deploy/
 > 命名统一带 `comic-` 前缀：**镜像名**、**容器名**、**compose 服务名**三者一致
 > （服务名 = 容器名，所以 `docker compose ps` / `exec comic-app` 用的是同一个名字）。
 
-## 前端入口：一个镜像（comic-front）、自带 nginx
+## 前端入口：两个镜像（comic-web / comic-front）、各自带 nginx
 
-前端不烘进 `comic-api` 镜像，而是**独立的前端镜像**，**自带 nginx**（静态产物 + 反代在同一个
+前端不烘进 `comic-api` 镜像，而是**独立的前端镜像**，**各自带 nginx**（静态产物 + 反代在同一个
 容器里）—— 不存在「反代活着但产物不在」的悬空状态，按需启动最省事。
-**移动 / 网页两套布局由同一份产物按 UA 自动切换**（见 `comic-front` 的 `utils/layout.ts`）。
+**移动 / 网页两套布局由同一份产物按 UA 自动切换**（见各前端的 `utils/layout.ts`）。
+两个入口**功能等价**（2026-10-14 comic-web 由 comic-front 1:1 迁移），区别只在实现：
 
 | 入口 | 镜像 | 产物来源 | 宿主端口 |
 |---|---|---|---|
-| 前端 | `comic-front:1.0.0` | `comic-front/dist/build/h5`（uni-app H5，**当前主用**） | `FRONT_PORT`（默认 86） |
+| 网页端 | `comic-web:1.0.0` | `comic-web/dist`（纯 Vue3 + Vite） | `WEB_PORT`（默认 85） |
+| 移动端 | `comic-front:1.0.0` | `comic-front/dist/build/h5`（uni-app H5） | `FRONT_PORT`（默认 86） |
 
-- 只起前端：`docker compose -f deploy/docker-compose.yml up -d comic-front`，
-  依赖链会自动带上 `comic-app` 与 `comic-mysql`。
+- 只起某一个：`docker compose -f deploy/docker-compose.yml up -d comic-web`（或 `comic-front`），
+  依赖链会自动带上 `comic-app` 与 `comic-mysql`；两个也可以同时跑。
 - 分流规则：`location ~ ^/(api/|docs|redoc|openapi\.json)` 反代到 `comic-app:8000`，其余本地静态文件。
   产物是 **hash 路由 + 相对 base**，所以不需要 history 回退，末尾 `try_files` 纯容错。
 - **`comic-api` 是纯 API**：`main.py` 的静态挂载有 `if DIST_DIR.is_dir()` 守卫，容器里没有前端目录
   就自然退化，后端代码一行没改。
-- ⚠️ **comic-web 的镜像部署已于 2026-10-10 下线**（旧前端保留在仓库里仅作参考实现）：
-  `deploy/web/` 目录已删除，compose / build 脚本里不再有 `comic-web` 服务与 `WEB_PORT`。
 
 ## 数据库：本项目独占一个实例
 
@@ -91,13 +92,13 @@ docker compose -f deploy/docker-compose.yml up -d
 ./deploy/up.sh --migrate         # 老环境升级：起完后跑一遍幂等迁移脚本（已有库才需要）
 ```
 
-> 前端只有一个（comic-front），不需要选择；`--front` 保留兼容（加不加都一样）。
+> 默认**两个前端入口都起**（网页端 85 + 移动端 86）；`--web` / `--front` 可只起其中一个。
 
 `up` 依次做六步：**0)** `git pull`（只快进不合并，并把「更新了哪几条提交」打出来；
 不是 git 工作区 / 断网 / 冲突时不中止，按当前工作区继续）→
 **1)** 前置检查（docker / compose v2 / `.env` / 数据目录）→
-**2)** 前端 `npm run build:h5` → **3)** 调 `build.sh`（生成产物 + 按序构建镜像）→
-**4)** `compose up -d`（comic-front + scheduler）→ **5)** 自检（mysql healthy → 容器内 `/api/health` →
+**2)** 前端 `npm run build`（两个入口）→ **3)** 调 `build.sh`（生成产物 + 按序构建镜像）→
+**4)** `compose up -d`（comic-web / comic-front + scheduler）→ **5)** 自检（mysql healthy → 容器内 `/api/health` →
 数据目录可写 → 入口 HTTP 码 + **前端身份**）。**幂等**：重复跑就是更新代码 + 重新构建 + `up -d`，不会清数据。
 加了 `--migrate` 就在 4 与 5 之间多跑一步"已有库迁移"（`add_log_table` / `add_perf_indexes` /
 `drop_fingerprint_unique` / `add_user_role` / `add_admin_task_table` / `add_message_table` /
@@ -144,9 +145,9 @@ docker compose -f deploy/docker-compose.yml up -d
   命名卷首次创建会继承镜像中该路径的属主，否则以 uid 10001 运行的进程写不进去；
 - **app 单进程**（不加 `--workers`）—— 数据源开关状态仍在进程内缓存，多 worker 会导致"开关不同步"；
   （后台任务表已落库 `admin_task`，2026-10-06 起不再是阻塞项，详见 `docs/deploy.md` §8）；
-- **容器名固定**：`comic-mysql` / `comic-app` / `comic-front`（+ `comic-scheduler`）——
+- **容器名固定**：`comic-mysql` / `comic-app` / `comic-web` / `comic-front`（+ `comic-scheduler`）——
   由 compose 的 `container_name` 指定，不用 compose 自动生成的 `xxx-1` 形式，运维时好叫；
-- **宿主端口可配**：`.env` 的 `FRONT_PORT`（默认 86）。端口被占用就改这里，容器内仍是 80；
+- **宿主端口可配**：`.env` 的 `WEB_PORT`（默认 85）/ `FRONT_PORT`（默认 86）。端口被占用就改这里，容器内仍是 80；
 - **数据分两处**：`mysql_data` 卷 → 数据库（`down` 不删卷）；**图库与源开关状态在宿主目录**
   （bind 到容器 `/data`，默认 `../crawler-service/data`，可用 `.env` 的 `COMIC_DATA_HOST` 改）——
   **与本地直跑共用同一份**，所以本地转存的图容器立刻能读（反之亦然）。服务器请指到仓库外的独立盘，

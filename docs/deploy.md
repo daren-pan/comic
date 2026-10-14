@@ -30,21 +30,21 @@ deploy/
 └── .env.example                                               配置模板（`deploy/.env` 已 gitignore）
 ```
 
-**前端一个镜像（comic-front）、自带 nginx**（静态产物 + 反代在同一个容器里）；
-移动 / 网页两套布局由同一份产物按 UA 自动切换：
+**前端两个镜像（comic-web / comic-front）、各自带 nginx**（静态产物 + 反代在同一个容器里）；
+移动 / 网页两套布局由同一份产物按 UA 自动切换。两个入口**功能等价**（2026-10-14 comic-web 由
+comic-front 1:1 迁移），区别只在实现：
 
 | 入口 | 镜像 | 产物来源 | 宿主端口 |
 |---|---|---|---|
-| 前端 | `comic-front:1.0.0` | `comic-front/dist/build/h5`（uni-app H5，**当前主用**） | `FRONT_PORT`（默认 86） |
+| 网页端 | `comic-web:1.0.0` | `comic-web/dist`（纯 Vue3 + Vite） | `WEB_PORT`（默认 85） |
+| 移动端 | `comic-front:1.0.0` | `comic-front/dist/build/h5`（uni-app H5） | `FRONT_PORT`（默认 86） |
 
-- 只起前端：`docker compose -f deploy/docker-compose.yml up -d comic-front`，
-  依赖链会自动带上 `comic-app` 与 `comic-mysql`。
+- 只起某一个：`docker compose -f deploy/docker-compose.yml up -d comic-web`（或 `comic-front`），
+  依赖链会自动带上 `comic-app` 与 `comic-mysql`；两个也可以同时跑。
 - 分流规则：`location ~ ^/(api/|docs|redoc|openapi\.json)` 反代到 `comic-app:8000`，其余本地静态文件。
   产物是 **hash 路由 + 相对 base**，不需要 history 回退，末尾 `try_files` 纯容错。
 - **后端是纯 API**：`main.py` 的静态挂载有 `if DIST_DIR.is_dir()` 守卫，容器里没有前端目录就自然退化，
   后端代码一行没改。
-- ⚠️ **comic-web 的镜像部署已于 2026-10-10 下线**（旧前端保留在仓库里仅作参考实现）：
-  `deploy/web/` 目录已删除，compose / build 脚本里不再有 `comic-web` 服务与 `WEB_PORT`。
 
 **数据库：本项目独占一个实例**（`comic-mysql` 容器，**MySQL 8.0**），不与别的系统共用 —— 库、账号、
 权限、备份策略都独立（曾与别的系统共用过实例，出现过"别人的表建进我们库"这类问题，独立实例最省心）。
@@ -84,7 +84,7 @@ cp deploy/.env.example deploy/.env      # 至少改 MYSQL_ROOT_PASSWORD 与 COMI
 docker compose -f deploy/docker-compose.yml up -d
 ```
 
-> 前端只有一个（comic-front），不需要选择；`--front` 保留兼容（加不加都一样）。
+> 默认**两个前端入口都起**（网页端 85 + 移动端 86）；`--web` / `--front` 可只起其中一个。
 >
 > **只重建前端镜像**：`./deploy/build.sh`（构建全部，一般不用单独跑 —— `up.sh` 已串好）。
 > `up.sh` 用 `FRONT_SRC` 把产物目录指给 `build.sh`；`build.sh` 复制前会清空目标目录，
@@ -135,7 +135,7 @@ docker compose -f deploy/docker-compose.yml up -d
 - **数据分两处**：`mysql_data` 卷 → 数据库（`down` 不删卷）；**图库与源开关状态在宿主目录**
   （bind 到容器 `/data`，默认 `../crawler-service/data`，可用 `COMIC_DATA_HOST` 改）——
   与本地直跑是**同一份**，见 §12。备份 = `mysqldump` + 那个数据目录；
-- **容器名固定**为 `comic-app` / `comic-front`（+ `comic-scheduler`），前端入口的宿主端口由 `.env` 的 `FRONT_PORT`（默认 86）控制；
+- **容器名固定**为 `comic-app` / `comic-web` / `comic-front`（+ `comic-scheduler`），两个前端入口的宿主端口由 `.env` 的 `WEB_PORT`（默认 85）/ `FRONT_PORT`（默认 86）控制；
 - **app 单进程**（不加 `--workers`），原因见 §8；
 - **管理台 / 日志 / 授权页要管理员角色**（`/api/admin/*` 全挂鉴权）：管理台与日志要 `require_admin`
   （超管 + 普通管理员），**授权页要 `require_superadmin`（仅超管）** —— 分开是硬要求，

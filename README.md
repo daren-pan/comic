@@ -23,10 +23,9 @@ comic/
 │   ├── core/ services/       #   基础设施（config·db·security·responses）与业务动作（images·tasks·sources）
 │   ├── routers/              #   HTTP 接口分层：public / auth / users / admin
 │   └── schemas.py serializers.py  # 请求体模型 / 领域对象序列化
-├── comic-web/                # 前端（Vite + Vue3，dist 不随仓库分发，clone 后需先 npm run build）
-├── comic-front/              # 前端 · uni-app 版（Vue3 + Vite + TS；H5 单平台，移动 / 网页双形态）
-│                             #   comic-web 的忠实移植：pages.json 路由 + uni.request + 兼容层（utils/），
-│                             #   与 comic-web 相互独立，H5 构建产物 comic-front/dist/build/h5
+├── comic-web/                # 前端 · 纯 Vue3 + Vite（与 comic-front 功能等价；dist 不入库，clone 后需先 npm run build）
+├── comic-front/              # 前端 · uni-app 版（H5 单平台，移动 / 网页双形态；与 comic-web 功能等价）
+│                             #   H5 构建产物 comic-front/dist/build/h5
 ├── tools/                    # 一次性运维脚本（标签回填/规范化等，见 tools/README.md）
 ├── scripts/                  # 一键脚本：初始化/启动/自检/打包（.bat + .sh 双份，见 scripts/README.md）
 ├── deploy/                   # 生产部署（Linux/Docker）：每模块一个文件夹（mysql / api / crawler / scheduler / front / core）
@@ -98,12 +97,12 @@ cd comic-web && npm install && npm run build   # 产物 comic-web/dist（base �
 ```bash
 cd comic-web && npm run dev   # Vite dev server（5173），/api 由 Vite 代理到 8000 后端
 ```
-> ⚠️ 上线部署已与 comic-web 无关（2026-10-10 起）：前端只有 comic-front 一个镜像（自带 nginx，
-> 移动 / 网页两套布局按 UA 自动切换），见 `deploy/README.md`。
+> 上线部署：前端**两个镜像**（comic-web / comic-front，各自带 nginx、功能等价，宿主 85 / 86），
+> 移动 / 网页两套布局按 UA 自动切换，见 `deploy/README.md`。
 
 ### 前端 · uni-app 版（comic-front，可选）
 
-`comic-front/` 是 `comic-web` 的 **uni-app 移植版**（Vue3 + Vite + TS）—— **与 comic-web 相互独立**，原项目约定与逻辑一律不改。
+`comic-front/` 是 **uni-app 版**（Vue3 + Vite + TS）—— 与 `comic-web`（纯 Vue3 版）**功能等价**（2026-10-14 comic-web 由它 1:1 迁移）。
 它把 `vue-router` → `pages.json` 路由、`axios` → `uni.request`、`localStorage` → `uni.getStorageSync`、
 `window` 自定义事件 → `uni.$emit`，业务逻辑（页面 / 文案 / 接口调用）**忠实照搬**，靠 `src/utils/{router,storage,event}.ts` 兼容层兜住差异。
 

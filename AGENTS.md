@@ -16,8 +16,8 @@ comic/
 ├── crawler-service/   # 采集 · 存储 · 图床（Python；L0 内核 / L1 契约 / L2 实现）
 ├── comic-scheduler/   # 定时任务执行器（**独立进程**：读管理台 cron → 跑采集 → 写运行态）
 ├── api-service/       # 对外 REST API（FastAPI :8000）—— Docker 里是**纯 API**（同源托管仅本地直跑时生效）
-├── comic-web/         # 前端 · Web SPA（Vue3 + Vite :5173）—— 已冻结，只作参考实现
-├── comic-front/       # 前端 · uni-app（H5 :5174，移动 / 网页双形态）—— **当前主用**
+├── comic-web/         # 前端 · 纯 Vue3 + Vite（H5 :5173，移动 / 网页双形态）—— 与 comic-front 功能等价
+├── comic-front/       # 前端 · uni-app（H5 :5174，移动 / 网页双形态）—— 与 comic-web 功能等价
 ├── deploy/            # 生产编排（Docker Compose + 两个前端镜像各自带 nginx + 自带 MySQL 镜像）
 ├── docs/ · scripts/ · tools/                # 文档 · 启动自检 · 一次性迁移
 └── logs/ · build/ · backup/ · .workbuddy/   # 运行时产物与 AI 配置（非架构）
@@ -31,8 +31,8 @@ comic/
 | `crawler-service/` | 采集源站 → 判重入库 → 图片懒转存 / 巡检；提供 CLI，并被 api-service **在进程内**调用 | `crawler-service/README.md` ｜ 各源见 `sources/<源名>/README.md` |
 | `comic-scheduler/` | **定时任务执行器**（独立进程）：读管理台配的 cron，到点对选中的数据源跑采集，运行态写回文件供页面展示 | `comic-scheduler/README.md` |
 | `api-service/` | 对外 REST API + 管理台后台任务；图片读取与占位图 | `api-service/README.md` |
-| `comic-web/` | 原 Web SPA；**约定与逻辑一律不动**，作移植参考 | `comic-web/README.md` |
-| `comic-front/` | uni-app 版（当前主用）；业务逻辑忠实移植，靠 `src/utils/{router,storage,event}.ts` 兼容层保持平台无关 | `comic-front/README.md` |
+| `comic-web/` | 纯 Vue3 + Vite 版（与 comic-front 功能等价，2026-10-14 由后者迁移） | `comic-web/README.md` |
+| `comic-front/` | uni-app 版（与 comic-web 功能等价）；靠 `src/utils/*` 兼容层保持平台无关 | `comic-front/README.md` |
 | `docs/` | 总体架构 / 认证 / 部署 | `docs/README.md` |
 | `deploy/` · `scripts/` · `tools/` | 生产编排 · 启动自检 · 一次性迁移 | 各自 README |
 
@@ -46,14 +46,14 @@ comic/
 - **管理台 / 按需导入**：逻辑在 `api-service/services/ondemand.py`；接口 `/api/admin/*`，前端 `/#/admin`（角色三档 + 两道门 `require_admin` / `require_superadmin`）。
 - **定时任务的进程边界**：管理台「定时任务」的配置与展示在 `api-service/services/scheduler.py`，**采集由独立进程 `comic-scheduler` 执行**（不随 api 生死）。两者只通过运行时数据目录里三个文件交换：`schedule.json`（api 写 / 执行器读）、`schedule_state.json`（执行器写 / api 读）、`schedule_run_now.json`（api 写 / 执行器**读到即删**）—— **一文件一写者**是硬约束。依赖方向 `scheduler → crawler → core`（**不依赖 api-service**）。见 `comic-scheduler/README.md`。任务的**记录**不在那三个文件里：手动触发与定时轮次都落 MySQL 的 `admin_task` 表（**重启不丢、与触发账号绑定**，定时轮次记「系统（定时）」；api 启动时把上一进程残留的 `running` 标成中断）。
 - **消息中心（面向所有登录用户的平台级通知）**：`message` 表 + 已读记账 `message_read` + `/api/messages` —— 顶栏铃铛与消息页读的都是它。**内容以库为准**（前端不保存消息，换机器看到同一份）；**可见范围由数据决定**（`to_user_id` 定向某人 + `min_role` 最低角色要求，任务消息是 `admin`），**已读按账号各一份**。任务收尾、独立进程 `comic-scheduler`、外部系统都往里发；**写入只有一个入口** `POST /api/messages`（api 自己进程内直调 `services.messages.publish_task()`，别的进程走 HTTP 带 `X-Service-Token`：HMAC，密钥复用 `COMIC_JWT_SECRET`，见 `comic_core/notify.py`）。见 `api-service/README.md`。
-- **前端上线形态**：Docker 下**只有一个前端镜像** —— `comic-front:1.0.0`（自带 nginx 反代 `/api/*` 到 `comic-app:8000`；移动 / 网页两套布局由它按 UA 自动切换）；`comic-api` 是纯 API。⚠️ comic-web 的镜像部署已于 2026-10-10 下线（源码保留为参考实现，`deploy/web/` 已删除）。见 `deploy/README.md`。
+- **前端上线形态**：Docker 下**两个前端镜像**（功能等价、各自带 nginx 反代 `/api/*` 到 `comic-app:8000`）—— `comic-web:1.0.0`（网页端，宿主 85）与 `comic-front:1.0.0`（移动端，宿主 86）；移动 / 网页两套布局由产物按 UA 自动切换。`comic-api` 是纯 API。见 `deploy/README.md`。
 
 ## 基础命令
 
 - **分工**：本地开发 = **宿主直跑**（uvicorn + Vite）；上线 = **Docker Compose**（`deploy/`，见 `docs/deploy.md`）。
 - **启动前**：Docker Desktop 在跑、`comic-mysql` Up（`docker ps`）—— 本地直连宿主 `127.0.0.1:3309`，无需手工导出环境变量。
 - **后端**：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 >> ../logs/api.log 2>&1`
-- **前端 · comic-web**：`cd comic-web && npm run dev`（:5173）
+- **前端 · comic-web**：`cd comic-web && npm run dev`（:5173）；构建 `build`（详见其 README）
 - **前端 · comic-front**：`cd comic-front && npm run dev:h5`（:5174）；构建 `build:h5`（详见其 README）
 - **定时任务执行器**：`cd comic-scheduler && ../crawler-service/.venv/Scripts/python.exe -m comic_scheduler`（依赖两个本地包，需 `PYTHONPATH=../crawler-service/src;../comic-core/src`；容器里是 `comic-scheduler` 服务，配置页 `/#/admin/schedule`）
 - **上线一键**：`bash deploy/up.sh`（**不带参数 = 两个入口都起**，网页端 85 + 移动端 86）/ `--web`（只起网页端）/ `--front`（只起移动端）。只重建某一层：`bash deploy/build.sh --web|--front`。
@@ -65,6 +65,7 @@ comic/
 - **架构单职责 / 分层**：新增接口进 `api-service/routers/*`、业务逻辑进 `services/`（勿让 `main.py` 变胖）；`crawler-service` 保持 L0/L1/L2（通用外层 → 契约 → 可扩展内层），**L0 里的存储 / 模型 / 路径已上移到 `comic-core`**（外部依赖，不在采集侧分层守卫的断言范围内）。**新模块未归层会被分层守卫拦下**（`tests/test_layering.py`）。
 - **文档归属（双文档制）**：本文件只放骨架与规矩；每个模块 = `README.md`（框架 / 约定 / 用途，给人看）+ `NOTES.md`（**踩坑 / 实测 / 复盘，AI 协作时维护 —— 踩坑即写**）；具体逻辑写进代码注释；跨模块文档在 `docs/`。
 - **性能**：面向**大数据量**设计 —— 禁止逐条访问（「先拿一批 id 再取对象」用 `get_comic_tags_bulk` / `get_comics_by_ids` 这类一次性批量方法）、禁止代价随数据量线性增长的写法（N+1、无索引全表扫、每次调用新建连接）。改 SQL / 存储层时按此自查。
+- **前端（comic-web）**：模板用原生标签、CSS 只写类选择器、`<form>` 必写 `@submit.prevent`（写法约定，详见其 README 约定段）。
 - **前端（comic-front）**：模板只用 uni 组件、CSS 只写类选择器、自定义组件不用 `v-model`（写法约定，详见其 README 开发约定）。
 - **前端问题先实跑取证**：页面出现**请求报错 / 样式错位 / 交互失效**时，**不必等用户要求**，先用 playwright MCP 在真浏览器里跑一遍再下结论 —— 报错看 `browser_console_messages`、请求看 `browser_network_requests`（单条详情 `browser_network_request`）、DOM 看 `browser_snapshot`。**禁止只读代码就断言"应该是 XX 问题"**。**MCP 不可用时先自检再补**：**先检测 playwright MCP 是否存在**（查工具索引 `mcp__playwright__*` / 连接器列表，**不要只看某个固定配置文件** —— 同一 MCP 可能由用户级、项目级或其他 agent 的配置提供）；确认**不存在**才写入标准配置并安装，再**显式提示用户去连接器管理页 Trust**；**已存在**（只是工具不在索引）→ 配置没坏，直接提示重新 Trust。**不得静默降级成"读代码猜"**。排查规程与配置见 `comic-front/NOTES.md` §4。
 - **提交信息**：一律 Conventional Commits —— `<type>(<scope>): <中文主题>`。type 取 `feat` / `fix` / `refactor` / `perf` / `docs` / `chore` / `test` / `ci`；scope 取模块名（`crawler` / `api` / `web` / `db` / `deploy` / `tools`），跨模块或不限模块时可省。正文只写 2~3 行「改了什么、为什么」，不罗列文件 / 函数 / 实测数字。示例：`feat(crawler): 新增拷贝漫画源，失败日志带上漫画名`。
