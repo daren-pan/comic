@@ -72,3 +72,7 @@ build/deploy/
 > **不是**本机 3306，也不是别的系统占着的 3307）。起服务前先确认 Docker Desktop 已运行、
 > `docker ps` 中 `comic-mysql` 为 `Up`，否则后端连不上库。
 > 日志统一写根 `logs/`（`api.log` / `vite.log`）。
+
+---
+
+> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）。

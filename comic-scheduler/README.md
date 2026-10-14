@@ -96,3 +96,7 @@ python -c "from comic_scheduler.daemon import *; import comic_crawler.facade as 
   同一轮的**状态**在任务表 `admin_task`（见上节）。
 - **依赖方向**：`scheduler → crawler → core`，**不依赖 api-service**。改这里不影响接口层的分层断言；
   反之 api 只认 facade 契约面（见 `api-service/README.md` 与 `test_crawler_boundary.py`）。
+
+---
+
+> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）；修复过程流水写在 `.workbuddy/memory/YYYY-MM-DD.md`。

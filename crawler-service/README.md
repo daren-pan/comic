@@ -187,4 +187,4 @@ python -m unittest discover -s tests -t tests
 ---
 
 > 各源站的接口路径 / 请求头 / 限流与已知坑见 `sources/<源名>/README.md`；
-> 修复过程与验证记录写在 `.workbuddy/memory/YYYY-MM-DD.md`，不进本文件。
+> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）；修复过程流水写在 `.workbuddy/memory/YYYY-MM-DD.md`。

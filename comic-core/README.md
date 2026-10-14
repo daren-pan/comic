@@ -30,6 +30,7 @@ comic-core/
     ├── models.py             # 领域模型（ComicDetail / ChapterBrief …）
     ├── paths.py              # 路径常量：数据根 / 图库根 / 源开关文件
     ├── taxonomy.py           # 标签归一（繁体→简体、别名映射；读 data/tag_synonyms.json）
+    ├── status.py             # 连载状态归一（4 个规范值 + 别名表；未命中保留原文并警告）
     ├── data/                 # taxonomy 的运行时数据（必须随包发布）
     ├── logctx.py             # 日志上下文（task_id / task_type，供管理台「按任务查」）+ 任务号生成
     ├── notify.py             # 往消息中心投递消息（`POST /api/messages` + HMAC 服务令牌；只用标准库）
@@ -64,3 +65,7 @@ from comic_core.taxonomy import normalize_tag
 from comic_core.images.store import default_store_root
 print(paths.DATA_ROOT); print(normalize_tag('測試')); print(default_store_root())"
 ```
+
+---
+
+> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）；修复过程流水写在 `.workbuddy/memory/YYYY-MM-DD.md`。

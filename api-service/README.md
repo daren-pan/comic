@@ -1,7 +1,7 @@
 # api-service（FastAPI）
 
-对外 REST API（**纯 API**；前端产物由 `deploy/web`、`deploy/front` 两个带 nginx 的镜像各自发，
-不再同源托管）；读取 crawler-service 落库的数据（唯一存储：MySQL）。
+对外 REST API（**纯 API**；前端产物由 `comic-front` 镜像自带的 nginx 发、不同源托管 ——
+comic-web 的镜像部署已于 2026-10-10 下线）；读取 crawler-service 落库的数据（唯一存储：MySQL）。
 装配入口 `main.py` **只做三件事**：建 app → `include_router` → （有前端 dist 时才）挂载。
 依赖采集层的方式只有两处，且**方向单向**：① `pyproject.toml` 的 `dependencies` 里 `comic-crawler>=1.0.0`；
 ② 代码里**只 import `comic_crawler.facade`**（采集侧对外契约面，见 `crawler-service/README.md`）——
@@ -20,6 +20,7 @@ api-service/
 │   ├── pagination.py  #   分页归一 + 单页上限 MAX_PAGE_SIZE（**接口侧**约束，与存储实现无关）
 │   └── responses.py   #   统一响应信封
 ├── schemas.py         # 请求体模型（入参**形状**边界）
+├── schemas_out.py     # 响应体模型（出参契约 —— 同时喂 /docs 与前端类型生成，见 NOTES §1）
 ├── serializers.py     # 领域对象 → 前端驼峰契约（**纯函数、不 import core.db**：tags 由调用方注入）
 ├── services/          # 业务动作（不绑定路由，可被 router / 后台任务复用）
 │   ├── images.py      #   图片读取（魔数判型）+ SVG 占位图 + admin_image_store()
@@ -34,7 +35,9 @@ api-service/
     ├── public.py      #   健康 / 分类 / 作品 / 章节 / 封面 / 正文图（免登录）
     ├── auth.py        #   注册 / 登录 / 当前用户
     ├── users.py       #   收藏（需登录）/ 阅读历史（登录→账号、游客→匿名）
+    ├── comments.py    #   评论区（读免登录 / 写需登录）
     ├── admin.py       #   采集管理台 + 日志查询（`require_admin`）
+    ├── admin_comics.py #  作品管理：上下架 / 评论开关 / 删评论（`require_admin`）
     ├── messages.py    #   消息中心读写（**登录即可读**，内容按账号过滤；写 `require_admin_or_service`）
     └── admin_users.py #   授权页（`require_superadmin`，仅超管）
 ```
@@ -57,7 +60,7 @@ api-service/
 | `GET /api/chapters/{id}/pages` | 分页图片列表；库内还没有页清单时**现场登记一次**（首次打开这一话才产生） |
 | `GET /api/covers/{id}` | 封面（真实文件优先，缺失生成 SVG）；`Cache-Control: max-age=3600` + `ETag`，占位图 `no-store` |
 | `GET /api/images/{comic_id}/{chapter_id}/{page_no}` | 分页图**三级兜底**：本地图库 → **穿透源站取这一张并顺手落盘** → SVG 占位。命中图库时 7 天长缓存 |
-| `GET /api/sources/search?q=&source=&limit=` | 搜索**源站**（只读不写库），按源分组；带 `inLibrary`/`comicId`，供前端显示「已收录」或「导入并阅读」。单源失败静默跳过 |
+| `GET /api/sources/search?q=&source=&limit=` | 搜索**源站**（只读不写库），按源分组；带 `comicId`（非 None = 库内已收录），供前端显示「已收录」或「导入并阅读」。单源失败静默跳过 |
 | `GET/PUT/DELETE /api/users/{user_id}/favorites[/{comic_id}]` | 收藏查询 / 添加 / 取消（`PUT` 幂等）；**需登录**，归属以 token 为准 |
 | `GET/PUT /api/users/{user_id}/history` · `DELETE .../history/{comic_id}` | 阅读历史：查询 / 写进度 / 删除。归属：带 token → 账号 id，否则匿名 id；写入先校验章节属于该作品（不匹配 404） |
 | `GET /api/admin/sources` · `POST /api/admin/sources/{name}/toggle` | 数据源列表（启用态 / 库内数 / 上次同步）/ 切换采集开关（持久化，重启不丢） |
@@ -139,4 +142,4 @@ cd api-service
 
 ---
 
-> 修复过程与验证记录写在 `.workbuddy/memory/YYYY-MM-DD.md`，不进本文件。
+> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）；修复过程流水写在 `.workbuddy/memory/YYYY-MM-DD.md`。

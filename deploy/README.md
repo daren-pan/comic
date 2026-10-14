@@ -164,3 +164,7 @@ docker compose -f deploy/docker-compose.yml up -d
   ⚠️ **改 `.env` 后要 `up -d` 重建容器才生效**；镜像自带 tzdata，无需额外装包。
 
 完整说明（环境变量、上线前必做清单、迁移脚本怎么跑）见 [`../docs/deploy.md`](../docs/deploy.md)。
+
+---
+
+> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）；修复过程流水写在 `.workbuddy/memory/YYYY-MM-DD.md`。

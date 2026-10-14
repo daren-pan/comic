@@ -24,7 +24,7 @@ comic/
 │   ├── routers/              #   HTTP 接口分层：public / auth / users / admin
 │   └── schemas.py serializers.py  # 请求体模型 / 领域对象序列化
 ├── comic-web/                # 前端（Vite + Vue3，dist 不随仓库分发，clone 后需先 npm run build）
-├── comic-front/              # 前端 · uni-app 版（Vue3 + Vite + TS；H5 双端优先，小程序/App 预留）
+├── comic-front/              # 前端 · uni-app 版（Vue3 + Vite + TS；H5 单平台，移动 / 网页双形态）
 │                             #   comic-web 的忠实移植：pages.json 路由 + uni.request + 兼容层（utils/），
 │                             #   与 comic-web 相互独立，H5 构建产物 comic-front/dist/build/h5
 ├── tools/                    # 一次性运维脚本（标签回填/规范化等，见 tools/README.md）
@@ -111,11 +111,9 @@ cd comic-web && npm run dev   # Vite dev server（5173），/api 由 Vite 代理
 cd comic-front && npm install
 npm run dev:h5        # H5 开发（:5174，/api 代理到 8000；与 comic-web 的 5173 错开，可同时运行）
 npm run build:h5      # H5 构建 → comic-front/dist/build/h5
-npm run dev:mp-weixin # 小程序（产物 comic-front/dist/dev/mp-weixin，用微信开发者工具打开）
 ```
 
-> **H5 与小程序（mp-weixin）均已构建通过**；多端适配的做法、约定红线与已知残留风险见
-> [`comic-front/README.md`](comic-front/README.md)（⚠️ 小程序端尚未在真机 / 微信开发者工具里实测）。
+> 构建目标只有 H5；写法约定与已知残留风险见 [`comic-front/README.md`](comic-front/README.md)。
 > ⚠️ 依赖须锁 **vue3 线**（`@dcloudio/*` = `3.0.0-5020620260917001`、`vite` 5.2.8、`@dcloudio/types` 3.4.31），
 > 用 `@latest` 会拉到 Vue2 线并报 `@vue/composition-api` 的 ERESOLVE。
 

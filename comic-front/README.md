@@ -3,16 +3,16 @@
 漫画聚合阅读平台的前端（uni-app），由 `../comic-web`（纯 Web SPA）一比一移植而来：
 
 - **业务约定与逻辑完全不变** —— 页面结构、接口调用、登录态、消息中心、阅读器行为都与 `comic-web` 一致；
-- **只换底层设施** —— vue-router → uni 页面栈、axios → `uni.request`、`localStorage` → uni 存储、
-  `window` 自定义事件 → `uni.$emit`；差异全部收敛在 `src/utils/` 与 `src/api/request.ts`，业务层不感知；
-- **移动端为基准，网页版是增量**（2026-10-10 起双形态）：
-  - 2026-09-23 曾**只保留移动形态**（桌面元素与桌面断点整体删除、移动规则提为基础态，
-    见下文「桌面端适配已删除」—— 那段历史与手法仍然有效）；
-  - **2026-10-10 新增网页版模式**：移动端样式一行不动，网页版全部写成 `.mode-web` 前缀的
-    **增量覆盖**，按 UA 自动判定（2026-10-12 起手动切换键已移除；见下文「网页版模式」）。网页版是**全新设计**、不参照 `comic-web`；
-- ⚠️ **目标平台 = 移动端 + 网页端**（2026-10-10 起，均为 H5；小程序 / App 不再维护）。
-  代码里的 `#ifdef H5` 守护保留（对 H5 构建无影响），但**不再主动验证小程序构建**；
+  平台差异全部收敛在 `src/utils/`（兼容层）与 `src/api/request.ts`，业务层不感知；
+  （对 comic-web 的**有意调整**逐条记录在 [NOTES.md](NOTES.md) §1.1）
+- **移动端为基准，网页版是增量**（2026-10-10 起双形态）：网页版全部写成 `.mode-web` 前缀的增量覆盖，
+  按 UA 自动判定。网页版是**全新设计**、不参照 `comic-web`；
+- ⚠️ **目标平台 = H5**（移动端 + 网页端两种形态）；构建目标只有 `build:h5` 一个；
 - `comic-web` 保留为参考实现、**代码不再改动**。
+
+> **文档分工**：本文件 = 模块框架 / 页面用途 / 约定 / 命令（给人看）；
+> **[NOTES.md](NOTES.md) = 踩坑 / 实测 / 历史决策 / 排查规程**（AI 协作时维护，踩坑即写）；
+> **各页面的具体逻辑**由其源码注释解释维护。
 
 ## 目录结构
 
@@ -20,24 +20,22 @@
 comic-front/
 ├── index.html                # H5 入口（uni 约定）
 ├── vite.config.ts            # vite + @dcloudio/vite-plugin-uni；/api 代理到 8000；dev 端口 5174
+├── eslint.config.mjs         # ESLint（三条禁令：裸 alert / localStorage / uni.request）
+├── vitest.config.ts          # 单测配置（独立于 vite.config，避免加载 uni 插件）
+├── tests/                    # vitest：路由映射 / 季节 / 分页状态机 / 约定守卫
 └── src/
     ├── main.ts               # createSSRApp 工厂（uni 约定），注入 Pinia + 全局样式
-    ├── App.vue               # 应用级容器（uni 的 App.vue 不渲染页面）+ 小程序端 button 归一化
+    ├── App.vue               # 应用级容器（uni 的 App.vue 不渲染页面）
     ├── pages.json            # 路由表（替代 vue-router 的 route 定义）
-    ├── manifest.json         # 各端打包配置（appid / h5 base 等）
+    ├── manifest.json         # 应用配置（h5 标题 / router base 等）
     ├── style.css             # 全局设计变量与基础样式（与 comic-web 同源）
-    ├── uni-compat.css        # uni 内置组件默认样式归一化（H5 侧，见下文）
-    ├── types.ts              # 领域类型（与 comic-web 逐字一致）
-    ├── api/                  # 与 comic-web 同构：request / auth / content / user / admin / ondemand
+    ├── uni-compat.css        # uni 内置组件默认样式归一化（见 NOTES §2.1）
+    ├── types.ts              # 领域类型（核心类型从后端 OpenAPI 自动生成提取，见下）
+    ├── api/                  # request 单通道 + 业务模块；generated/ 为自动生成（勿手改）
+    ├── composables/          # 页面共享模式（usePagedList：分页/竞态/失败回退）
     ├── stores/               # Pinia：user（登录态）/ message（消息中心）
-    ├── components/
-    │   ├── Layout.vue        # 由 comic-web 的 App.vue 移植：顶栏 + 底栏导航 + 抽屉菜单 + toast（本端只有移动形态）
-    │   ├── ComicCard.vue · Picker.vue · DateInput.vue
-    ├── utils/                # 兼容层（comic-front 特有，见下）
-    │   ├── router.ts · storage.ts · event.ts · guard.ts · ui.ts
-    │   ├── theme.ts          # 主题（明亮 / 夜间）：状态 + 持久化 + 往根节点挂主题类
-    │   ├── layout.ts         # 布局模式（移动版 / 网页版）：UA 判定 + 往根节点挂模式类（仅 H5）
-    │   ├── icons.ts          # 移动端底栏图标（自绘 SVG → base64 data URI，明亮/夜间各一套）
+    ├── components/           # Layout（全站壳）/ ComicCard / Pager / StateView / FilterBar / Picker / DateInput / AdminTabs / UserAvatar
+    ├── utils/                # 兼容层（本端特有）+ format.ts（全站时间格式化，8 处收敛为 1 份）
     └── pages/                # 每个页面一个目录（uni 约定），共 15 页
 ```
 
@@ -45,35 +43,26 @@ comic-front/
 
 | uni 页面路径 | 对应 web 路由 | 页面 | 说明 |
 |---|---|---|---|
-| `pages/index/index` | `/` | 首页 | 顶栏（站标「聚漫画」+ 图片轮播播报）+ 热门榜单 + 最新更新 + 分类精选 |
-| `pages/search/index` | `/search` | 分类浏览 / 搜索 | 关键词 + `FilterBar`（标签下拉 + 排序）+ 分页（每页 18 条）；站内搜不到时**搜源站并导入** |
-| `pages/latest/index` | `/latest` | 最近更新 | **按日期分组**的卡片网格（组头吸顶）+ **触底自动追加**（`sort=updated`，每批 18 条） |
-| `pages/rank/index` | `/rank` | 排行 | **一整条全库榜单**（默认热度降序）+ `FilterBar`；触底追加下一页 |
-| `pages/comic/index` | `/comic/:id` | 详情页 | 封面 / 简介 / 标签 / 来源标注 + 收藏 + 章节列表 + 续读 |
+| `pages/index/index` | `/` | 首页 | 顶栏（站标 + 轮播播报）+ 热门榜单 + 最新更新 + 分类精选 |
+| `pages/search/index` | `/search` | 分类浏览 / 搜索 | 关键词 + `FilterBar` + 分页（18/页）；站内搜不到时**搜源站并导入** |
+| `pages/latest/index` | `/latest` | 最近更新 | 按日期分组（组头吸顶）+ 触底自动追加 |
+| `pages/rank/index` | `/rank` | 排行 | 全库榜单（默认热度降序）+ `FilterBar`；触底追加 |
+| `pages/comic/index` | `/comic/:id` | 详情页 | 封面 / 简介 / 标签 + 收藏 + 章节列表（NEW 角标 + 正倒序）+ 评论区 + 续读 |
 | `pages/reader/index` | `/reader/:comicId/:chapterId` | 在线阅读器 | 双阅读模式、主题切换、章节切换、进度记忆 |
-| `pages/me/index` | `/me` | 我的 | 最近阅读（续读 / 删除）+ 我的收藏 |
-| `pages/profile/index` | `/profile` | 个人中心 | 列表式资料（头像 / 昵称可点即改）+ 修改密码 + 退出登录；入口：抽屉账号行 / 抽屉菜单 / 网页版用户胶囊 |
-| `pages/messages/index` | `/messages` | 消息中心（**服务端 `message` 表，所有登录用户**，按收件范围过滤：任务消息 = 管理员，收藏更新 = 本人）；**顶栏铃铛的落点** |
-| `pages/login/index` | `/login` | 登录 / 注册 | JWT 登录；收藏需登录，历史**登录后归属账号、游客用浏览器匿名 id** |
-| `pages/admin/index` | `/admin` | 采集管理台 | 采集 / 巡检 / 封面自愈；**需管理员**。窄屏卡片单列铺开 |
-| `pages/admin/comics` | `/admin/comics` | 作品管理 | **上下架** + **评论开关**（全站 + 单作品）+ **补全章节**（复用「按需导入」，按源站目录补齐缺章）；**需管理员**。⚠️ **搜索式**：不列全部，输入关键词才出结果（含已下架）。卡片式（不是表格） |
-| `pages/admin/schedule` | `/admin/schedule` | 定时任务配置 | cron 表达式 + 动作（采集 / 失效巡检）+ 运行状态（执行器在线、下次执行）；**需管理员** |
-| `pages/admin/logs` | `/admin/logs` | 运行日志查询 | 按级别 / 源站 / 事件 / 作品 / 任务 / 时间窗筛；**需管理员**。窄屏表格→卡片 + 点行展开详情 |
-| `pages/admin/users` | `/admin/users` | 授权管理 | 普通管理员 ⇄ 普通用户；**仅超管**。窄屏表格→卡片 |
+| `pages/me/index` | `/me` | 我的（书架） | 最近阅读（续读 / 删除）+ 我的收藏 |
+| `pages/profile/index` | `/profile` | 个人中心 | 资料（头像 / 昵称可点即改）+ 修改密码 + 退出登录 |
+| `pages/messages/index` | `/messages` | 消息中心 | 服务端 `message` 表、所有登录用户（按收件范围过滤）；**顶栏铃铛的落点** |
+| `pages/login/index` | `/login` | 登录 / 注册 | JWT；收藏需登录，历史游客用浏览器匿名 id |
+| `pages/admin/index` | `/admin` | 采集管理台 | 采集 / 巡检 / 封面自愈；**需管理员** |
+| `pages/admin/comics` | `/admin/comics` | 作品管理 | 上下架 + 评论开关（全站 + 单作品）+ 补全章节；**搜索式**（不列全部）；**需管理员** |
+| `pages/admin/schedule` | `/admin/schedule` | 定时任务配置 | cron + 动作 + 运行状态（执行器在线 / 下次执行）；**需管理员** |
+| `pages/admin/logs` | `/admin/logs` | 运行日志查询 | 按级别 / 源站 / 事件 / 作品 / 任务 / 时间窗筛；**需管理员** |
+| `pages/admin/users` | `/admin/users` | 授权管理 | 普通管理员 ⇄ 普通用户；**仅超管** |
 
-> 管理台各页**不做 H5 专属**，移动端同样可访问（顶栏入口按角色显示）。
->
-> 采集管理 / 作品管理 / 定时任务 / 运行日志四页顶部是**同一栏的四个选项卡**（`components/AdminTabs.vue`）：
-> 点选项切换，用 `replace` 导航（来回点不在页面栈里堆历史）。⚠️ 这是**导航式**选项卡、不是页内切换 ——
-> 四页各有独立状态（数据源表单 / 作品上下架与评论 / cron 与运行态 / 日志筛选与分页），合并成一页会搅在一起，
-> 也会丢掉可直达的地址（`#/admin/schedule` 等）。原来那些跳转按钮与「← 返回采集管理」链接都收成了这几个选项。
->
-> ⚠️ **「作品管理」只在这个选项卡栏里、不进抽屉菜单**（2026-10-09 用户要求「作品管理放在管理台同一页面、
-> 不同选项卡上」）—— 与「定时任务」「运行日志」同一处理，管理台的抽屉入口保持「采集管理」一个。
-> 该页还是**搜索式**的（不列全部作品、输入关键词才出结果），因为「不需要列出所有的漫画」。
-
-顶栏由 `components/Layout.vue` 渲染：**每个页面都要用 `<Layout>` 包住自身内容** —— uni 没有全局路由出口，
-所以 `comic-web/App.vue` 的 `<RouterView />` 换成了 `<slot />`。
+> 管理台四个页面顶部是**同一栏的四个选项卡**（`components/AdminTabs.vue`，导航式 —— 各页仍是独立路由，
+> 可直达可分享）；「作品管理」只进选项卡栏、不进抽屉菜单。
+> **每个页面都要用 `<Layout>` 包住自身内容** —— uni 没有全局路由出口，
+> 所以 `comic-web/App.vue` 的 `<RouterView />` 换成了 `<slot />`。
 
 ## 模块架构
 
@@ -81,711 +70,43 @@ comic-front/
 
 | 模块 | 替代 | 说明 |
 |---|---|---|
-| `router.ts` | vue-router | 同形的 `useRoute()` / `useRouter()`；`toUniUrl()` 把 `/comic/3`、`{path,query}` 解析成 `pages/comic/index?id=3`；`openNewTab()` 在 H5 开新标签、其他端退化为同页跳转 |
+| `router.ts` | vue-router | 同形的 `useRoute()` / `useRouter()`；`toUniUrl()` 把 `/comic/3`、`{path,query}` 解析成 `pages/comic/index?id=3`；`openNewTab()` 开新标签 |
 | `storage.ts` | localStorage | `get/set/remove`，语义一致（读不到返回 `null`），底层 `uni.*StorageSync` |
-| `theme.ts` | 主题管理器 | `useTheme()` → `{ theme, isDark, setTheme, toggleTheme }`；选择存本地、未选过时跟随系统，并把主题类挂到根节点（见下文「主题」） |
-| `layout.ts` | 布局模式管理器 | `useLayoutMode()` → `{ mode, isWebMode }`；**只按 UA 判定**（手机 → 移动版 / 电脑 → 网页版；2026-10-12 起手动切换键已移除），并把 `.mode-web` 类挂到根节点（仅 H5，见下文「网页版模式」） |
+| `theme.ts` | 主题管理器 | `useTheme()` → `{ theme, isDark, setTheme, toggleTheme }`；选择存本地、未选过时跟随系统 |
+| `layout.ts` | 布局模式管理器 | `useLayoutMode()` → `{ mode, isWebMode }`；**只按 UA 判定**（手机 → 移动版 / 电脑 → 网页版） |
 | `event.ts` | `window` 自定义事件 | `emit/on/off` → `uni.$emit/$on/$off` |
-| `guard.ts` | vue-router 的 `beforeEnter` | uni 页面栈没有路由钩子 → `requireRole(superOnly, fullPath)`，由三个管理台页面在 `onLoad` 里 `await` |
-| `ui.ts` | `window.alert/confirm` | `showAlert` / `showConfirm`（内部 `uni.showModal`），小程序无 `window` |
+| `guard.ts` | vue-router 的 `beforeEnter` | uni 页面栈没有路由钩子 → `requireRole(superOnly, fullPath)`，由管理台页面在 `onLoad` 里 `await` |
+| `ui.ts` | `window.alert/confirm` | `showAlert` / `showConfirm`（内部 `uni.showModal`，全站统一弹窗出口） |
+| `format.ts` | 时间格式化 | `formatDateTime` / `formatMonthDay` / `formatCommentTime` / `formatInterval` / `formatHeat` 等 |
 | `api/request.ts` | axios | `uni.request` 单通道；`request<T>(path,{method,data,params})` 签名不变；错误文案仍取后端 `detail`/`message` |
 
-**与 vue-router 的差异（页面里必须知道）**
+### 与 vue-router 的差异（页面里必须知道）
 
 1. **路由参数走 `onLoad(options)`** —— uni 没有 `route.params`；`route.path/query` 由页面在 `onLoad` 里调 `setRoute()` 登记。
-2. **同页查询变更**（如搜索页切分类）：uni 不允许 `navigateTo` 自身 → `router.replace` 只做「本地状态 + H5 地址栏同步」。
+2. **同页查询变更**（如搜索页切分类）：uni 不允许 `navigateTo` 自身 → `router.replace` 只做「本地状态 + 地址栏同步」。
    ⚠️ 这种写法**只给 `query`、不给 `path`**（`router.replace({ query: {...} })`），`toUniUrl()` 会补当前路径
-   （`to.path || route.path`）。**别把这个兜底删掉**：缺了它 path 是 `undefined`，`toUniUrl` 里的
-   `path.indexOf('?')` 直接抛 `TypeError: Cannot read properties of undefined (reading 'indexOf')`，
-   而异常会打断调用方 —— `onCategory` 里跟在后面的 `load()` 就再也执行不到，表现为
-   **点分类标签只切高亮、不查数据**（2026-09-22 用户报的就是这个）。
+   （`to.path || route.path`）。**别把这个兜底删掉** —— 缺了它 path 是 `undefined`，会抛
+   `TypeError: Cannot read properties of undefined`，并打断调用方后续语句（表现为"点分类标签只切高亮、不查数据"）。
 3. **管理台门卫是「页面内调用」**：在 `onLoad` 里 `await requireRole(...)`，未通过则整页不渲染并跳登录页。
 4. **H5 地址栏是 uni 自己的路径**：`#/pages/rank/index`、`#/pages/comic/index?id=43`（**不是** `#/rank`）——
    站内跳转由 `toUniUrl()` 转换，但**书签 / 外链要按 uni 这套路径写**。
 
-**对 `comic-web` 的三十一处有意调整**（第 1~3 条是逻辑，其余是视觉 / 控件 / 交互）
+### 后端契约与类型生成
 
-| # | 位置 | 现状 | 原因 |
-|---|---|---|---|
-| 1 | `pages/reader` 的 `chapterId` | 由 `const` 改 `ref`，`goChapter()` 同步更新 | 原写法换章后不更新，上下章按钮与目录高亮会失真 |
-| 2 | `pages/reader` 的参数 watcher | 删除 | `goChapter()` 本就显式 `loadChapter()`，避免重复加载 |
-| 3 | `pages/search` 监听 `route.fullPath`（字符串） | 不再监听 `route.query` 对象 | 兼容层的 `query` 每次登记都是新对象，按引用比较会重复触发 |
-| 4 | `pages/login` 返回按钮 | 移入卡片内左上角（内缩 16/14px）、绿色 `#15803d` | 用户指定的视觉调整；绿色就地取值，**未**新增调色板变量以保持 `style.css` 与 comic-web 同源 |
-| 5 | 管理台日期控件（5 处） | 改用 `components/DateInput.vue`（H5 仍是原生 `<input type="date">`，其它端降级为文本输入） | uni 的 `<input>` **不支持 `type="date"`**（白名单外会被抹成 `text`） |
-| 6 | 导航（全端统一） | 顶栏精简为「菜单 · 搜索 · 消息 · 主题」，主导航移到**底部固定栏**；账号入口收进抽屉菜单 | 用户指定的交互调整；comic-web 无此形态，详见下文「底栏导航」。⚠️ 2026-09-23 起**不再有宽窄屏之分**，这套形态就是本端唯一形态 |
-| 7 | 移动端封面网格列数 | 手机（≤560px）由 2 列改 **3 列**、间距收到 10px；`ComicCard` 配套收紧字号 | 用户要求「移动端每行三部、增加信息量」；详见下文「移动端漫画列表」 |
-| 8 | `style.css` 的 `.page` | `padding: 20px 0 48px` → `20px 16px 48px` | 原写法把 `.container` 的 `0 16px` 覆盖成 0 → 窄屏内容贴屏幕边缘 |
-| 9 | 首页各区块（热门 / 最新 / 分类精选） | 每块由 5–8 部统一改 **3 部**、网格由 `.grid-5` 改 `.grid`，标题行右侧加「全部 ›」 | 用户要求「只显示排名最前的三部，其余走链接」 |
-| 10 | 主题（明亮 / 夜间） | 新增，顶栏右侧一个 🌙/☀️ 按钮切换 | 用户要求；comic-web 只有明亮一套 |
-| 11 | 漫画明细页移动端 | 封面挪到卡片左上、明细+按钮在右上；章节列表改 **每行 4 个**网格 | 用户要求「适配移动端」；详见下文「漫画明细页」 |
-| 12 | 阅读器页面图宽度 | 横向 `92vw` → `100vw`、竖排 `96vw` → `100vw`（并隐掉 scroll-view 的 8px 滚动条） | 用户要求「左右黑边都去掉」；详见上文「阅读器页面图尺寸」 |
-| 13 | 分类页 / 排行页的筛选 | 分类页的 30 个标签 chip 平铺 → **下拉单选**；排行页的「每标签一块」→ **一整条全库榜单**；两页共用 `components/FilterBar.vue`（标签 + 排序），默认**热度降序** | 用户要求「新增标签条件和热度、收藏筛选，默认按热度降序；去掉全部标签展开，排行榜不必每个标签单独排序」；详见下文「筛选条」 |
-| 14 | 页脚 | **整块删除**（品牌行 + 「● 已连接采集服务」状态标签 + 「仅收录…」版权提示）；给底栏清障的 `padding-bottom: 84px` 从 `.footer` **搬到 `.page`** | 用户要求；窄屏下和固定底栏一起挤，一屏剩不下多少内容。⚠️ 清障高度不能跟着页脚一起消失，否则最后一排卡片被底栏压住 |
-| 15 | 管理台三页（≤860px） | 日志页 / 授权页的 flex 表格 → **纵向卡片**（日志页带伸缩展开：点行看全部字段）；采集页 `.grid`/`.maint-row` 的 `minmax(360px,1fr)` → `1fr` | 用户要求「采集和日志页面也要适配移动端，表格列太多可以换成伸缩展开的模式，点击之后可以查看每个日志的详情，**不允许出现横向滑动条**」；详见下文「窄屏不许横向滚动条」 |
-| 16 | 桌面端适配 | **整体删除** —— 桌面专属元素（logo / 顶栏主导航 / 用户胶囊 / 退出 / 登录链接 / 消息下拉浮层 / 页脚）与桌面断点（860 / 900 / 760 / 700px）全部移除，移动态提升为基础态 | 用户要求「comic-front 适配桌面端删掉，移动端启动这个端口、网页端启动 comic-web 端口，端口区分开、改成两个 docker 镜像」；详见下文「桌面端适配已删除」 |
-| 17 | 阅读器顶/底栏遮挡 + 进度条拖动（2026-10-07） | ① 阅读区改为**夹在两根栏之间**（`.stage { top: var(--tb-h); bottom: var(--bb-h) }`，图片高度 `calc(100vh - 顶栏 - 底栏)`）—— 原来 `.stage` 满屏 + 两根栏 `fixed` 浮在上面，实测栏显示时顶栏盖住图片上方 **36px**、底栏盖住下方 **25px**；② 底部进度条由「只能点击」改为**可拖动**（拖动中显示预览页号、松手才 `goPage`，另加拖动手柄） | 用户要求「下方滑动条能够手动滑动到对应页数，顶栏和底栏不能遮住漫画图片」 |
-| 18 | 阅读器竖排收尾块（2026-10-07） | ① `.end-bar` 原是 `position: fixed; bottom: 56px` 的**浮层**，竖排滚到末页会压在最后一页图上（实测重叠 **90px**）→ 用 `.vertical-stage .end-bar { position: static }` 让它**排进滚动流**（横排无滚动空间可排，仍是浮层）；② 两个按钮去掉 `←`/`→`、加 `min-width: 140px` + `white-space: nowrap`（原来 94×58 = 文字被挤成两行） | 用户要求「竖排连播到最后一页按钮还是会挡住最后的图片；简化按钮、加宽让文字显示完整、不需要左右标记」 |
-| 19 | 阅读器章节目录抽屉宽度（2026-10-07） | `min(320px, 85vw)` → **`min(240px, 66vw)`**（393px 视口下 320px = 占屏 **81%** → 240px ≈ **61%**），并加左侧投影区分抽屉边界 | 用户要求「章节目录列表缩窄一些，现在几乎把整个页面都占掉了」 |
-| 20 | 阅读器进度条触摸拖动 + 两根栏改透明悬浮（2026-10-07） | ① **触摸拖动修好**：`eventX()` 只读 `clientX`/`detail.x`，而 `touchstart/touchmove` 的坐标在 **`touches[0].clientX`** 里 → 手机端恒算出 0、每次都跳到第 1 页；新增 `seekX()`（触摸优先）并在拖动期间 `clearTimeout(hideTimer)` 免得两根栏中途滑走；② **推翻 #17 的"让位"方案**：图片恢复满幅（`height: 100vh`），两根栏改为**半透明悬浮**（渐变 0.55/0.6 → **0.34**，页码加文字阴影，进度条底色 0.22 → 0.3），竖排收尾块下边距加上 `--bb-h` 免得压在悬浮底栏下 | 用户要求「手机端进度条没法拖拽只能点击；顶栏和底栏背景应做成悬浮在漫画上的透明化显示，否则看起来突出一块不美观」 |
-| 21 | 顶栏「返回上一层」（2026-10-07；**2026-10-09 改为层级返回**） | 顶栏最左（flex `order: 0`）加返回键，**只在非底栏 tab 页显示**（`ROOT_PATHS = ['/', '/latest', '/search']`，其余如 `/comic/:id`、`/rank`、`/me`、`/messages`、`/admin*` 都显示）；点击走 `router.back()` —— **层级返回**：跳**固定上级**（`utils/router.ts` 的 `parentOf`）+ `redirectTo` 替换，**不依赖浏览历史 / 页面栈**（H5 刷新后同样有效，见下文「底栏导航 · 顶栏返回键」） | 用户要求「漫画详细页没有返回上一层的按钮」；2026-10-09 要求「返回上一层而不是之前切换的页面 —— 一刷新页面返回逻辑就失效了」。⚠️ 底栏 tab 清单在 Layout 里**有两份**（`ROOT_PATHS` 与 `tabs`），改一处要改另一处 |
-| 22 | 顶栏重排 + 主题移入菜单 + 抽屉改右侧（2026-10-07） | ① **☰ 从最左移到最右**（`order: 1` → `5`，排在消息铃铛之后）；② **顶栏的主题切换键删除**，改到抽屉菜单里做「背景主题」分段控件（`setTheme('light'\|'dark')`，当前态高亮）；③ 返回键图标 `←` → **`❮`**（U+276E 重角引号，21px 与 ☰ 同高：同方向但笔画更粗，普通 `<` 在 19px 下又细又小）；④ 抽屉改为**从右侧移入移出**（`.mobile-menu` 由 `left: 0` 改 `right: 0`、投影改朝左、`drawer-in/out` 关键帧 `translateX(-100%)` → **`100%`**） | 用户要求「顶栏左上方的菜单移到右上方，主题按钮并入菜单里面实现切换，回退的标志改为 <」「抽屉的位置也要改为从右移入移出」 |
-| 23 | 漫画明细页章节角标（2026-10-09） | 章节按钮**右上角**加「NEW」小胶囊，标出「最近一批入库」的章节（`Chapter.isNew`，口径见后端 `services/chapters.mark_latest_batch`） | 用户要求「每次定时任务执行后...需要在更新过的章节右上方加入新的一个标识，代表本次同步更新过的章节」；详见下文「漫画明细页」 |
-| 24 | 漫画明细页章节排序（2026-10-09） | 「章节列表（N）」行右侧加「倒序｜正序」切换芯片；默认倒序（= 原行为），偏好记本地 `comic_chapter_order` | 用户要求「章节列表加入正倒序排序」；详见下文「漫画明细页」 |
-| 25 | 最近更新页的加载与分组（2026-10-09） | 上下页按钮 → **触底自动追加**（`onReachBottom`，与排行页同一套）；列表**按本地日期分组**、组头吸顶；卡片上的相对时间角标**去掉** | 用户要求「不通过上下页加载，而是通过下拉的方式加载、按日期分组、拉到底加载另一批」；详见下文「最近更新页」 |
-| 26 | 区块标题去 emoji（2026-10-09） | 首页「热门榜单」「最新更新」与最近更新页「最近更新」前的 emoji（🔥 / ⚡）去掉；**排行页「🏆 热度排行」保留** | 用户要求「把最近更新前面的闪电符号和热门榜单的🔥去掉」（comic-web 三处都带 emoji） |
-| 27 | 漫画明细页评论区（2026-10-09） | 章节列表下方加评论区：列表 + 发表框 + 「加载更多」；**关闭时整块不渲染**（连标题一起）；管理员在每条评论上多一个「删除」 | 用户要求「在漫画下方增加评论区的功能，支持开启关闭评论区」；关闭口径经二次澄清为「整块屏蔽，而不是单单收起输入框」；详见下文「漫画明细页」 |
-| 28 | 作品上下架 + 管理台「作品管理」栏（2026-10-09） | ① 作品可**上下架**：下架后前台全部不可见（列表 / 搜索 / 收藏 / 历史 / **详情页 404**）；② 管理台加第 4 个选项卡「作品管理」，**只进选项卡栏、不进抽屉菜单**；③ 该页是**搜索式**（不列全部）、做成**卡片**而非表格；④ 每行「**补全章节**」（复用按需导入 `POST /api/admin/import`，按源站目录补齐缺章 —— 采集只翻「最近更新」列表、掉出列表的作品只能按作品定位补） | 用户要求「增加对某部漫画的上下架处理」「作品管理放在管理台同一页面、不同选项卡上」「不需要列出所有的漫画，只要根据搜索框输入关键字查找」「这么多评论不可能一个个去看的」（故该页不做评论浏览）、「不在定时任务内、章节不完整能不能补」（故加补章入口）；详见下文「漫画明细页」与页面表 |
-| 29 | 阅读器顶栏标题截断（2026-10-09） | `.tb-title` **超长省略号**（`overflow: hidden; text-overflow: ellipsis; white-space: nowrap` + `min-width: 0`），右组（上一章 / 下一章 / ⚙ / ☰）**固定不收缩**（`flex: 0 0 auto`）；组内 gap 10→6、`.ghost-sm` 横向内边距 14→10 给标题腾宽 | 用户要求「标题过长时会导致后面上下一章的文字变成两行，改成标题固定长度，超过就隐藏」 |
-| 30 | 阅读器竖排两处修复（2026-10-09） | ① 竖排收尾块 `.end-bar` **去掉 `v-if="pageNo === total"`、常驻滚动流** —— 原来"滚到底那一刻"才插入，内容突然变长（+160px）但滚动位置不动，要**再滚一次**才看得到；② `goPage()` 的 `imgLoading = true` **只对横排生效** —— 竖排是流式懒加载，目标图 `src` 没变就不会重发 `@load`，「图片加载中」块**永久卡住** | 用户报「下滑到底部时上下章按钮显示不出来，只有通过滚动条才能看到」+「第一张图上拉时有图片加载中的字样」 |
-| 31 | 网页版模式（2026-10-10） | 新增**移动 / 网页双形态**：模式由 `utils/layout.ts` 管理（UA 判定默认 + 按钮切换 + 本地记忆；**2026-10-12 切换键移除、只按 UA 判定**，仅 H5）；网页版为**全新设计**（不参照 comic-web）—— 桌面导航条、**所有网格页 6 列**（首页 / 最近更新 / 搜索 / 我的收藏）、详情页两栏（sticky 左栏）、阅读器 880px 宽度上限；**移动端为基准、零改动**（全部是 `.mode-web` 增量覆盖） | 用户要求「在 comic-front 原有移动端的基础上添加网页端的布局，通过按钮进行切换」「不用管 comic-web，重新设计网页端的页面，以移动端为基准」「网页端每行可以多添加些漫画，增加信息密集度（我说的是所有的网格页面）」；详见下文「网页版模式」 |
-| 32 | 界面四则微调（2026-10-12） | ① **布局切换键移除**：抽屉「页面布局」分段控件与网页版顶栏 📱 键删掉，模式**只按 UA 判定**（`utils/layout.ts` 不再读写本地偏好）；② 排行页标题去掉 🏆、删掉「全库按热度…」说明行；③ 详情页删掉「数据来源」行；④ 搜索页「其他来源」的来源名改为**线路一（copymanga）/ 线路二（zaimanhua）**（来源标签、单源行与导入提示一并替换） | 用户要求「移动网页切换的按钮隐藏吧，现在只能根据UA标识进行判断」「排行页面的全库热度从高到低排序……这句话删掉，热度排行前的图案也删掉，详情页中的数据来源去掉，搜索页面中其中来源切换 copymanga、zaimanhua 更换名称为线路一、线路二」 |
-| 33 | 个人中心（2026-10-12） | 新增**独立页 `/profile`**（书架 `/me` 保持原样）：**列表式**资料（头像 / 昵称可点即改；用户名 / 角色 / 注册时间只读）+ **修改密码** + **退出登录**；后端配套：改昵称 / 改密码 / 头像上传（存运行时数据目录 `avatar_store/`，≤2MB、JPG/PNG/WebP/GIF，**刻意不收 SVG**）与恢复默认；入口：抽屉账号行（整行可点，退出按钮从抽屉移除）+ 抽屉菜单「个人中心」+ 网页版用户胶囊（改指个人中心，顶栏导航补「书架」） | 用户要求「个人中心页我想要的是可以修改昵称，头像等东西的页面」「另起一个页面一列表的形式显示个人资料，支持编辑修改，退出登录按钮也放在里面」「在抽屉页中点击名称或头像跳转到个人中心，退出登录按钮也放到个人中心下」 |
+`src/types.ts` 的核心类型（`Comic` / `AdminComic` / `Chapter` / `PageInfo` / `Comment`）**从后端 OpenAPI 自动生成提取**，
+不再手抄。后端改字段后重跑两步即可让前端类型跟上：
 
-### 桌面端适配已删除（2026-09-23）
-
-**背景**：comic-front 原先是一套**响应式**前端（基础样式是桌面态，靠 `@media (max-width: 860px)`
-反向覆盖成移动态）。用户决定把两端**彻底分开**：网页端交给 `comic-web`、移动端用本端，
-两者端口与 Docker 镜像独立、按需启动。于是本端**只保留移动形态**。
-
-> ⚠️ **后续（2026-10-10）**：本端**新增了网页版模式**（移动端仍为基准），且 **comic-web 的镜像
-> 部署同日下线**（部署上只剩本端一个前端镜像）。本节记录的「删除」针对的是当时移植自 comic-web
-> 的那套桌面形态；网页版是**重新设计**的另一套 —— 见下文「网页版模式」。
-
-**改造手法：不是「删样式」，而是「把移动态提为基础态」**
-
-| 原来 | 现在 |
-|---|---|
-| 基础样式 = 桌面态，`@media (max-width: 860px)` 覆盖成移动态 | **移动态写在基础态**，断点整块删除 |
-| 桌面专属元素在窄屏 `display: none` | 元素**从模板里删掉**（DOM 都不生成，比隐藏干净） |
-| ≤560px 断点 = 手机内部微调 | **保留**（它不是桌面规则，是手机内的间距/字号收紧） |
-
-**逐处改动**
-
-| 位置 | 改动 |
-|---|---|
-| `components/Layout.vue` | 模板删掉 `.logo` / `.nav-links`（7 项主导航）/ `.user-chip` / `.logout` / `.login-link` / `.footer` / `.msg-panel` 浮层 / `.msg-mask`；底栏 `.bottom-nav` 与 `.menu-btn` 改为**恒显示**；`.menu-mask` / `.mobile-menu` 样式移到文件末尾无条件生效；脚本删掉 `backendAlive` 探活、`showMsg` 系列、`onUserClick`、`document` 监听 |
-| `pages/index/index.vue` | `.grid` 基础态 4 列 → **3 列**；删 900px 断点 |
-| `pages/latest/index.vue` | `.grid` 基础态 6 列 → **3 列**；删 900px 断点（`pageSize` 仍 18 = 3×6） |
-| `pages/search/index.vue` | `.grid` 基础态 6 列 → **3 列**；删 900px 断点（同上） |
-| `pages/me/index.vue` | `.fav-grid` 基础态 6 列 → **3 列**；`.row-actions` 竖排提升为基础态；删 900px 断点 |
-| `pages/rank/index.vue` | `.rank` 基础态 2 列 → **1 列**；删 760px 断点 |
-| `pages/comic/index.vue` | hero 提升为移动态（封面 96×128 左上 + 明细右上，横向卡片）；章节 4 列并隐藏序号徽标；删 700px 断点 |
-| `pages/comic/index.vue` hero 信息行 | 去掉「章节：N 话」与「热度 X」，只留「更新 时间」（2026-10-07 用户要求）—— 章节数下面「章节列表（N）」本来就有，hero 里重复；热度保留在排行页 |
-| `pages/comic/index.vue` hero 标签 | **去掉 `comic.category` 那个 chip**（它是「魔法, 校园」这种原始串，与 tags 是同一批信息、并排会重复）→ **每个标签一个可点 chip**；标签与作者名都可点，跳 `/search?keyword=<词>`（2026-10-07 用户要求）。⚠️ 走 `keyword` 而不是 `category`：后端 keyword 同时匹配 标题/作者/分类/**标签名**，而 `category` 是精确等于某标签名、且搜索页会拿分类下拉校验，非顶层标签会被丢掉 |
-
-**改这里时别踩的坑**
-
-- ⚠️ **`order` 重排依赖 DOM 顺序不变**：顶栏靠 flex `order`（返回 0 / 搜索 2 / 消息 3 / 菜单 5）
-  把 ☰ 顶到最左，而 DOM 里的顺序仍是「搜索 · 消息 · 主题 · 菜单」。删元素时别顺手调整 DOM 顺序。
-- ⚠️ **底栏清障必须留在 `.page` 上**：`.page { padding-bottom: 84px }`（+ `env(safe-area-inset-bottom)`）
-  是防止最后一排卡片被固定底栏压住。页脚已删，这条是**唯一**的清障来源，删了就会压住内容。
-- ⚠️ **`.page` 的左右 16px 不能省**（见下文「移动端漫画列表」最后一条）。
-- ⚠️ **`.chapter .no`（序号徽标）是 `display: none`，不是从模板删的**：章节标题本身就是「第 12 话」，
-  4 列下每格只剩 ~80px，徽标会占掉一半宽度。留着 `display: none` 是为了保留模板结构、
-  便于日后想恢复时只改一行 CSS。
-- ⚠️ **网格列宽一律写 `minmax(0, 1fr)`，别只写 `1fr`**（详情页章节列表就是这么被撑破的）：
-  grid 子项默认 `min-width: auto`，`1fr` 轨道的下限 = 子项的 **min-content**，而章节名里有
-  「第2回官方人气投票结果」「单行本第6卷特典」这类长标题、`.name` 又是 `nowrap` →
-  轨道被撑成**不等宽**（实测 `100.7 / 136.7 / 100.7 / 106px`），4 列合计 468px > 容器 353px，
-  393px 视口下 `scrollWidth 484 vs clientWidth 385` = **整页横向溢出**。
-  改 `minmax(0, 1fr)` 后轨道等宽 `82.25×4`、溢出 0，超长标题交给 `.name` 的
-  `overflow: hidden` + `text-overflow: ellipsis` 截断（并给按钮加了 `:title` 便于悬停看全名）。
-  ⚠️ 排查这类问题的通用手法：`getComputedStyle(grid).gridTemplateColumns` 看**解析后的轨道**——
-  出现不等宽数值就说明是 min-content 在顶，而不是 padding / 宽度写错。
-
-### 网页版模式（2026-10-10）
-
-**定位**：移动端仍是基准（本文件与各页 `<style>` 的主体规则）；网页版是**新增的增量覆盖**，
-全部写在 `.mode-web` 前缀下 —— **移动端样式零改动**。网页版为**全新设计**，不参照 `comic-web`。
-
-**模式机制**（`src/utils/layout.ts`）
-
-| 项 | 做法 |
-|---|---|
-| 判定 | **只按 UA 判定**：手机 UA → 移动版，电脑 UA → 网页版；小程序 / App 恒为移动版（每次访问现判、不记忆） |
-| 切换 | 无手动切换（2026-10-12 起切换键已移除，只按 UA 判定） |
-| 挂载点 | H5 的 `<html>` 挂 `.mode-web` 类（与主题的挂载方式一致） |
-| 多端 | **仅 H5**：网页版专属元素都包在 `#ifdef H5` + `v-if="isWebMode"` 里，小程序构建整块剥掉 |
-
-**网页版布局要点**
-
-| 位置 | 网页版形态 |
-|---|---|
-| 顶栏（`Layout.vue`） | 品牌 logo + 主导航（首页/分类/最近更新/排行/**书架** + 管理/授权按角色）+ 搜索框 + 主题键 + 消息铃铛 + 用户区（头像胶囊**→ 个人中心** / 登录）；**底栏 tab 与返回键隐藏** |
-| 顶栏窄窗（≤860px） | 桌面导航放不下 → 主导航收进抽屉、☰ 恢复显示；主题 / 用户区也收进抽屉（那里有对应入口） |
-| 首页 | 区块网格 3 → **6 列**、每区块展示 3 → 6 部（取数统一 6 条、按模式 slice —— 切换模式不重新请求）；轮播升为 300px 整宽 hero、页内品牌行隐藏（导航里已有） |
-| 列表页（最近更新 / 搜索 / 我的收藏） | 漫画网格 3 → **6 列**（与首页同密度；搜索页 18 条 = 6 列 × 3 行仍整除）；中窄宽窗降 4 列、超窄窗 3 列 |
-| 详情页 | **两栏**：左栏（封面 180×240 + 信息 + 按钮 + 简介）**sticky 跟随**（`top: 84px`），右栏章节 4 → 6 列 + 评论（限宽 680px）；≤860px 退回单栏流 |
-| 阅读器 | 竖排图宽上限 720 → **880px**（横排本就「高度受限」，不动） |
-| 卡片 | 字号 / 内边距放宽一档（hover 浮起基础态已有，桌面直接生效） |
-
-**改这里时别踩的坑**
-
-- ⚠️ **网页版覆盖一律带 `.mode-web` 前缀**：scoped 编译后是 `.mode-web .x[data-v]`，
-  靠多一个类压过基础态；**媒体查询里的覆盖要写在 `.mode-web` 基础覆盖之后**（同特异性靠源码顺序决胜）。
-- ⚠️ **窄窗网页版顶栏曾横向溢出**：`.nav-right` 宽窗是 `flex: 0 0 auto`（不收缩），
-  393px 下顶出 50px 滚动条 —— ≤860px 媒体查询里必须把它恢复成 `flex: 1 1 auto; min-width: 0`。
-- ⚠️ **移动端回归的自查手法**：改完把模式切回移动版、视口 393px 跑一遍 ——
-  列数（3）、每区块条数（3）、底栏 / 品牌行 / 轮播高（210px）都应**与改动前一致**。
-
-**本期覆盖范围**：全局壳（Layout）+ 首页 + 详情页 + 阅读器（样板页）；四个网格页（首页 /
-最近更新 / 搜索 / 我的收藏）已统一 **6 列**密度。其余页面（排行 / 消息 / 登录等）在网页版下
-暂为「移动布局 + 桌面导航」的过渡形态，后续逐页铺开。
+```bash
+# ① 后端侧：导出契约快照（in-process，不要求服务在跑）
+python tools/export_openapi.py        # → api-service/openapi.json
+# ② 前端侧：生成 TS 类型
+cd comic-front && npm run gen:api     # → src/api/generated/schema.d.ts
+```
 
 ### uni 内置组件样式归一化（`src/uni-compat.css`）
 
-comic-web 的样式表是按**原生** `input` / `button` / `form` 写的；搬到 uni 后被编译成**内置组件**
-（`uni-input` / `uni-button` / `uni-form`），组件**自带默认样式 + 一层多余结构**，于是「CSS 一字未改却错位」。
-这份文件只做一件事：**把 uni 组件归一化回原生元素的盒子模型**（不改业务、不改模板结构）。
-
-| # | uni 的默认行为 | 归一化 |
-|---|---|---|
-| ① | `uni-form` 在子元素外**再包一层 `<span>`** | `uni-form > span { display: contents }`（否则 flex 从未生效） |
-| ② | `uni-button` 默认 `display: block` | `display: inline-flex`（否则按钮占满整行） |
-| ③ | `uni-button` 用 `line-height: 2.5555` **近似**垂直居中 | `align-items/justify-content: center`（业务一改 line-height 文字就贴顶） |
-| ④ | `uni-button` 默认 `margin-left/right: auto` | `margin: 0`（否则 flex 行里被吸到两端） |
-| ⑤ | `uni-button` 默认 `padding: 0 14px`、`font-size: 18px` | 还原原生 `1px 6px` / `13.3333px` |
-| ⑥ | `uni-button` 默认 `overflow: hidden` | `overflow: visible`（否则未读红点被裁掉） |
-| ⑦ | `uni-button` 用 `::after` 画 1px 边框 | `html uni-button::after { border: none }` |
-| ⑧ | `uni-input` 写死 `height: 1.4em` + `box-sizing: border-box`，内层又 `height: 100%` | `height: auto; min-height: 0` + 内层 `height: auto`（否则只给 padding 时**输入框高 0px、点不进去**） |
-| ⑨ | `uni-input` 默认 `line-height: 1.4em` | `line-height: normal` |
-| ⑩ | uni 组件**继承 body 字体栈** | `html uni-button, html uni-input { font-family: Arial }`（原生表单控件不继承页面字体，行盒高度不同会差 3px） |
-| ⑪ | `uni-label` 有子内容就挂 `.uni-label-pointer` | `html uni-label.uni-label-pointer { cursor: default }`（否则说明文字出现小手） |
-
-> 小程序端 uni 不注入这层 `<span>`、也不注入 H5 那套组件 CSS，所以本文件在那些端**自然空转** ——
-> 属于 H5 专属适配，但不是 H5 专属代码。
-
-## 多端适配
-
-H5 与小程序（mp-weixin）共用同一份源码，靠**条件编译 + 只用跨端 API**实现。
-
-| 原标签 → 现在 | 说明 |
-|---|---|
-| `div/section/header/nav/ul/li/p/h1-h4/table 系` → `view` | 块级；**表格换完标签还要用 flex 重搭，见下方 ⚠️** |
-| `span/b/em/small/code` → `text`；**`label` → `view`** | `label` 是 flex 容器，且 `<text>` 内不能放表单组件 |
-| `a` → **`view`** | 卡片外层 `a` 包着 `view`/`image`，**不能**映射成 `text`（小程序禁止 `<text>` 内放块级组件） |
-| `img` → `image` | **必须自己给宽高**（`<uni-image>` 无固有尺寸，见下）＋按需选 `mode`：`aspectFill`=裁剪填满 / `aspectFit`=等比不裁剪 / `widthFix`=宽度定、高度按比例自动 |
-| `select/option` → `components/Picker.vue` | 小程序无 select；内部用 `<picker mode="selector">` |
-| `input[type=checkbox]` → `switch` | uni 的 Input 对 `type` 有白名单 |
-| `br` → `<view class="u-br">` | 空块级元素顶出换行 |
-
-| H5 专属 API → 跨端等价物 | 影响面 |
-|---|---|
-| `PointerEvent` → **改用 touch + mouse**（⚠️ 见下条：uni 模板编译器会丢弃 pointer 事件） | 阅读器滑动翻页、进度条拖动 |
-| `requestAnimationFrame` → `setTimeout` 节流 | 竖排连播的当前页推导 |
-| `element.scrollTo` → `scroll-view` 的 `scroll-into-view` | 阅读器跳页 / 切章 |
-| `getBoundingClientRect` → `uni.createSelectorQuery().boundingClientRect` | 当前页推导、进度条跳页 |
-| `overflow-y:auto` → `<scroll-view scroll-y>` | 阅读器竖排连播（小程序里普通 view 不能滚） |
-| `IntersectionObserver` → `onReachBottom` + 分批渲染 | 排行页懒加载 |
-| `e.clientX` → `eventX()`（H5 取 `clientX`、小程序取 `detail.x`） | 点击热区、进度条 |
-| `@click.self` → **`@click.stop`（遮罩上关闭 + 面板自身 `@click.stop` 拦冒泡）** | 阅读器两个弹层（目录 / 设置） |
-| `<transition>` → CSS `@keyframes` | 消息面板 / toast / 弹层 / 移动端菜单抽屉（小程序不支持 transition 组件） |
-
-⚠️ **uni 的模板编译器会静默丢弃 `@pointerdown` / `@pointermove` / `@pointerup` 这类 pointer 事件**
-（2026-10-07 实测：给进度条绑 pointer 事件后处理器**一次都不触发**，而同一元素的 touch/mouse 绑定正常；
-`uni.createSelectorQuery` 与原生 `PointerEvent` 本身都没问题）。所以阅读器根节点上原有的
-`@pointerdown/@pointerup` 滑动翻页在 H5 桌面端**其实是死的**（触摸端靠 `@touchstart/@touchend` 正常）。
-需要鼠标支持就绑 `@mousedown` 并在拖动期间把 `mousemove/mouseup` 挂到 `document` 上（进度条就是这么做的，
-否则鼠标拖出轨道后松手会卡住）。
-| `window.alert/confirm` → `utils/ui.ts` | 日志页清理确认 |
-| `document` 点击关面板 → 保留 H5 分支 + `#ifndef H5` 透明遮罩 | 顶栏消息中心 |
-| `aspect-ratio` → padding-bottom 比例盒 / 写死高度 | 卡片、书架、缩略图 |
-| `inset: 0` → 显式四边偏移 | 阅读器根元素（`inset` 需 Chrome 87+） |
-| `button` 默认样式 → `App.vue` 的 `<style>`（`#ifdef MP-WEIXIN`） | 全站按钮 |
-
-### ⚠️ `<image>` 的盒子模型（踩过坑，必读）
-
-uni 的 `<image>` **不是 `<img>`**，而是包装元素 `<uni-image>`；真正画图的是它内部那个 `<div>` 的
-`background-image`。而 `uni-components/style/image.css` 给 `<uni-image>` 的**默认尺寸是 `320px × 240px`**
-—— 也就是说：**`<uni-image>` 没有固有尺寸，宽高必须由 CSS 显式给**（原生 `<img>` 能靠图片自身撑开，它不能）。
-
-把 comic-web 写给原生 `<img>` 的 CSS 原样搬过来会出两类错（阅读器 2026-09-22 就中了）：
-
-| 写法 | 结果 |
-|---|---|
-| `width: auto; height: auto` | `<uni-image>` 是 inline-block、子节点全是绝对定位 / 百分比 → 收缩成 **0×0，整屏无图** |
-| 只写 `max-width` / `max-height` | `max-*` 只「限制」不「撑开」→ 回落到默认 **320×240，图很小** |
-
-`mode` 的语义（uni 源码 `IMAGE_MODES` / `FIX_MODES`）：
-
-| mode | 实现 | 适用 |
-|---|---|---|
-| `aspectFill` | `background-size: cover`（按框裁剪填满） | 封面 / 缩略图这类**有固定方框**的图 |
-| `aspectFit` | `background-size: contain`（等比不裁剪） | 单张居中阅读（等价原生 `img` + `max-width/max-height`） |
-| `widthFix` | 按 `offsetWidth ÷ 原图宽高比` 算高度 | 竖排连播（宽度定、高度自适应） |
-
-> `lazy-load` 在 uni-h5 基本不生效（Image 在 `onMounted` 就直接加载），别指望它省流量。
-
-### 阅读器页面图尺寸（满幅，左右不留黑边）
-
-给 `<uni-image>` 的方框就是「视口里能放下的最大框」，宽度取 `min(视口宽, 可用高度 × 0.705)`：
-
-| 模式 | 宽度 | 高度 |
-|---|---|---|
-| 横向（单张居中） | `min(100vw, calc((100vh - 40px) * 0.705))` | `calc(100vh - 40px)` |
-| 竖排（连播） | `min(100vw, 720px)` | `auto`（配 `widthFix`） |
-
-- 两项取 `min` 是为了**两种受限方向都覆盖**：手机竖屏走「宽度受限」（= `100vw`，图片铺满、左右无黑边），
-  桌面走「高度受限」（`(100vh - 40px) × 0.705`，不会撑成一条巨大横幅）。
-- 原来是 `92vw` / `96vw`，手机竖屏下左右各留 4vw / 2vw 的**黑边**（2026-09-23 改满幅）。
-- ⚠️ **竖排模式还额外中了一刀**：uni 的 `<scroll-view>` 内层 `uni-scroll-view` 在桌面 Chrome 下
-  **实占 8px 滚动条宽**（实测 `offsetWidth - clientWidth = 8`），把 `100vw` 的图挤成 382px、右侧露黑边。
-  靠 `:deep(.uni-scroll-view)::-webkit-scrollbar { display:none }` + `scrollbar-width: none` 隐掉 ——
-  阅读区本来就是全幅暗色层，位置由底部进度条反映，不需要滚动条。
-
-### ⚠️ 弹层遮罩关闭（踩过坑，必读）
-
-`@click.self` 是 **Web 专有修饰符**（小程序不支持），移植时容易改成「比较 `target` 与 `currentTarget`」——
-**这个替代方案在 uni 里是坏的**：uni 会重写事件对象，`currentTarget` 不可靠地指向遮罩节点，
-判定恒真 → 遮罩点了永远关不上（阅读器目录 / 设置两个抽屉 2026-09-22 就中了）。
-
-**正确写法**：遮罩上直接关，面板自己 `@click.stop` 拦住冒泡。
-
-```vue
-<view v-if="showMenu" class="menu-mask" @click.stop="showMenu = false">
-  <view class="chapter-menu" @click.stop> ... </view>
-</view>
-```
-
-`.stop` 小程序 / H5 都支持；遮罩上的 `.stop` 还顺带挡住点击冒泡到根节点（否则会触发根节点的翻页热区）。
-
-### ⚠️ 弹层的进场 / 退场动画（踩过坑，必读）
-
-`v-if` 是「挂载即出现、卸载即消失」，只有进没有出 —— 观感就是**原地弹出 / 弹没**。
-要做「抽屉滑出」这类动效，统一用 **CSS 动画 + 定时器**（不用 `<transition>`，小程序不支持）：
-
-| 环节 | 做法 |
-|---|---|
-| 进场 | 元素自带 `animation: drawer-in 0.24s ...`（`translateX(100%) → 0`，抽屉贴右边缘），挂载即自动播放 |
-| 退场 | 关闭时**先挂 `.closing` 类**换成 `drawer-out`，等 `MENU_ANIM_MS` 到点再置 `v-if=false` 卸载；直接卸载会「秒没」 |
-| 幂等 | 关闭入口有多个（× 按钮 / 点遮罩 / 路由变化 / 菜单项），`closeMenu()` 用「已关闭或已在收起中则 return」保证不重复计时 |
-| 卸载前 | `onBeforeUnmount` 里 `clearTimeout`，别让定时器活过组件 |
-
-⚠️ **页间跳转必须等动画播完再 `router.push`**：uni 的跳转是**页面级**的（每个页面各自持有自己的
-`Layout`），push 的瞬间当前页连同 Layout 一起被卸载，抽屉会跟着秒消失、动画白做 ——
-`Layout.vue` 的 `goFromMenu()` 因此把 push 延后到动画结束（2026-09-22）。
-
-
-### ⚠️ 表格：`table` 换成 `view` 后必须用 flex 重新搭（踩过坑，必读）
-
-uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 换成 `view` **只做了一半** ——
-`view` 默认 `block`，而原版 CSS 靠 `border-collapse: collapse` + 表格布局排版，
-**这套规则对块级 `view` 完全不生效** → 每个单元格各占一行，整表塌成竖排
-（管理台日志页 / 授权页 2026-09-22 就中了）。
-
-修法：`.u-tr { display: flex }` + 每列显式 `flex: 0 0 <宽度>`，最后一列 `flex: 1 1 0` 吃掉剩余宽度；
-原来写在 `td` 上的 `colspan="8"`（展开行 / 空态行）在 `view` 上无效，改成单格 `flex: 1`。
-
-**两个必踩的坑**：
-
-| 坑 | 现象 | 修法 |
-|---|---|---|
-| flex 项默认 `min-width: auto` | 列被「最窄内容」撑宽 —— 表头文字短、数据文字长（如级别列的 ERROR 徽标）→ **表头与数据行列宽对不上、整列错位** | 单元格一律加 `min-width: 0` |
-| 补完 `min-width: 0` 后，超长文本会溢出压到相邻列上 | 原版真表格列宽随内容自动变宽，`view` + flex 没有这个能力 | 可能超长的列自己截断：`overflow: hidden; text-overflow: ellipsis; white-space: nowrap`，完整值放 `title` |
-
-### ⚠️ 窄屏不许横向滚动条：表格一律降级成卡片（2026-09-23）
-
-> **⏳ 待办（2026-09-23 起）**：本端已改为「只保留移动形态」，但**管理台三页（`admin/index`、`admin/logs`、
-> `admin/users`）的桌面表格与 860px 断点尚未清理** —— 它们仍是「桌面表格 + 窄屏降级卡片」的响应式写法。
-> 清理方式与其它页面一致（移动态提升为基础态、删断点），留待后续单独处理。
-> 在此之前，下面这套「窄屏降级」逻辑仍然有效、不要删。
-
-桌面表格是**固定列宽 + 外层容器横滚**（上一条）。但**窄屏不允许横向滑动条** ——
-表格列一多（日志页 8 列固定宽合计 ≈ 944px），可视区只有 ~343px，横滚出来的是一条几乎没法用的细缝。
-所以 `@media (max-width: 860px)` 里**整块换成纵向卡片**：
-
-| 页面 | 折叠态（默认） | 展开态（点行） |
-|---|---|---|
-| `admin/logs` | **时间 · 级别徽标 · 事件** 一行 + 消息（多行，不再截断） | 详情区补齐**源站 / 作品 / 章节 / 页数** + 记录器 / 任务 / 原因 / 接口 / 消息 / 异常堆栈 |
-| `admin/users` | 每段「标签 + 值」竖排（用户名 / 昵称 / 角色 / 注册时间 / 操作） | 无（行内已有操作按钮，没有隐藏字段） |
-
-四条通用做法：
-
-1. **根上消除横滚**：`.table-wrap { overflow: visible; max-height: none }`，
-   `.user-table { overflow-x: visible }`。⚠️ 只改 `overflow-x: hidden` 是**掩耳盗铃** —— 内容仍超宽，
-   会改成**页面级**横滚，一样是横向滑动条。
-2. **隐藏表头**（`.u-thead { display: none }`）：卡片每段自带语义，表头无意义。
-3. **必须重置列宽**：桌面的 `flex: 0 0 148px` 是**主轴**方向的基准。卡片改纵向后主轴变成**高度** ——
-   不重置的话每段会被钉成 148px 高。（日志页卡片仍是横向主轴，但时间列钉死 148px 会把级别/事件挤出去，同样要重置。）
-4. **窄屏专用字段用 `.narrow-only` 二选一**，别用「按宽度分流」的脚本判断（见下文顶栏那条）：
-   日志页详情区里新增的 4 行（源站/作品/章节/页数）加 `.narrow-only`，宽屏 `display: none` ——
-   桌面表格已有这几列，详情区再来一遍是重复。
-   ⚠️ `display: none` 那条**必须写在 `@media` 之前**：两条选择器特异性相同，靠源码顺序决出胜负。
-
-**日志页的伸缩展开**：复用原有的 `toggle()` / `.detail-row`（`v-if="expandedId === row.id"`），
-模板只加了 4 行 `.kv.narrow-only`，其余全靠一处媒体查询。窄屏展开箭头用 `.row::after` 绝对定位
-（`▾` / `.row.open` 时 `▴`），不参与 flex 布局、宽屏 `content` 为 `none`。
-
-**采集管理台（`admin/index`）**：它是卡片不是表格，无需展开；窄屏只要把 `.grid` / `.maint-row` 的
-`minmax(360px, 1fr)` 降成 `1fr`。⚠️ **360px 是硬下限**：窄屏内容区不足 360px 时列宽仍按 360px 撑开 ——
-实测 393 视口溢出 7px（左右边距 16/9 不对称）、**360 视口直接出整页横向滚动条**（`scrollWidth 376 > clientWidth 352`）。
-
-**实测**（2026-09-23，`docScrollWidth === docClientWidth` 为「无横滚」判据）：
-
-| 页面 | 393×852 | 360×800 | 1280×900 |
-|---|---|---|---|
-| `admin/logs` | 无横滚；折叠 4 段；展开 9 项 kv + 堆栈 | 无横滚 | 8 列表格原样；`.narrow-only` 全 `display:none`；`::after` 为 `none` |
-| `admin/users` | 无横滚；表头隐藏；每格 flex + `.lbl` | — | 表头可见、行 `flex-direction: row`、`.lbl` `display:none`、`.c-user` basis 180px |
-| `admin/index` | 无横滚；单列 353px、边距 16/16 | 无横滚；卡片 320px、边距 16/16 | `.grid` 3 列 / `.maint-row` 2 列（与改动前一致） |
-
-## 底栏导航
-
-**主导航固定在底栏**（2026-09-23 起为本端唯一形态，不再有宽窄屏之分）。
-
-| 区域 | 内容 |
-|---|---|
-| 顶栏左 | **返回上一层 `❮`**（`order: 0`，**仅二级页显示**，见下文「顶栏返回键」）—— 底栏三个 tab 是根页面，不显示 |
-| 顶栏中 | 搜索框（吃掉剩余宽度） |
-| 顶栏右 | 消息铃铛（**恒为跳独立消息页**）+ **☰ 菜单按钮**（`order: 5`，顶栏最右） |
-| 底栏 | 首页 · 最近更新 · 分类（三等分，带图标，选中态变主题橙） |
-| 菜单内 | **账号区**（未登录=整宽「登录」按钮 / 已登录=头像+昵称，**整行点击进「个人中心」**）+ **背景主题**（☀️ 明亮 / 🌙 夜间 分段控件）+ 全部导航（首页/分类/最近更新/排行/我的收藏与历史/**个人中心**/采集管理/授权管理） |
-
-- 顶栏重排靠 **flex `order`**（返回 0 / 搜索 2 / 消息 3 / 菜单 5）、不改 DOM 顺序。
-  ⚠️ 2026-10-07 起 **☰ 从最左移到最右、主题切换移进菜单**（原为「菜单 1 … 主题 4」）。
-- 桌面专属元素（`.logo` / `.nav-links` / `.logout` / `.login-link` / `.user-chip`）**已从模板删除**，
-  **账号入口只在菜单里**。
-
-**顶栏返回键（层级返回，2026-10-09 重构）**
-
-返回键跳的是**固定上级**（`utils/router.ts` 的 `parentOf`），**不是浏览历史** —— 后者依赖页面栈 /
-浏览器历史，而 **H5 一刷新这些就没了**，彼时返回要么无效、要么落到意料之外的页面（用户报
-「一刷新页面返回的逻辑就失效」）。层级树：
-
-| 页面 | 上级 |
-|---|---|
-| `/reader/:comicId/:chapterId`（阅读器） | `/comic/:comicId`（它那一部的详情页） |
-| `/comic/:id`（详情） | `/latest`（最近更新页） |
-| `/admin/logs` · `/admin/users` · `/admin/schedule` · `/admin/comics` | `/admin`（采集管理） |
-| `/rank` · `/me` · `/messages` · `/login` · `/admin` | `/`（首页） |
-| `/` · `/latest` · `/search`（底栏 tab，根页面） | 无（不显示返回键） |
-
-- 实现：`back()` = `go(parentOf(route.path), /* replace */ true)` —— 走 **`redirectTo` 替换**当前页
-  （不压栈、不依赖历史；来回多次页面栈不增长）。**新标签页里也成立**（详情页章节是
-  `openNewTab` 开新标签进阅读器，那里必然无历史）。
-- 阅读器的「←」与 `Esc` 走同一入口（`router.back()`）；**登录页的「← 返回」例外**：
-  带了 `?redirect=` 就回它（**来处**，在 URL 上、刷新不失效），没带才按层级回首页。
-- ⚠️ **新增二级页要登记上级** —— 它与 `STATIC` 是两件事：`STATIC` 管「怎么去」（去程映射），
-  `PARENTS` 管「怎么回」（回程层级）。漏登记会落到兜底 `/`（不报错，但返回目标不对）。
-
-**改这里时别踩的坑**
-
-- **断点只有 CSS 一处**：**脚本里没有宽度判断**。
-  菜单只由 ☰ 触发，不需要「按宽度分流」—— 旧实现里的 `MOBILE_MAX` / `viewportWidth()`（用来判断
-  点「用户头像」该展开菜单还是跳页）已随「账号入口收进菜单」一并删除，**别再照抄回来**。
-- ⚠️ **消息铃铛现在只有一个**（跳独立页）。原先「宽屏开浮层 / 窄屏跳页」靠两个同形铃铛
-  （`.msg-btn.wide-only` / `.narrow-only`）+ CSS 二选一，已随桌面端删除。
-  **若将来又要「按宽度分流」，用「两个元素 + CSS 二选一」，不要回到脚本判断宽度** ——
-  这样断点仍然只有 CSS 一份，不存在「JS 阈值改了、CSS 忘了改」的漂移。
-- **底栏 z-index = 120**：高于内容、低于 toast（999）。
-  阅读器是 `position: fixed` + z-index 200 的全屏层，**会盖住底栏** —— 与顶栏（z-index 100）同一处理方式，因此不需要额外排除逻辑。
-- **底部安全区**：底栏带 `padding-bottom: env(safe-area-inset-bottom)`；`.page` 补了 `padding-bottom: 84px`
-  （写成两条，`env()` 不被支持时回落第一条），否则最后一行会被底栏盖住。
-
-**底栏图标（`src/utils/icons.ts`）**
-
-自绘 SVG，**运行时编码成 base64 data URI** 交给 uni 的 `<image>`：
-
-- 不用裸 `<svg>` 标签 —— 项目约定「模板只用 uni 组件」，`<image>` 三端行为一致。
-- 不用 `.svg` 文件 —— `<image>` 对 svg **文件**的支持各端不一致；base64 data URI 最通用。
-- 不引图标库 —— 3 个图标不值得加依赖。
-- **颜色写死在 SVG 里**（`<image>` 不认 `currentColor`）→ **主题 × 选中态 = 4 份**：
-  `TAB_ICONS`（明亮）/ `TAB_ICONS_DARK`（夜间），各含 `off`/`on`；`Layout` 抽了个
-  `tabIcon(path, on)` 按 `isDark` + `route.path === t.path` 选 `:src`。夜间那份不能省 —— 默认态
-  用的是 `--text-2`，夜间该值变亮，用明亮那套在深底上基本看不见。
-- 不用 `btoa`（部分运行环境没有）→ 自带 ASCII 版 base64 编码器（SVG 内容全 ASCII），已与 `Buffer.toString('base64')` 逐字节比对通过。
-- ⚠️ `<image>` **必须显式给宽高**（uni 默认 320×240），这里 `.bn-icon { width: 22px; height: 22px }`。
-
-**未验证项**：App 端未实机跑过（需 HBuilderX 打包）；断点与图标在 App 端走同一套 CSS / 组件，理论上一致。
-
-## 漫画列表（封面网格一律 3 列）
-
-2026-09-22 用户要求「移动端每行三部」。**所有封面网格列表统一 3 列**
-（2026-09-23 起本端只有移动形态，故不再有桌面列数）：
-
-| 位置 | 类名 | 列数 | ≤560px（手机收紧） |
-|---|---|---|---|
-| 首页 热门 / 最近更新 / 分类精选 | `index/index.vue` `.grid` | 3 | 3（gap 16→10） |
-| 最近更新 | `latest/index.vue` `.grid` | 3 | 3（gap 16→10） |
-| 分类 / 搜索 | `search/index.vue` `.grid` | 3 | 3（gap 16→10） |
-| 我的收藏 | `me/index.vue` `.fav-grid` | 3 | 3（gap 14→10） |
-
-- ⚠️ **分页页面的每页条数要能被列数整除**（2026-09-23 用户报「第一页最后一行最后一格空掉」），
-  否则末行会留下空格：`search` 取 **`pageSize = 18`** = 3 列 × 6 行，正好填满。
-  **别随手改回 20**：20 ÷ 3 = 6 行余 2，末行就空一格。
-  （末页是余数页，留不齐属正常，例如分类页第 3 页 16 条 → 末行 1 个。）
-  ⚠️ **`latest` 已不适用这条**（2026-10-09 改触底加载 + 日期分组，见下文）：它每组各是一个网格、
-  末行本来就可能不满，18 只作为「一批拉多少」的批次大小，不承担「填满」职责。
-- 手机列宽只有 **~110px**（390px 视口，含 16px 页面内边距 + 10px 间距），所以卡片的字号/内边距
-  由 **`components/ComicCard.vue` 里的同名 ≤560 断点**统一收紧（标题 13px、作者/最新话 11px、
-  角标 10px），作者名补了 `ellipsis`（原先没截断，窄卡片下会撑破行）。**改列数时记得一起看它。**
-- **行式列表不适用，别顺手改**：`我的 · 最近阅读`（`.row`，带「读到第 N 页」进度 + 续读/删除按钮）
-  与 `排行榜`（`.rank`，带排名序号 + 🔥热度）保持行式 —— 改成封面网格会丢掉这些信息/操作
-  （2026-09-22 已与用户确认）。
-- ⚠️ **页面左右内边距**：`style.css` 里 `.page { padding: 20px 16px 48px }` 的左右 16px **不能省** ——
-  `.page` 与 `.container` 同为单类选择器且 `.page` 在后面，简写 `padding` 会把 `.container` 的 `0 16px`
-  整体覆盖成 0，窄屏下网格直接贴屏幕边缘（原 comic-web 同此写法，属移植过来的既有问题，已修）。
-
-## 最近更新页（触底加载 + 日期分组）
-
-`pages/latest/index.vue`。2026-10-09 用户要求改版：「不通过上下页加载漫画，而是通过下拉的方式
-加载漫画，按照日期分组，每次加载一批漫画，当下拉到底时加载另一批漫画」。
-
-| 项 | 现状 |
-|---|---|
-| 加载 | **触底自动追加**（`onReachBottom(loadMore)`），上下页按钮已删；每批 18 条 |
-| 分组 | 按**本地日期**分组，组头「今天 / 昨天 / M月D日」+ 该组条数 |
-| 组头 | `position: sticky; top: 60px`（= 顶栏 `.nav-inner` 高度，改 `Layout.vue` 要同步这里）；背景必须给实色 `var(--bg)`，否则卡片会从组头底下透出来 |
-| 卡片 | **不带时间角标**（分组已经表达日期，用户要求去掉） |
-| 底部 | 加载中 → 「加载中…」；还有 → 「继续下滑加载更多」；拉完 → 「— 没有更多了 —」 |
-
-- ⚠️ **分组必须基于「已累积的全量」重算**（`groups` 是对 `comics` 的 computed），
-  不能每批各分一次 —— 每批 18 条时同一日期会被切在两批之间（实测 09-20 / 09-21 两组都跨批），
-  各分各的会出现**重复的日期组头**。
-- 触发用 uni 的页面级生命周期 `onReachBottom`（小程序没有 `IntersectionObserver`），
-  与 `pages/rank` 同一套做法；同样带了「`reqId` 丢弃乱序响应」「追加失败回退页码以便下次重试」两个防护。
-- ⚠️ **`.section-title` 下方原有一行 lead 说明（「源站一更新…共 N 部」）已按用户要求删除** ——
-  那一行是**全页唯一显示总数**的地方，现在总数只在各组组头上体现（各组相加）。
-- `pageSize` 保持 18，但**不再承担「3 列 × 6 行正好填满」的职责**（分组后每组末行不满是正常的），
-  与 `search` 页那条「页大小要能被列数整除」的约定无关。
-
-## 筛选条（标签 + 排序）
-
-`components/FilterBar.vue` —— **分类浏览（`/search`）与热度排行（`/rank`）共用**的筛选条，
-只有这一份：改条件 / 加排序项只改这里，不会两页走样。
-
-- 对外接口：props `{ category, sort, categories }`、emits `update:category` / `update:sort`。
-  **调用方不能对它写 `v-model`**（自定义组件红线），一律 `:category` + `@update:category`。
-- **标签用下拉（`Picker`）不用 chip 平铺**：库内 30 个标签平铺会占掉整屏、把结果推到下面。
-  选项文案带计数（`恋爱（42）`）—— 但 **「全部」不显示数字**：后端给它的 count 是**各标签计数之和**
-  （同一部作品挂 3 个标签就计 3 次），与真实作品数不符（实测 119 vs 实际 52），
-  显示出来会和排行页的「共 N 部」打架。选项在这里**统一生成**，两页都不再各自拼标签文案。
-- 排序三档（`ComicSort`）：`views` 最热 / `favorites` 收藏最多 / `updated` 最新更新。
-  **两页默认都是 `views`（热度降序）**。
-- 窄屏（393px）下 `.filter-bar` 靠 `flex-wrap` 折成两行（标签一行、排序一行），不需要额外的媒体查询。
-
-**排行页形态**：`/rank` 是**一整条全库榜单**（不再是「每个标签一个区块」），`PAGE_SIZE = 20`，
-`onReachBottom` 追加下一页；名次是累计下标（`i + 1`，跨页连续）。切标签 / 切排序都走 `load(true)`
-（清空重拉），并用 `reqId` 令牌丢弃过期响应，避免旧请求盖掉新榜。
-
-**后端排序口径**（`crawler-service/.../mysql/comic_store.py` 的 `list_comics`）：
-`views` → `heat DESC`；`favorites` → `favorite_count DESC, heat DESC, sync_time DESC`；其余 → `sync_time DESC`。
-排序键都带 `c.sync_time DESC, c.id DESC` 兜底，保证**同分时顺序稳定**（否则翻页会重复 / 漏条）。
-
-## 品牌名：聚漫画
-
-2026-10-07 用户要求**全站改名**「漫阅」→「**聚漫画**」（暂定名）。已改到的位置：
-`index.html` 标题、`pages.json` 的 `navigationBarTitleText`、`manifest.json` 的 `name`/`title`、
-`static/favicon.svg` 的徽标字（漫 → 聚）、登录页品牌（`.brand-mark` + `.brand-text`）、
-抽屉菜单品牌（`.mm-brand`）、首页站标，以及后端 `api-service/main.py` 的 FastAPI 标题（`/docs` 上可见）。
-⚠️ **`comic-web/`（冻结的参考实现）与 `.workbuddy/` 历史日志刻意没改** —— 前者按约定"约定与逻辑一律不动"。
-
-## 季节站标（2026-10-08 新增）
-
-站标（图标 + 字标）按**当前月份**自动切换季节版本，替换了原先的 CSS 徽标 + 文字：
-
-| 季节 | 月份 | 图标 / 字标 |
-|---|---|---|
-| 春 | 3–5 | `icon-spring.png` / `text-spring.png` |
-| 夏 | 6–8 | `icon-summer.png` / `text-summer.png` |
-| 秋 | 9–11 | `icon-autumn.png` / `text-autumn.png` |
-| 冬 | 12–2 | `icon-winter.png` / `text-winter.png` |
-
-- **判断逻辑与资源表**：`src/utils/season.ts`（`getSeason()` / `getSeasonLogo()`），另有干净无装饰的 `*-default.png`（导出为 `LOGO_DEFAULT`）。
-- **图片**：`src/static/logo/`，四季各一套 + 默认版，由 AI 生成（qwen-image 3.0 pro）后按季节命名归档。
-  ⚠️ 已做**透明化处理**（字标去白底、图标去四角白边）—— 否则夜间主题下会露出白块。
-- **接入点**（三处）：
-  - 首页顶栏 `.brand`（`pages/index/index.vue`）→ `.brand-icon`(30px) + `.brand-text`(68×34)；
-  - 抽屉菜单头部 `.mm-brand`（`components/Layout.vue`）→ `.mm-brand-icon`(28px) + `.mm-brand-text`(64×32)；
-  - 登录页品牌 `.brand`（`pages/login/index.vue`）→ `.brand-icon`(38px) + `.brand-text`(86×43)。
-- ⚠️ 站标用的是**带季节装饰**的版本；若缩到 20~30px 嫌糊，改用 `LOGO_DEFAULT`（干净版）即可。
-- ⚠️ 冬季图标 2026-10-08 重做过一版：首版顶部被 AI 画出了一层积雪毛边、破坏圆角，重做时在 prompt 里强调「四边圆角完整、无积雪毛边」并把 `snow drift / frost / jagged white edge / damaged corners` 放进 negative。
-- **favicon 也随季节切换**：`static/logo/favicon-{season}.png`（64×64，由对应季节图标缩放而来），在 `index.html` 的 head 里用**内联同步脚本**按月份改 `link[rel="icon"]` 的 href —— 之所以内联同步执行，是为了避免标签页先闪一下默认图标。
-  ⚠️ 该脚本里的季节规则与 `src/utils/season.ts` 的 `getSeason()` **必须保持一致**（改一处要改两处，脚本注释里已标明）。
-  ⚠️ `static/favicon.svg`（旧的橙色「漫」字版）**已不再被任何地方引用**。
-
-## 首页顶栏（站标 + 图片轮播播报）
-
-2026-10-07 用户要求换掉原来的「聚合全网好漫画」hero，改成两栏：
-
-1. **站标**：**图片**（图标 + 字标），随季节自动切换 —— 见上节「季节站标」。
-   （2026-10-08 之前是 CSS 徽标 `聚` 方块 + 文字，现已替换。）
-2. **播报**：uni 内置 `<swiper autoplay>` 做的**图片轮播**（PPT 式逐张切换，4 秒一张、循环、带指示点），
-   轮番展示「最近更新」的**前 5 部**，点一张进它的详情页。每张两层图（B 方案，2026-10-07 用户选定）：
-   - `.bc-bg`：**同图模糊铺底**（`filter: blur(20px) brightness(0.55)` + `scale(1.15)` 盖住模糊边缘）——
-     竖版封面放进横条时两侧不留白；⚠️ 小程序端若不支持 `filter` 就退化成"未模糊的铺底图"（能看、不报错）；
-   - `.bc-fg`：**完整封面居中**（`mode="aspectFit"`，不裁切）+ 底部渐变文案「《标题》更新至 第 N 话」。
-   ⚠️ 定位用 `top/left/right/bottom` 而不是 `inset`（小程序端 CSS 支持面更稳）。
-
-要点：
-- 数据复用一次请求：`getComics({ sort: 'updated', pageSize: 5 })` → 播报取 5 条，下面「最新更新」区块再 `slice(0, TOP_N)`（3 部），省一次往返；
-- **不用自己写定时器**（`<swiper autoplay>` 自带），自动播由 `pageVisible` 控制：`onShow` 开、`onHide`/`onUnload` 停；
-- ⚠️ 别用"百分比位移"做文字滚动条：`translateY(-100%)` 的 100% 是**轨道自身**高度，一步就滚过全部条目、视口里空白（当天实测踩到，才改成 swiper）。
-
-## 首页区块（每块 3 部 + 「全部」链接）
-
-首页**三类区块一律只放排名最前的 3 部**（`index/index.vue` 的 `TOP_N = 3`）：热门榜单、最新更新、
-各 `分类 · 精选`；其余走**区块标题行右侧**的「全部 ›」。
-
-| 区块 | 取数 | 「全部 ›」→ |
-|---|---|---|
-| 热门榜单 | `getComics({ sort: 'views', pageSize: 3 })` | `goAll('/rank')` → 排行页（全库热度榜 + 标签/排序筛选） |
-| 最新更新 | `getComics({ sort: 'updated', pageSize: 3 })` | `goAll('/latest')` → 最近更新页 |
-| `X · 精选` | `getComics({ category: X, pageSize: 3 })` | `goCategory(X)` → `/search?category=X`（分类页 `applyQuery()` 读 URL 直达） |
-
-- 链接在 `.section-title` 里，靠 `margin-left: auto` 顶到标题行最右（与容器右边缘对齐）。
-- 取数直接传 `pageSize: 3`，**不是**「取 8 条再截断」—— 不多取用不到的数据。
-- 网格用 `.grid`（4 列）而**不是原来的 `.grid-5`**：3 张卡在 5 列里会空出 40% 宽度，4 列下
-  卡片尺寸与其它区块一致。
-- ⚠️ **标题必须包一层 `.st-label`**：`.section-title` 是 flex，裸文本节点是「匿名 flex 项」、
-  会被压缩换行 —— 实测 390px 下「最新更新」断成「最新更 / 新」两行。所以标题文字要
-  `<text class="st-label">`（`flex: 0 0 auto; white-space: nowrap`），并让同行的 `.hint` 先让位
-  （`flex: 0 1 auto; min-width: 0; white-space: nowrap`；≤560px 直接 `display: none`，
-  否则「标题 + 长提示 + 全部 ›」在 390px 下必然换行）。
-
-## 主题（明亮 / 夜间）
-
-**抽屉菜单里的「背景主题」分段控件**切换（☀️ 明亮 / 🌙 夜间，当前态高亮为橙色）。
-2026-10-07 之前是顶栏右侧一个圆形按钮（🌙/☀️ 单键切换），用户要求「主题按钮并入菜单」后改成分段控件
-—— 顺带把 ☰ 从顶栏最左挪到了最右。`setTheme` 由 `useTheme()` 提供。
-
-| 环节 | 位置 | 说明 |
-|---|---|---|
-| 状态 | `utils/theme.ts` | 模块级 `ref`，`useTheme()` 给 `{ theme, isDark, setTheme, toggleTheme }` |
-| 持久化 | `storage` 的 `comic_theme` 键 | 未存过时**跟随系统**（H5 用 `prefers-color-scheme`，其它端用 `uni.getSystemInfoSync().theme`） |
-| 挂载点 | ①`Layout.vue` 的 `.app-shell`（模板根）②H5 的 `<html>` | ① 三端都生效（CSS 变量继承到整棵子树）；② 让 `html/body/page` 自身背景一起切 |
-
-- 配色全在 `style.css` 的 **`.theme-dark`** 变量组里，**组件里不该再写死表面色**。
-  ⚠️ `.theme-dark` 必须排在 `:root` **之后**：两者同为单类权重，靠源码顺序取胜。
-- 变量分工：卡片/顶栏/面板/输入框 → `var(--card)`；占位底色、页面底 → `var(--bg)`；
-  静默块（灰底小标签）→ `var(--mute)`；再淡一档的表面（表头/行 hover）→ `var(--surface-2)`；
-  开关轨道 → `var(--track)`；滚动条 → `var(--scroll-thumb)`。**新增组件样式时按这套选变量，别写 `#fff`。**
-- ⚠️ **底栏图标要换第二套**：图标颜色是烘死在 SVG 里的（`<image>` 不认 `currentColor`），
-  默认态用的是 `--text-2`，夜间该值变亮 → 不换图标在深底上基本看不见。
-  `utils/icons.ts` 因此导出 `TAB_ICONS` / `TAB_ICONS_DARK`，由 `Layout` 按 `isDark` 选用。
-- ⚠️ **`.app-shell` 上不能写 `position` / `z-index` / `transform` / `filter`**：任一项都会形成层叠上下文
-  或包含块，里面那两个 `position: fixed` 的抽屉/遮罩就压不过外面的底栏了（它们本就为此放在 `.nav` 之外）。
-  另外 `min-height: 100vh` 是给小程序兜底 —— 那边 `page` 元素背景不随主题变，靠这层铺满视口。
-- ⚠️ **个别带固定底色的徽标仍是浅底**（如管理台的 `.badge.warning`、`.src-tag.real`、`.msg-kind` 的
-  来源色块）：它们底色与文字色是**成对写死**的，夜间呈现为「浅底 + 深字」的小色块，可读但不够融合。
-  要彻底统一得给每个色块都配一套夜间值，本次未做。
-
-## 漫画明细页（`pages/comic`）
-
-**布局（本端唯一形态）**：卡片保持**横向** —— 封面在**左上**、明细与按钮在**右上**。
-刻意**不改成上下堆叠**：堆叠会把封面下方的空间全浪费掉，横向布局一屏能多露出半屏章节。
-
-| 部分 | 现状 |
-|---|---|
-| `.hero` | 横向 `flex`，padding 14px、gap 12px、`align-items: flex-start`，封面 **96×128 在左上**，明细与按钮进 **右上**（`.hero-info`），标题 17px |
-| `.actions` | 并排 + `flex-wrap`（「续读第 N 话」变长时兜底换行），按钮字号 13px |
-| `.chapters` | **4 列**（列宽 ~82px），**隐藏 `.no` 序号徽标**（否则吃掉一半宽度），标题居中、12px；「最近一批入库」的章节在**右上角**带「NEW」小胶囊（`.new`） |
-| 章节排序 | 「章节列表（N）」行右侧两个芯片「倒序｜正序」（`.order-tab`，视觉沿用 `FilterBar` 的芯片语言）；**默认倒序 = 最新在前**，偏好存本地 `comic_chapter_order`（走 `utils/storage` 适配层，与主题的 `comic_theme` 同一套路），重进详情页仍是上次选的方向 |
-
-- 章节标题本身就是「第 12 话」这类短语，所以只留标题、不显示序号徽标。
-- 角标 `.new` 是**绝对定位**（`top: 1px; right: 2px`，7px 字、10px 行高的主题色胶囊，
-  实测 20.3×10px），不参与布局 —— 带标与不带标的标题**位置完全一致**（实测居中偏移 0.0px）。
-  ⚠️ 两条硬约束：① 角标必须**内缩在按钮里**（`top: 1px; right: 2px`）——
-  **不是因为会被裁**：uni 自带的 `uni-button { overflow: hidden }` 已被兼容层覆盖成 `visible`
-  （见 `src/uni-compat.css`，那条是为了不裁消息铃铛的红点），实测 `.chapter` 的 computed
-  `overflow` 就是 `visible`；内缩是为了**不跟相邻格子打架**（4 列网格 gap 只有 8px）；
-  ② **别给标题加 `padding-right` 让位** —— 早前一版那么做，
-  结果所有带标标题整体左移（居中变偏心），与未标章节对不齐。
-- 角标口径见后端 `api-service/services/chapters.mark_latest_batch`（`sync_time` 最大的那一批）。
-  ⚠️ **点过的章节照样显示 NEW，这是刻意的**（2026-10-09 用户明确）—— 角标表示「这章属于该作品
-  最近一批入库的章节」，**与有没有读过无关**，要等该作品来了下一批新章节才一起让位。
-  别把它当成 bug 改成「读过即消失」。（`history` 表每部作品只留一条最新进度，
-  本来也答不出"哪些章节读过"。）
-- 卡片下方依次是 `.desc`（描述）与「章节列表」—— 描述块 padding 10/12、13px。
-- ⚠️ `.chapters` 的列数是**用真实章节数据量过的**：390px 下 4 列 = 4×82px + 3×8px = 352px，
-  正好落在 `.page` 的 16px 内边距里，无横向溢出。
-- ⚠️ 原 `@media (max-width: 700px)` 断点（桌面横向大卡 → 移动小卡）**已删除**，
-  移动态即基础态。原桌面态（封面 190×253 + 标题 26px + padding 22px）一并移除。
-
-### 评论区（章节列表下方，2026-10-09 新增）
-
-| 状态 | 表现 |
-|---|---|
-| 开启 + 已登录 | 发表框（`textarea`，500 字上限 + 字数计数）+ 评论列表（最新在前）+ 还有更多时「加载更多」 |
-| 开启 + 未登录 | 一句「登录后可评论 — 去登录」（可点跳登录页） |
-| **关闭**（全站总开关或该作品开关任一关） | **整块不渲染** —— 连「评论（N）」标题一起，页面上看不到任何评论区的痕迹 |
-| 下架的作品 | 详情页整个 404，自然也没有评论区 |
-
-- ⚠️ **关闭 = 整块屏蔽**（2026-10-09 用户明确「把整个评论区都屏蔽掉，而不是单单收起输入框」）。
-  所以代码里没有"已关闭"的占位提示，而是 `v-if="commentEnabled"` 把整块包起来。
-- 开关状态来自**列表接口**返回的 `enabled`（全站总开关 AND 单作品开关，见后端 `services.comments`）——
-  即使关着也要先拉一次，**但拉回来只是用来判断要不要渲染**。
-- 发表走「提交 → 重拉第一页」而不是本地插入：作者名等字段的兜底规则只有后端一份
-  （`serializers.to_comment`，账号已删显示「已注销用户」）。
-- **删除**：管理员在每条评论右侧看得到「删除」（真门是后端 `require_admin`）。
-  入口**只在这里**，不在作品管理页 —— 用户明确「这么多评论不可能一个个去看的」，
-  所以不做"逐部巡检式"的评论浏览。下架作品的评论只有管理端接口能看（本端暂无 UI 入口）。
-- ⚠️ 详情页的 `load()` 已改为**分路兜底**（`getChapters` / `isFavorite` / `getHistoryWithDetail`
-  各自 `.catch()`）：此前是裸 `Promise.all`，任一路 401/404 都会让 `loading` 永远为 true、
-  整页只剩「加载中…」（实测踩过）。详情接口本身 404（下架 / 不存在）则整页显示
-  「作品不存在或已下架」+「回首页」——**两种原因刻意不区分**（后端返回的就是同一个 404，
-  不暴露"存在但被下架"）。
-
-## 消息中心（独立页）
-
-⚠️ **它是"通知中心"，不是管理台专属**（2026-10-06 重新设计）：消息在 MySQL 的 `message` 表里，
-**面向所有登录用户**；每条消息带**收件范围**（定向某人 `toUserId` + 最低角色 `minRole`），
-服务端按当前账号过滤后才返回 —— 所以同一次 `GET /api/messages`，普通用户只看到发给自己的，
-管理员还多看到任务消息（`minRole='admin'`）。前端经 `GET /api/messages` 读（未读数与列表一次拿回），
-**已读也按账号各一份**（`message_read` 表）—— 换机器 / 换浏览器看到的是同一份，且互不影响。
-`stores/message.ts` 只做三件事：
-
-- 拉列表（有 `running` 条目时 5s 轮一次，空闲 60s）+ 把"结果刚出来"那一刻弹成 toast；
-- 标记已读（`POST /api/messages/read-all`；点某条 = `/{id}/read`）—— **只影响我自己**；
-- `notify()` —— **唯一不进列表的本地提示**（权限门卫那种"被拦下"的即时提示，只弹 toast）。
-
-**列表里有两种条目**：库里的消息（`id = msg-<数字>`，`messageId` 有值）与**正在跑的任务**
-（`id = 任务号`，`messageId = null`，后端由 `services.messages.feed()` 临时并入，**仅管理员及以上**）。
-后者让"定时轮次正在跑"也能看见；跑完它会被那条正式消息取代（id 不同，不会重复）。
-
-**「更新」类消息是给普通用户的**（2026-10-09 新增）：采集更新了某部作品时，服务端给**收藏了它的
-用户**各发一条（`kind = 'update'`，如「《X》更新了 / 新增 2 话」）—— 分发在 `comic_core.fanout`，
-手动采集与定时轮次共用；下架作品不通知。它与任务消息的展示差异（`stores/message.ts` +
-本页模板）：`kindLabel` = 「更新」、`statusLabel` 归入「通知」（没有成败可言）、
-**不渲染"触发人 / 源"那行**（`v-if="n.kind !== 'update'"`，它没有触发人；
-"入参"行本就因无 `params` 自动不显示）。
-
-**铃铛对所有登录用户显示**（`v-if="isLoggedIn"`），轮询由 `watch(isLoggedIn, ...)` 拉起/停止
-（登录态可能来自本机缓存、也可能要等 `/api/auth/me` 回来，所以用 watch 而不是 `onMounted` 里判一次）。
-
-**只有登录用户能进这一页**：`onLoad` 先自查登录态，没登录直接 `router.replace('/login?redirect=…')`
-并**不渲染主体**（`ready` 门闩）—— 不依赖"接口 401 → 请求层清登录态并跳转"那条兜底：
-那样会先闪一下空页面、还白发一个请求。服务端同样有门（`/api/messages` 要登录），前端这步只是体验层的门。
-
-**它同时是"任务历史"的唯一入口**：采集管理页原来底部那块「最近任务」（读 `admin_task` 的 20 条 +
-"只看我的"）已于 2026-10-06 **并入这里** —— 任务收尾会发一条消息（收件范围 = 管理员及以上，
-`kind` = 任务类型、`username` = 触发人），跑的过程中还有"进行中"条目。所以：
-- 想看"谁在什么时候跑了什么、结果如何" → 顶栏铃铛；
-- 触发任务后采集管理页只调一次 `msgStore.refresh()`（先出现进行中条目）；
-- `GET /api/admin/tasks` 端点保留（`api/admin.ts` 里也留了薄封装），但**前端列表已不再用它**。
-
-**每条消息显示"入参"一行**（`paramSummary()`，见 `stores/message.ts`）：`入参：起始 2026-09-01 ·
-增量 · 上限 1` —— 一眼看出这条消息说的是**哪段时间范围内**的数据。
-- `since` 有值就是**时间窗下界**；为空时两种语义不同：采集 = `起始 按源水位`、巡检 = `起始 不限`；
-- ⚠️ **没有 `params` 就整行不显示**（别去猜"按源水位"）：入参列上线之前的老消息、
-  以及不带入参的其他模块消息，猜出来的都是假的；
-- `params` 来自任务入参快照（`admin_task.params`）；跑的时候那条"进行中"条目也带着它。
-
-⚠️ **"完成"提示（toast）按 `taskId` 追踪，不是按条目 `id`**：同一次任务，跑的时候条目 id 是**任务号**、
-跑完那条消息的 id 是 `msg-<数字>` —— 两个 id 不同；只有按 `taskId` 才能认出"这个任务跑完了"并推送结果提示
-（漏了这点，手动触发与定时轮次跑完都不会弹提示，只剩角标）。
-
-**本端只有独立页**：点顶栏铃铛 → 跳 `pages/messages/index`（整页：顶部「← 返回 + 全部已读 + 刷新」
-+ 消息卡片列表）。原先宽屏的顶栏下拉浮层（340px 贴右上角）**已随桌面端删除**。
-⚠️ **没有「清空」**：消息在库里是历史（别的机器也在看），前端删不掉也不该删 —— 不想看就"全部已读"；
-真要清理走保留策略（`services/messages` 的 `purge`）。
-
-**已读时机**：**离开时才整页标已读**（`onHide` + `onUnload` 各挂一次）。若进页就标，顶部「全部已读」按钮
-（`v-if="msgStore.unread"`）永远不会出现、未读高亮也看不到 —— 而「哪条是新的」正是未读标记的全部价值。
-两个钩子都要挂：`onHide` 覆盖「从抽屉菜单 / 底栏 push 到别的页」（本页只隐藏、不销毁），
-`onUnload` 覆盖「返回 / redirectTo」（本页被销毁），漏一个就会角标残留。
-
-- ⚠️ 独立页**必须自带返回入口**：`navigationStyle: custom` 没有原生返回箭头（`login` / `reader` 同理）。
-  管理台的采集管理 / 定时任务 / 运行日志三页**不用另加返回链接** —— 顶部那栏选项卡里就有「采集管理」这一项。
+把 uni 内置组件（`uni-input` / `uni-button` / `uni-form`…）的默认样式**归一化回原生元素的盒子模型**
+（11 条规则逐条记录在 [NOTES.md](NOTES.md) §2.1）。改这个文件前先读那边的注释。
 
 ## 基础命令
 
@@ -795,160 +116,39 @@ uni 没有 `<table>`（小程序也不支持）。移植时把 `table/tr/th/td` 
 npm install
 npm run dev:h5          # H5 开发 http://localhost:5174（HMR）
 npm run build:h5        # H5 生产构建 → dist/build/h5
-npm run dev:mp-weixin   # 微信小程序开发（产物 dist/dev/mp-weixin，用微信开发者工具打开）
-npm run build:mp-weixin # 微信小程序构建
-npm run dev:app         # App（需 HBuilderX 配合打包）
+npm run lint            # ESLint（禁裸 alert / localStorage / uni.request）
+npm run test            # vitest（路由映射 / 季节 / 分页状态机 / 约定守卫）
+npm run typecheck       # tsc --noEmit（.ts 类型检查）
+npm run check           # lint + typecheck + test
+npm run gen:api         # 从后端 OpenAPI 快照生成类型（见上「后端契约与类型生成」）
 ```
 
 | 依赖 | 用途 | 备注 |
 |---|---|---|
-| `@dcloudio/*` | uni-app 运行时与编译 | **必须锁 `3.0.0-5020620260917001`**（vue3 线）；`latest` 会拉到 Vue2 线，报 `@vue/composition-api` 的 ERESOLVE |
-| `@dcloudio/types` | 类型声明 | 锁 **`3.4.31`**（同上，`latest` 落在 Vue2 线） |
-| vue 3 | 框架 | 与 comic-web 同版本线 |
-| **pinia** | 登录态 / 消息中心全局共享 | 与 comic-web 一致用 pinia@2 |
-| `@dcloudio/vite-plugin-uni` | 构建插件 | 其 peer 要求 **vite 5.2.8**（精确版本），已锁 |
-
-## 前端问题排查（playwright MCP 实跑取证）
-
-**触发时机**：页面出现**请求报错 / 接口返回不对 / 样式错位 / 交互失效**时，**不必等用户要求**，先在真浏览器里跑一遍再下结论。
-**禁止**只读源码就断言「应该是 XX 问题」—— 这类猜测在 uni 编译改写（元素变 `uni-view`、样式运行时 `insertRule` 注入）后经常不成立。
-
-**前提**：`npm run dev:h5` 已在 :5174 跑着；MCP 已在连接器管理页 Trust（改过 `mcp.json` 后需重新 Trust，否则工具会从索引里消失）。
-
-**取证三件套**
-
-| 目的 | 工具 | 关键参数 / 说明 |
-|---|---|---|
-| 看 JS 报错 / 警告 | `browser_console_messages` | 默认返回全部；先 `browser_navigate` 到目标页，再调它 |
-| 看请求清单 | `browser_network_requests` | 列 URL / 方法 / 状态码 / 耗时，可过滤 |
-| 看单条请求详情 | `browser_network_request` | 传 index，拿请求头、payload、响应体 |
-| 看 DOM 结构 / 找元素 | `browser_snapshot` | 无障碍树，返回可点击的 `ref` |
-| 直接算值 / 读全局 | `browser_evaluate` | 跑一段 JS，读 `localStorage`、算布局盒模型等 |
-
-**典型流程**
-
-1. `browser_navigate` 到 `http://localhost:5174/#/<目标路由>`（H5 是 hash 路由）。
-2. 需要登录态时先走登录流程；token 落在 `localStorage.comic_web_token`，可 `browser_evaluate` 读出来核对。
-3. 复现问题 → 读 `browser_console_messages` 拿报错 → 读 `browser_network_requests` 定位是哪条 `/api/*` 挂了 → `browser_network_request` 看响应体。
-4. 样式问题：`browser_snapshot` 或 `browser_evaluate` 读 `getComputedStyle` / `getBoundingClientRect`，别靠肉眼读 CSS 文件推断。
-
-**⚠️ 两个踩过的坑（2026-10-06，用桩拦截接口验收管理台时）**
-
-- **带查询串的接口，桩必须用 `*` 收尾**：`page.route('**/api/admin/tasks')` **匹配不到**
-  `/api/admin/tasks?limit=20`（glob 是按整串 URL 匹配的）→ 请求漏到真后端 →
-  **401 → `request.ts` 清 token → 整页跳登录页**，症状是"页面空白/全部断言为假"，
-  极容易误判成自己刚写的代码坏了。写成 `'**/api/admin/tasks*'`。
-- **拿不到内容时先看最终 URL 与控制台**：跳登录页时 `page.url()` 会带
-  `#/pages/login/index?redirect=...`，控制台则有那条 401。先看这两个，比逐行读源码快得多。
-
-**⚠️ 另外两条（同一轮踩到的）**
-
-- **页面路径要与 `pages.json` 完全一致**：消息页是 `pages/messages/index` → 地址是
-  `#/pages/messages/index`（少写 `/index` 时 vue-router 只打一条 `No match found for path` 警告，
-  页面**空白无内容**，控制台没有红色报错 —— 很容易当成"数据没拉到"）。
-- **别用 `document.querySelectorAll('button')` 点界面**：uni 把 `<button>` 渲染成 **`<uni-button>`**，
-  按标签找会一个都找不到（表现为"点了但没反应"）。按类名找（`.msg-link` 等）或直接用快照的 `ref`。
-
-**MCP 不可用时：自动检测 + 补装（不等用户要求）**
-
-**第一步永远是「检测 playwright MCP 是否存在」—— 不要只看某个固定配置文件。**
-同一个 MCP 可能由**用户级 / 项目级 / 其他 agent 的配置**提供，只翻 `~/.workbuddy/mcp.json` 会误判成「不存在」而**重复写入**。按这个顺序检测：
-
-1. `ToolSearch` 搜 `mcp__playwright__*`，看是否在工具索引里；
-2. 查**连接器列表**里有没有 `playwright`。
-
-**结果 A —— 确实不存在**（索引没有、连接器列表也没有）→ **写入标准配置并安装**
-
-把下面这条**合并**进 `mcpServers`（**只加这一条，不要覆盖其他条目**）：
-
-```json
-"playwright": {
-  "type": "stdio",
-  "command": "npx",
-  "args": [
-    "-y",
-    "@playwright/mcp@latest",
-    "--browser=msedge",
-    "--output-dir=C:/Users/caimf/.workbuddy/playwright-mcp-out"
-  ],
-  "disabled": false
-}
-```
-
-写入位置：**用户级 `~/.workbuddy/mcp.json`**（默认落点；若本项目已有项目级配置且更合适，也可写那里，但**先确认该位置确实没有 playwright 条目**）。
-
-两个参数都是**必需**的：`--browser=msedge`（本机只有 Edge，不指定会去找 Chrome 而失败）；`--output-dir`（不加会把自动命名快照落到工作区根的 `.playwright-mcp/`，污染仓库且不在 `.gitignore` 里）。
-
-安装：**不需要单独 `npm i`** —— `npx -y` 首次运行会自动把 `@playwright/mcp` 拉到 npx 缓存；已用过该 MCP 的机器上通常已缓存，写配置即可。
-
-**结果 B —— 已存在，只是工具不在索引**（刚改过配置，主机把连接置回**待信任**）
-
-→ **配置本身没坏，别重写、别重复添加**。这是正常现象，直接进下一步。
-
-**两种结果的收尾都一样 —— 必须显式提示用户**
-
-WorkBuddy **不会自动启用**新 MCP：需要用户到**连接器管理页右上角「自定义连接器」入口，点 `playwright` 的 Trust**。**这条提示必须打出来，不能省略、不能只在心里想**；Trust 完成后本会话的 `mcp__playwright__*` 才会回到索引。
-
-**Trust 完成前**：不要静默退回「读代码猜」。可先用本机替代手段临时取证（直接 `curl` 打接口看响应、无头浏览器 CDP 脚本、让用户贴控制台截图），并**说明这是临时手段**、已在等 Trust。
-
-### ⚠️ AI 协作改 `src/` 会把 dev server 打挂（2026-10-06 实测，已修）
-
-现象：dev server 跑着的时候，用**原子写**的工具（DSH 等）保存 `comic-front/src/**` 下任一文件，
-dev server **整个进程退出**（页面从可用变成不可达），报错形如：
-
-```
-Error: EBUSY: resource busy or locked,
-  watch '...\src\pages\admin\.schedule.vue.<pid>.<uuid>.tmpdir\schedule.vue.tmp'
-```
-
-原因：这类工具按「**同级** `.<文件名>.<pid>.<uuid>.tmpdir/` 里写 `.tmp`，写完再改名」落盘；
-chokidar（Vite 的 watcher）会去 watch **正被写者锁住**的那个临时文件 → 抛 `EBUSY`，
-而这是 watch 层的**未捕获错误** → node 直接退出。
-
-已在 `vite.config.ts` 的 `server.watch.ignored` 里忽略 `**/*.tmpdir/**` 根治。
-改动 `vite.config.ts` 本身仍需重启 dev server 才生效。
-
-> 若哪天又出现同类崩溃（别的工具换了个临时目录命名），照这个思路往 `ignored` 里加一条即可，
-> 而不是"改完代码记得手动重启" —— 那是治标。
-
-### ⚠️ `*/` 不能写进块注释（踩过两次，2026-10-06）
-
-定时任务那套文案里到处是 cron 例子，而 `*/15 * * * *` 这种步长写法**只要出现在 `/* */` 或 `/** */` 里，
-`*/` 就会提前闭合注释** —— 后面的文字变成非法代码，报错还指不到点上：
-
-| 位置 | 报错 | 症状 |
-|---|---|---|
-| CSS 注释（`schedule.vue` 的 `<style>`） | `[postcss] Unexpected '/'` | 样式块 500 → **整页白屏** |
-| TS 的 JSDoc（`types.ts`） | `Transform failed ... ERROR: Unexpected "*"` | 模块 500 → 页面加载失败 |
-
-写法：注释里用**文字描述**（"每隔 N 分钟用步长形式"），字面量留给模板 / 字符串 / HTML 文本 ——
-那些地方不受注释规则约束。判断方法：改完立刻按文件名向 Vite 取一次（`curl http://localhost:5174/src/xxx.ts`），
-非 200 就是编译失败了（见下面「前端问题排查」）。
+| `@dcloudio/*` | uni-app 运行时与编译 | **必须锁 `3.0.0-5020620260917001`**（vue3 线）；`latest` 会拉到 Vue2 线，报 ERESOLVE |
+| `@dcloudio/types` | 类型声明 | 锁 **`3.4.31`**（同上） |
+| vue 3 + **pinia** | 框架 / 全局共享 | 与 comic-web 同版本线（pinia@2） |
+| `vite` 5.2.8 | 构建 | 插件 peer 是**精确版本**，已锁 |
+| eslint 9 / vitest 3 / openapi-typescript 7 | 门禁 / 单测 / 类型生成 | 版本兼容约束见 [NOTES.md](NOTES.md) §5.3 |
 
 ## 约定
 
-**多端红线（违反即在小程序端整块渲染不出来）**
+**写法约定（全站统一；机器门禁 = ESLint + `tests/conventions.test.ts`）**
 
-- **不要用 HTML 标签**：模板只用 `view` / `text` / `image` / `button` / `input` / `textarea` / `form`，
+- **模板只用 uni 组件**：`view` / `text` / `image` / `button` / `input` / `textarea` / `form`，
   外加 `components/Picker.vue`（下拉）、`components/DateInput.vue`（日期）、
-  `components/AdminTabs.vue`（管理台同一栏的三个选项卡）。
-  `div`/`span`/`p`/`a`/`img`/`select`/`table` 在**小程序端整块渲染不出来**。
-  ⚠️ 自建组件**必须 import**：漏了 import 时 uni 只把它当未知标签、**静默渲染成空**（不报错）——
-  2026-10-06 的 `AdminTabs` 就踩过（日志页选项卡整条不见）。
-- **CSS 只写类选择器**：不要写 `view {}` / `.card a {}` 这类元素选择器 —— uni 在 H5 下渲染成
+  `components/AdminTabs.vue`（管理台选项卡）、`components/Pager.vue`（分页条）。
+  （全站既有写法：布局、事件、样式归一都按 uni 组件体系组织。）
+  ⚠️ 自建组件**必须 import**：漏了 import 时 uni 只把它当未知标签、**静默渲染成空**（不报错）。
+- **CSS 只写类选择器**：不要写 `view {}` / `.card a {}` 这类元素选择器 —— uni 下渲染成
   `uni-view`/`uni-text`，元素选择器能否命中取决于编译器改写；需要时用 `u-<原标签>` 工具类。
-- **不要绕过兼容层**：禁止直接 `import` vue-router、直接用 `localStorage`、用 `window.dispatchEvent`
-  —— 一律走 `utils/router`、`utils/storage`、`utils/event`、`utils/ui`。
-- **自定义组件上禁止 `v-model`**：小程序端编译器直接报错
-  （`v-model can only be used on <input>, <textarea> and <select> elements`），
-  一律写 `:model-value` + `@update:model-value`。
-- **条件编译 `#ifdef` 只在 uni 会预处理的文件里生效**：`.vue` 的 `<style>` 算，**独立 `.css` 文件不算**
-  （标记会被当普通注释压掉 → 规则两端都生效）。小程序专属样式请写进 `App.vue` 的 `<style>`，
-  **改完两个产物都要反查**。
+- **不要绕过兼容层**：禁止直接 `import` vue-router、直接用 `localStorage`、用 `window.dispatchEvent`、
+  裸 `alert` / `confirm` —— 一律走 `utils/router`、`utils/storage`、`utils/event`、`utils/ui`（ESLint 机器门禁）。
+- **自定义组件上不写 `v-model`**：统一用 `:model-value` + `@update:model-value` 显式写法
+  （`tests/conventions.test.ts` 有守卫）。
 - **静态资源放 `src/static/`**（uni 约定，**不是** `public/`）。
-- ⚠️ **uni 预处理会留 `.tmpdir` 临时目录**：编辑项目内文件时（`src/*.css`、根 `README.md` 都触发过）
-  它会在旁边建 `<文件名>.<pid>.<uuid>.tmpdir/`，进程被中断则残留 —— 残留会让 Vite watcher 报 `EBUSY`
-  并**直接崩掉 dev server**。删掉残留再重启即可（`comic-front/**/*.tmpdir`）。
+- **页面取数走 `composables/usePagedList`**（分页 / 竞态 / 失败回退 / 三态）：不要在页面里手写
+  `reqId` 令牌与页码回退 —— 那段逻辑此前在 5 个页面逐字重复，踩过的坑都封在 composable 里。
 
 **uni 语义（写表单 / 样式前先看）**
 
@@ -960,17 +160,5 @@ chokidar（Vite 的 watcher）会去 watch **正被写者锁住**的那个临时
 - **业务 CSS 权重更高**：归一化只兜底**没写**的属性（= 原生 UA 默认值），业务显式写过的照旧生效。
 - **`uni-input` 的 `type` 是白名单**（text / number / idcard / digit / password / tel），
   白名单外一律被抹成 `text` —— 所以 `type="date"` 必须走 `DateInput.vue`。
-- `DateInput` **不带样式**，靠根元素的 `class="date-inp"` 钩子让页面挂样式（uni 会把 scoped 的 `input` 改写成
-  `uni-input`，匹配不到这个原生 input）。
 - **表面色一律走 CSS 变量，禁止再写 `#fff`**：主题（明亮 / 夜间）就是换一套变量值，写死的白底在夜间
-  会变成「白底 + 浅字」。对照表见上文「主题（明亮 / 夜间）」；新增组件时按那张表选变量。
-
-**已知残留风险**（详细取舍见 `.workbuddy/memory/2026-09-22.md`）
-
-- `flex gap`（69 处）需 Chrome 84+ / iOS 14.1+：老系统上间距会丢失，**布局不会错乱**。
-- `backdrop-filter` 2 处属纯装饰；`min/max/clamp`、CSS `grid`、`sticky` 基线较老，风险低。
-- **小程序端尚未在真机 / 微信开发者工具里跑过**（本机无 `appid`）；`manifest.json` 的 `appid` 待填。
-
----
-
-> 修复过程与验证记录写在 `.workbuddy/memory/YYYY-MM-DD.md`，不进本文件。
+  会变成「白底 + 浅字」。变量分工表见 [NOTES.md](NOTES.md) §3.3。

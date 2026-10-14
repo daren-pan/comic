@@ -61,3 +61,7 @@ docker compose -f docker-compose.yml run --rm $M comic-app python tools/check_sc
 - 都会**写数据库**，执行前先备份（`mysqldump`，产物放 `backup/`，该目录已 gitignore）。
 - 新脚本按此约定命名与放置：**一次性的入库/改结构** → 本目录；**重复可跑的运维/巡检** → 写成
   `crawler-service` 的 CLI 子命令，不要放这里。
+
+---
+
+> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）。
