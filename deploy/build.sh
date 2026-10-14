@@ -121,6 +121,13 @@ copy_tree() {  # copy_tree <源根> <目标目录> <相对路径...>；目标已
 echo
 echo "-> [1/2] 生成模块产物到 deploy/<模块>/dist/"
 
+# ⚠️ 可复现构建（2026-10-14 实测）：`pip wheel` 默认把**构建时刻**写进 whl 的 zip 时间戳 ——
+#    同样源码每次重建的 whl 字节都不同 → 镜像里 `COPY dist/` 的层缓存每轮失效 → 后面的
+#    `pip install` 层跟着重跑（构建缓存冷时 = 全部依赖重新下载，实测一轮 169s）。
+#    固定 SOURCE_DATE_EPOCH（可复现构建标准变量）后：源码不变时 whl 逐字节一致 →
+#    整个镜像构建走缓存（实测 6s）。详见 NOTES.md「踩坑记录」。
+export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}"
+
 build_wheel() {  # build_wheel <源模块目录> <deploy 子目录>
   local src="$1" out="$2"
   echo "   $src/  --wheel-->  deploy/$out/dist/"

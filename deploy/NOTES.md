@@ -34,4 +34,33 @@
 
 ## 二、踩坑记录
 
-（暂无独立条目 —— 新的踩坑写在这里）
+### 2.1 wheel 重建的字节漂移让镜像层缓存每轮失效（"每次构建都在重新下载依赖"）
+
+- **日期**：2026-10-14
+- **背景 / 现象**：用户感觉"每次跑 up.sh 都要花很长时间下载依赖"；按预期源码没变时不该重复下载。
+- **根因**（两条，互相叠加）：
+  1. **wheel 重建的字节漂移（主因）**：`build.sh` 每轮**无条件重建 wheel**，而 `pip wheel` 默认把
+     **构建时刻**写进 whl 的 zip 时间戳 —— 同样源码重建出的 whl **字节不同**（实测 md5 每次都变、
+     大小相同）→ 三个 Python 镜像里 `COPY dist/` 的层缓存每轮失效 → 后面的 `pip install` 层跟着
+     重跑；构建缓存冷时就是全部依赖重新下载（30 个包）。
+  2. **scheduler 层 pip 没挂缓存**：`deploy/scheduler/Dockerfile` 用的是 `pip install --no-cache-dir`
+     且**没有** `--mount=type=cache`（crawler / api 两层都有）—— 该层每次重跑都全量重新下载
+     （实测同样 17 个包：crawler 层全 "Using cached"、scheduler 层全 "Downloading"）。
+- **结论**：
+  1. `build.sh` 在构建 wheel 前固定 `SOURCE_DATE_EPOCH`（可复现构建标准变量，默认 `0`）——
+     源码不变时 whl 逐字节一致 → `COPY`/`pip` 层全部命中缓存；
+  2. `scheduler/Dockerfile` 对齐 crawler / api：加 `--mount=type=cache,target=/root/.cache/pip`、
+     去掉 `--no-cache-dir`。
+- **实测**：
+  | 场景 | 修复前 | 修复后 |
+  |---|---|---|
+  | comic-api 镜像：构建缓存冷 | **169s**（30 包全下载，cryptography 4.8MB 花了 33s） | — |
+  | comic-api 镜像：输入不变 | — | **5~6s 全 CACHED** |
+  | comic-api 镜像：wheel 重建（字节不变） | 每轮重跑 pip 层 | **6s 全 CACHED**（含 pip 层） |
+  | comic-scheduler 镜像：层重跑 | **62s**（17 包全下载） | **10s**（17 包全缓存）→ 再跑 4s 全 CACHED |
+- **位置**：`deploy/build.sh`（`build_wheel` 之前的 `export SOURCE_DATE_EPOCH`）、
+  `deploy/scheduler/Dockerfile`（pip 行）；机理涉及各 `deploy/*/Dockerfile` 的 COPY→pip 层序。
+
+> 附注（镜像源话题，暂搁置）：各 Dockerfile 顶部的 `# syntax=docker/dockerfile:1.4` 会让每轮构建
+> 去拉语法镜像的元数据（走 daemon 镜像源）——镜像源抽风时（如 daocloud 502）会直接挂构建，
+> 实测撞到过一次。将来若治镜像源问题可一并评估（删 syntax 行用内置前端）。

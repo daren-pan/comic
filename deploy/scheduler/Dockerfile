@@ -50,7 +50,10 @@ ARG PIP_INDEX=https://mirrors.aliyun.com/pypi/simple
 COPY --from=core dist/ /tmp/wheels/core/
 COPY --from=crawler dist/ /tmp/wheels/crawler/
 COPY dist/ /tmp/wheels/scheduler/
-RUN pip install --no-cache-dir --index-url "$PIP_INDEX" \
+# pip 缓存挂载与 crawler / api 两层一致：层重跑（wheel 变化）时依赖走本地缓存而不是重新下载。
+# ⚠️ 不要 `--no-cache-dir`（会连 pip 自己的缓存一起禁掉 —— 层每次重跑 = 全量重新下载。
+#    2026-10-14 实测：同样 17 个包，crawler 层全 "Using cached"、本层曾全 "Downloading"）。
+RUN --mount=type=cache,target=/root/.cache/pip pip install --index-url "$PIP_INDEX" \
         --find-links /tmp/wheels/core \
         --find-links /tmp/wheels/crawler \
         "$(ls -t /tmp/wheels/scheduler/*.whl | head -1)"
