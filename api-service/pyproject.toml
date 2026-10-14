@@ -31,13 +31,15 @@ dependencies = [
 ]
 
 # api-service 是"应用目录"而不是可导入包：main.py / core/ / routers/ / services/ / schemas.py /
-# serializers.py 都是**顶层名**。所以这里声明为顶层模块 + 顶层包，装进镜像的 site-packages 后
-# `python -m uvicorn main:app` 直接可跑（容器是专用环境，不存在命名冲突）。
+# schemas_out.py / serializers.py 都是**顶层名**。所以这里声明为顶层模块 + 顶层包，装进镜像的
+# site-packages 后 `python -m uvicorn main:app` 直接可跑（容器是专用环境，不存在命名冲突）。
+# ⚠️ **新增顶层 .py 文件必须同步加进下面的 py-modules** —— 漏了 = wheel 里没有它、
+#    容器内 import 直接失败（2026-10-14 schemas_out 踩过这个坑）。
 #
 # 副作用要记住：core/config.py 里那套"从自身位置推路径"会指向 site-packages，
 # 因此镜像里显式给了 COMIC_IMAGE_ROOT 与 COMIC_STATE_FILE —— 见 deploy/api/Dockerfile。
 [tool.setuptools]
-py-modules = ["main", "schemas", "serializers"]
+py-modules = ["main", "schemas", "schemas_out", "serializers"]
 
 [tool.setuptools.packages.find]
 where = ["."]
