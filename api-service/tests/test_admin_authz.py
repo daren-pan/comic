@@ -206,10 +206,12 @@ class TestListUsers(_UsersReset):
 
     def test_rows_are_serialized_with_role(self):
         item = accounts.list_users()["items"][0]
-        self.assertEqual(item["username"], "user1")
-        self.assertEqual(item["role"], ROLE_USER)
-        self.assertNotIn("password_hash", item)           # 凭据绝不外泄
-        self.assertNotIn("passwordHash", item)
+        # 2026-10-13：items 元素由 dict 改为模型（`schemas_out.AdminUserOut`）→ 属性访问
+        self.assertEqual(item.username, "user1")
+        self.assertEqual(item.role, ROLE_USER)
+        dump = item.model_dump()
+        self.assertNotIn("password_hash", dump)           # 凭据绝不外泄
+        self.assertNotIn("passwordHash", dump)
 
 
 class TestAdminUserRoleEndpoint(_UsersReset):
@@ -272,8 +274,9 @@ class TestFirstUserBecomesSuperadmin(_UsersReset):
     def test_role_is_exposed_in_auth_payload(self):
         """`/api/auth/login|register` 的出参必须带 role —— 前端顶栏入口与路由守卫都看它。"""
         out = register(RegisterBody(username="root", password="secret123", nickname=""))
-        self.assertEqual(out["data"]["user"]["role"], ROLE_SUPERADMIN)
-        self.assertNotIn("password_hash", out["data"]["user"])
+        # 2026-10-13：`user` 由 dict 改为模型（`schemas_out.UserOut`）→ 属性访问
+        self.assertEqual(out["data"]["user"].role, ROLE_SUPERADMIN)
+        self.assertNotIn("password_hash", out["data"]["user"].model_dump())
 
 
 if __name__ == "__main__":  # pragma: no cover

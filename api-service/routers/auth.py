@@ -23,6 +23,7 @@ from core.security import (
     verify_password,
 )
 from schemas import ChangePasswordBody, LoginBody, RegisterBody, UpdateProfileBody
+from schemas_out import ApiEnvelope, AuthResultOut, UserOut
 from serializers import user_out
 from services.avatars import MAX_AVATAR_BYTES, clear_avatar, save_avatar
 
@@ -35,7 +36,7 @@ PASSWORD_MIN, PASSWORD_MAX = 6, 128   # 上限只防"超长入参"（bcrypt 本�
 NICKNAME_MAX = 64                     # = user.nickname VARCHAR(64)，超了写库必失败
 
 
-@router.post("/api/auth/register")
+@router.post("/api/auth/register", response_model=ApiEnvelope[AuthResultOut])
 def register(body: RegisterBody):
     username = body.username.strip()
     if not (USERNAME_MIN <= len(username) <= USERNAME_MAX):
@@ -59,7 +60,7 @@ def register(body: RegisterBody):
 
 
 
-@router.post("/api/auth/login")
+@router.post("/api/auth/login", response_model=ApiEnvelope[AuthResultOut])
 def login(body: LoginBody):
     username = body.username.strip()
     # 越界一律并按「用户名或密码错误」返回：若这里返 400、密码错返 401，
@@ -74,7 +75,7 @@ def login(body: LoginBody):
     return ok({"token": make_token(user["id"], user["username"]), "user": user_out(user)}, "login success")
 
 
-@router.get("/api/auth/me")
+@router.get("/api/auth/me", response_model=ApiEnvelope[UserOut])
 def me(user: dict = Depends(get_current_user)):
     return ok(user_out(user))
 
@@ -83,7 +84,7 @@ def me(user: dict = Depends(get_current_user)):
 # 三件事都**只改自己的**：user 来自 token，接口不接受 user_id 参数 —— 天然免越权。
 
 
-@router.put("/api/auth/me")
+@router.put("/api/auth/me", response_model=ApiEnvelope[UserOut])
 def update_me(body: UpdateProfileBody, user: dict = Depends(get_current_user)):
     """改昵称（登录名 `username` 不可改；长度口径同注册）。"""
     nickname = body.nickname.strip()
@@ -93,7 +94,7 @@ def update_me(body: UpdateProfileBody, user: dict = Depends(get_current_user)):
     return ok(user_out(users.get_user(user["id"])), "昵称已更新")
 
 
-@router.put("/api/auth/password")
+@router.put("/api/auth/password", response_model=ApiEnvelope[None])
 def change_password(body: ChangePasswordBody, user: dict = Depends(get_current_user)):
     """改密码：先验原密码（不对 400），新密码长度口径与注册一致。"""
     if not verify_password(body.oldPassword, user["password_hash"]):
@@ -104,7 +105,7 @@ def change_password(body: ChangePasswordBody, user: dict = Depends(get_current_u
     return ok({}, "密码已更新")
 
 
-@router.post("/api/auth/avatar")
+@router.post("/api/auth/avatar", response_model=ApiEnvelope[UserOut])
 async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     """上传头像（multipart 字段名 `file`）。校验 / 落盘在 `services.avatars`（≤2MB、JPG/PNG/WebP/GIF）。"""
     # 只读「上限 + 1」字节：超大文件不必整个读进内存再判
@@ -117,7 +118,7 @@ async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(get_c
     return ok(user_out(users.get_user(user["id"])), "头像已更新")
 
 
-@router.delete("/api/auth/avatar")
+@router.delete("/api/auth/avatar", response_model=ApiEnvelope[UserOut])
 def reset_avatar(user: dict = Depends(get_current_user)):
     """恢复默认头像（清库内 URL + 删头像文件）。"""
     clear_avatar(user["id"])

@@ -21,6 +21,7 @@ from core.db import db, users
 from core.responses import ok
 from core.security import get_current_user, get_optional_user
 from schemas import HistoryPut
+from schemas_out import ApiEnvelope, ComicOut, FavoriteStateOut, HistoryEntryOut
 from serializers import to_comic
 from services.catalog import visible_comic
 from services.tags import attach_tags
@@ -45,7 +46,7 @@ def _history_owner(user_id: str, user: dict | None) -> str:
 
 # ---------------- 收藏（登录态；user_id 参数保留用于路由兼容，实际以 token 身份为准） ----------------
 
-@router.get("/api/users/{user_id}/favorites")
+@router.get("/api/users/{user_id}/favorites", response_model=ApiEnvelope[list[ComicOut]])
 def favorites(user_id: UserId, user: dict = Depends(get_current_user)):
     user_id = str(user["id"])
     ids = users.list_favorites(user_id)        # 已按收藏时间倒序
@@ -56,12 +57,12 @@ def favorites(user_id: UserId, user: dict = Depends(get_current_user)):
     return ok([to_comic(r) for r in rows])
 
 
-@router.get("/api/users/{user_id}/favorites/{comic_id}")
+@router.get("/api/users/{user_id}/favorites/{comic_id}", response_model=ApiEnvelope[FavoriteStateOut])
 def favorite_state(user_id: UserId, comic_id: int, user: dict = Depends(get_current_user)):
     return ok({"favorited": users.is_favorite(str(user["id"]), comic_id)})
 
 
-@router.put("/api/users/{user_id}/favorites/{comic_id}")
+@router.put("/api/users/{user_id}/favorites/{comic_id}", response_model=ApiEnvelope[FavoriteStateOut])
 def add_favorite(user_id: UserId, comic_id: int, user: dict = Depends(get_current_user)):
     # 下架的作品不能收藏（与"进不了详情页"同一口径，见 services.catalog）
     visible_comic(comic_id)
@@ -69,7 +70,7 @@ def add_favorite(user_id: UserId, comic_id: int, user: dict = Depends(get_curren
     return ok({"favorited": True})
 
 
-@router.delete("/api/users/{user_id}/favorites/{comic_id}")
+@router.delete("/api/users/{user_id}/favorites/{comic_id}", response_model=ApiEnvelope[FavoriteStateOut])
 def remove_favorite(user_id: UserId, comic_id: int, user: dict = Depends(get_current_user)):
     users.set_favorite(str(user["id"]), comic_id, False)
     return ok({"favorited": False})
@@ -77,7 +78,7 @@ def remove_favorite(user_id: UserId, comic_id: int, user: dict = Depends(get_cur
 
 # ---------------- 阅读历史（登录走账号 / 游客走匿名 id，两者都不要求登录） ----------------
 
-@router.get("/api/users/{user_id}/history")
+@router.get("/api/users/{user_id}/history", response_model=ApiEnvelope[list[HistoryEntryOut]])
 def history(user_id: UserId, user: dict | None = Depends(get_optional_user)):
     # 历史记录本身已按阅读时间倒序；这里补上作品行 —— 一次批量取回，避免逐条 get_comic
     entries = users.list_history(_history_owner(user_id, user))
@@ -97,7 +98,7 @@ def history(user_id: UserId, user: dict | None = Depends(get_optional_user)):
     ])
 
 
-@router.put("/api/users/{user_id}/history")
+@router.put("/api/users/{user_id}/history", response_model=ApiEnvelope[None])
 def put_history(
     user_id: UserId, body: HistoryPut, user: dict | None = Depends(get_optional_user)
 ):
@@ -117,7 +118,7 @@ def put_history(
     return ok(None, "history updated")
 
 
-@router.delete("/api/users/{user_id}/history/{comic_id}")
+@router.delete("/api/users/{user_id}/history/{comic_id}", response_model=ApiEnvelope[None])
 def remove_history(
     user_id: UserId, comic_id: int, user: dict | None = Depends(get_optional_user)
 ):

@@ -15,6 +15,16 @@ from fastapi.responses import Response
 
 from core.db import db
 from core.responses import ok
+from schemas_out import (
+    ApiEnvelope,
+    CategoryOut,
+    ChapterOut,
+    ComicOut,
+    HealthOut,
+    PageOut,
+    PageResult,
+    SourceSearchGroupOut,
+)
 from serializers import to_chapter, to_comic, to_page
 from services.avatars import read_avatar
 from services.chapters import mark_latest_batch
@@ -42,29 +52,34 @@ def _image_response(request: Request, payload: ImagePayload) -> Response:
     return Response(content=payload.data, media_type=payload.mime, headers=payload.headers)
 
 
-@router.get("/api/health")
+@router.get("/api/health", response_model=ApiEnvelope[HealthOut])
 def health():
     return ok({**db.stats(), "categories": len(db.get_categories())})
 
 
-@router.get("/api/categories")
+@router.get("/api/categories", response_model=ApiEnvelope[list[CategoryOut]])
 def categories():
+    """分类（标签）列表，带各自作品数。
+
+    ⚠️ 「全部」的 count 是**各标签计数之和**（同一部作品挂 3 个标签就计 3 次），
+    与真实作品数不符 —— 前端 `FilterBar` 对「全部」**刻意不显示数字**（见其注释）。
+    """
     items = db.get_categories()
     return ok([{"name": "全部", "count": sum(i["count"] for i in items)}] + items)
 
 
-@router.get("/api/sources/search")
+@router.get("/api/sources/search", response_model=ApiEnvelope[list[SourceSearchGroupOut]])
 def sources_search(q: str, source: str | None = None, limit: int = 20):
     """搜索**源站**（只读、不写库）—— 站内搜不到时去「其他来源」找。
 
     返回按源分组 `[{source, items:[...]}]`：只含支持搜索的源，单源失败静默跳过，
-    因此它慢或失败都不会影响站内结果的展示。命中的作品带 `inLibrary` /
-    `comicId`，前端据此显示「已收录，直接打开」或「导入并阅读」。
+    因此它慢或失败都不会影响站内结果的展示。命中的作品带 `comicId`
+    （**非 None = 已收录**），前端据此显示「已收录，直接打开」或「导入并阅读」。
     """
     return ok(search_sources(q, source=source, limit=min(max(1, limit), 50)))
 
 
-@router.get("/api/comics")
+@router.get("/api/comics", response_model=ApiEnvelope[PageResult[ComicOut]])
 def comics(category: str | None = None, keyword: str | None = None, sort: str = "updated", page: int = 1, page_size: int = 12):
     """作品列表。`sort`：updated=最新更新（默认）/ views=热度倒序 / favorites=收藏数倒序。"""
     page = max(1, page)
@@ -75,7 +90,7 @@ def comics(category: str | None = None, keyword: str | None = None, sort: str = 
     return ok({"items": items, "total": total, "page": page, "pageSize": page_size})
 
 
-@router.get("/api/comics/{comic_id}")
+@router.get("/api/comics/{comic_id}", response_model=ApiEnvelope[ComicOut])
 def comic_detail(comic_id: int):
     # 可见性先判：**已下架的作品与"不存在"返回同一个 404**（口径见 services/catalog）。
     # 页码访问量只给可见作品 +1 —— 下架作品不该因为有人直接打接口而涨热度。
@@ -87,7 +102,7 @@ def comic_detail(comic_id: int):
     return ok(to_comic(row))
 
 
-@router.get("/api/comics/{comic_id}/chapters")
+@router.get("/api/comics/{comic_id}/chapters", response_model=ApiEnvelope[list[ChapterOut]])
 def chapters(comic_id: int):
     visible_comic(comic_id)   # 下架 → 404，与详情页同一口径
     rows = db.get_chapters(comic_id)
@@ -96,7 +111,7 @@ def chapters(comic_id: int):
     return ok([to_chapter(r) for r in rows])
 
 
-@router.get("/api/chapters/{chapter_id}/pages")
+@router.get("/api/chapters/{chapter_id}/pages", response_model=ApiEnvelope[list[PageOut]])
 def chapter_pages(chapter_id: int):
     ch = db.get_chapter(chapter_id)
     if not ch:

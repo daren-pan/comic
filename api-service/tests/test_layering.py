@@ -5,7 +5,7 @@
 | 层 | 模块 | 允许导入 |
 |---|---|---|
 | L0 基础设施 | `core.*`（config/db/security/responses） | 仅标准库 / 三方 / **core 自身**（自洽地基） |
-| L1 契约与序列化 | `schemas` `serializers` | L0 |
+| L1 契约与序列化 | `schemas` `schemas_out` `serializers` | L0 |
 | L2 业务动作 | `services.*`（images/tasks/sources） | L0 · L1 |
 | L3 HTTP 接口 | `routers.*`（public/auth/users/admin） | L0 · L1 · L2 |
 
@@ -27,7 +27,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 # 层号越小越"底层/通用"；未列出的模块视为未归类（测试失败，提示补录）
 _LAYER_PREFIXES: list[tuple[int, tuple[str, ...]]] = [
     (0, ("core",)),
-    (1, ("schemas", "serializers")),
+    (1, ("schemas", "schemas_out", "serializers")),
     (2, ("services",)),
     (3, ("routers",)),
 ]

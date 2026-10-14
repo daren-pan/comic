@@ -79,13 +79,15 @@ class TestToChapter(unittest.TestCase):
 
         out = to_chapter(row)
 
-        self.assertTrue(out["isNew"])
-        self.assertEqual(out["createdAt"], row["sync_time"])
+        # 2026-10-13：`to_chapter` 改返回模型（`schemas_out.ChapterOut`），故用属性访问；
+        # `createdAt` 也从"原样透传 datetime"变为**归一成 ISO 字符串**（对外响应形态不变）
+        self.assertTrue(out.isNew)
+        self.assertEqual(out.createdAt, "2026-10-09T10:00:00")
 
     def test_missing_mark_defaults_false(self):
         """没注入 `is_new`（别处调用）→ False，**不回退查库**（与 tags 同一约定）。"""
         out = to_chapter(_ch(1, 1, datetime(2026, 10, 9, 10, 0, 0)))
-        self.assertFalse(out["isNew"])
+        self.assertFalse(out.isNew)
 
 
 if __name__ == "__main__":  # pragma: no cover

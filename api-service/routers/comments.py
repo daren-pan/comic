@@ -19,6 +19,7 @@ from core.pagination import normalize
 from core.responses import ok
 from core.security import get_current_user
 from schemas import CommentBody
+from schemas_out import ApiEnvelope, CommentAddedOut, CommentPageOut
 from serializers import to_comment
 from services import comments as comments_svc
 from services.catalog import visible_comic
@@ -26,7 +27,7 @@ from services.catalog import visible_comic
 router = APIRouter(tags=["comments"])
 
 
-@router.get("/api/comics/{comic_id}/comments")
+@router.get("/api/comics/{comic_id}/comments", response_model=ApiEnvelope[CommentPageOut])
 def list_comments(
     comic_id: int, page: int = 1, page_size: int = comments_svc.DEFAULT_PAGE_SIZE
 ):
@@ -45,7 +46,7 @@ def list_comments(
     )
 
 
-@router.post("/api/comics/{comic_id}/comments")
+@router.post("/api/comics/{comic_id}/comments", response_model=ApiEnvelope[CommentAddedOut])
 def add_comment(comic_id: int, body: CommentBody, user: dict = Depends(get_current_user)):
     """发表一条评论（需登录 + 评论区开启）。
 

@@ -29,12 +29,13 @@ from fastapi import APIRouter, Depends
 from core.responses import ok
 from core.security import get_current_user, require_admin_or_service
 from schemas import MessageBody
+from schemas_out import ApiEnvelope, ChangedOut, MessageFeedOut, MessageItemOut, UnreadOut
 from services import messages
 
 router = APIRouter(tags=["messages"])
 
 
-@router.get("/api/messages")
+@router.get("/api/messages", response_model=ApiEnvelope[MessageFeedOut])
 def list_messages(limit: int = 50, unread_only: bool = False,
                   user: dict = Depends(get_current_user)):
     """**发给我的**消息列表（最近 N 条）+ 未读数。
@@ -47,13 +48,13 @@ def list_messages(limit: int = 50, unread_only: bool = False,
     return ok(messages.feed(user, limit=limit, unread_only=unread_only))
 
 
-@router.get("/api/messages/unread")
+@router.get("/api/messages/unread", response_model=ApiEnvelope[UnreadOut])
 def unread(user: dict = Depends(get_current_user)):
     """我的未读数（只给角标用；列表接口本来也会带回来）。"""
     return ok({"unread": messages.unread_count(user)})
 
 
-@router.post("/api/messages")
+@router.post("/api/messages", response_model=ApiEnvelope[MessageItemOut])
 def publish_message(body: MessageBody, auth: dict = Depends(require_admin_or_service)):
     """发一条消息 —— **其他模块的写入入口**。
 
@@ -68,13 +69,13 @@ def publish_message(body: MessageBody, auth: dict = Depends(require_admin_or_ser
     return ok(messages.publish(body.model_dump()))
 
 
-@router.post("/api/messages/{message_id}/read")
+@router.post("/api/messages/{message_id}/read", response_model=ApiEnvelope[ChangedOut])
 def mark_read(message_id: int, user: dict = Depends(get_current_user)):
     """把某一条标记为**我**已读（`message_id` 是列表里的 `messageId`）；别人的未读不受影响。"""
     return ok({"changed": messages.mark_read(message_id, user)})
 
 
-@router.post("/api/messages/read-all")
+@router.post("/api/messages/read-all", response_model=ApiEnvelope[ChangedOut])
 def mark_all_read(user: dict = Depends(get_current_user)):
     """把**我看到的**全部标为已读（按账号各一份：`message_read` 表）。"""
     return ok({"changed": messages.mark_all_read(user)})

@@ -30,6 +30,15 @@ from core.pagination import normalize
 from core.responses import ok
 from core.security import require_admin
 from schemas import CommentSwitchBody, ComicListingBody
+from schemas_out import (
+    AdminComicOut,
+    ApiEnvelope,
+    CommentOut,
+    CommentSwitchOut,
+    ComicCommentSwitchOut,
+    ComicListingOut,
+    PageResult,
+)
 from serializers import to_admin_comic, to_comment
 from services import comments as comments_svc
 
@@ -41,7 +50,7 @@ router = APIRouter(tags=["admin-comics"], dependencies=[Depends(require_admin)])
 ADMIN_PAGE_SIZE = 20
 
 
-@router.get("/api/admin/comics")
+@router.get("/api/admin/comics", response_model=ApiEnvelope[PageResult[AdminComicOut]])
 def admin_comics(
     keyword: str = "", page: int = 1, page_size: int = ADMIN_PAGE_SIZE
 ):
@@ -54,7 +63,7 @@ def admin_comics(
     return ok({"items": [to_admin_comic(r) for r in rows], "total": total, "page": p, "pageSize": size})
 
 
-@router.post("/api/admin/comics/{comic_id}/listing")
+@router.post("/api/admin/comics/{comic_id}/listing", response_model=ApiEnvelope[ComicListingOut])
 def admin_comic_listing(comic_id: int, body: ComicListingBody, user: dict = Depends(require_admin)):
     """上架 / 下架一部作品。
 
@@ -74,7 +83,7 @@ def admin_comic_listing(comic_id: int, body: ComicListingBody, user: dict = Depe
     return ok({"id": comic_id, "listed": body.listed})
 
 
-@router.post("/api/admin/comics/{comic_id}/comment")
+@router.post("/api/admin/comics/{comic_id}/comment", response_model=ApiEnvelope[ComicCommentSwitchOut])
 def admin_comic_comment(
     comic_id: int, body: CommentSwitchBody, user: dict = Depends(require_admin)
 ):
@@ -94,13 +103,13 @@ def admin_comic_comment(
     return ok({"id": comic_id, "commentEnabled": body.enabled})
 
 
-@router.get("/api/admin/settings/comment")
+@router.get("/api/admin/settings/comment", response_model=ApiEnvelope[CommentSwitchOut])
 def admin_get_comment_setting():
     """读**全站评论总开关**。"""
     return ok({"enabled": comments_svc.global_enabled()})
 
 
-@router.put("/api/admin/settings/comment")
+@router.put("/api/admin/settings/comment", response_model=ApiEnvelope[CommentSwitchOut])
 def admin_put_comment_setting(body: CommentSwitchBody, user: dict = Depends(require_admin)):
     """写**全站评论总开关**：关掉 = 所有作品的评论区一起停（单作品开关保持原样，不覆盖）。"""
     comments_svc.set_global_enabled(body.enabled)
@@ -114,7 +123,7 @@ def admin_put_comment_setting(body: CommentSwitchBody, user: dict = Depends(requ
     return ok({"enabled": body.enabled})
 
 
-@router.get("/api/admin/comics/{comic_id}/comments")
+@router.get("/api/admin/comics/{comic_id}/comments", response_model=ApiEnvelope[PageResult[CommentOut]])
 def admin_comic_comments(
     comic_id: int, page: int = 1, page_size: int = comments_svc.DEFAULT_PAGE_SIZE
 ):
@@ -130,7 +139,7 @@ def admin_comic_comments(
     return ok({"items": [to_comment(r) for r in rows], "total": total, "page": p, "pageSize": size})
 
 
-@router.delete("/api/admin/comments/{comment_id}")
+@router.delete("/api/admin/comments/{comment_id}", response_model=ApiEnvelope[None])
 def admin_delete_comment(comment_id: int, user: dict = Depends(require_admin)):
     """删除一条评论（**物理删除**，不可恢复 —— 与"下架"刻意不同：评论是用户内容，
     删掉就该消失，没有"重新上架"的语义）。"""

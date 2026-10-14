@@ -1,0 +1,5771 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "聚漫画 Comic API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Health",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_HealthOut_"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/categories": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Categories",
+        "description": "分类（标签）列表，带各自作品数。\n\n⚠️ 「全部」的 count 是**各标签计数之和**（同一部作品挂 3 个标签就计 3 次），\n与真实作品数不符 —— 前端 `FilterBar` 对「全部」**刻意不显示数字**（见其注释）。",
+        "operationId": "categories_api_categories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_list_CategoryOut__"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sources/search": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Sources Search",
+        "description": "搜索**源站**（只读、不写库）—— 站内搜不到时去「其他来源」找。\n\n返回按源分组 `[{source, items:[...]}]`：只含支持搜索的源，单源失败静默跳过，\n因此它慢或失败都不会影响站内结果的展示。命中的作品带 `comicId`\n（**非 None = 已收录**），前端据此显示「已收录，直接打开」或「导入并阅读」。",
+        "operationId": "sources_search_api_sources_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_list_SourceSearchGroupOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/comics": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Comics",
+        "description": "作品列表。`sort`：updated=最新更新（默认）/ views=热度倒序 / favorites=收藏数倒序。",
+        "operationId": "comics_api_comics_get",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "updated",
+              "title": "Sort"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 12,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PageResult_ComicOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/comics/{comic_id}": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Comic Detail",
+        "operationId": "comic_detail_api_comics__comic_id__get",
+        "parameters": [
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ComicOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/comics/{comic_id}/chapters": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Chapters",
+        "operationId": "chapters_api_comics__comic_id__chapters_get",
+        "parameters": [
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_list_ChapterOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chapters/{chapter_id}/pages": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Chapter Pages",
+        "operationId": "chapter_pages_api_chapters__chapter_id__pages_get",
+        "parameters": [
+          {
+            "name": "chapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Chapter Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_list_PageOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/covers/{comic_id}": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Cover",
+        "operationId": "cover_api_covers__comic_id__get",
+        "parameters": [
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/avatars/{user_id}": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Avatar",
+        "description": "用户头像（公开；`no-cache + ETag` —— 换头像后同 URL 立即生效，未变则 304）。",
+        "operationId": "avatar_api_avatars__user_id__get",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/images/{comic_id}/{chapter_id}/{page_no}": {
+      "get": {
+        "tags": [
+          "public"
+        ],
+        "summary": "Page Image",
+        "operationId": "page_image_api_images__comic_id___chapter_id___page_no__get",
+        "parameters": [
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          },
+          {
+            "name": "chapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Chapter Id"
+            }
+          },
+          {
+            "name": "page_no",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Page No"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Register",
+        "operationId": "register_api_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_AuthResultOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_AuthResultOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Me",
+        "operationId": "me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_UserOut_"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Update Me",
+        "description": "改昵称（登录名 `username` 不可改；长度口径同注册）。",
+        "operationId": "update_me_api_auth_me_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_UserOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/password": {
+      "put": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change Password",
+        "description": "改密码：先验原密码（不对 400），新密码长度口径与注册一致。",
+        "operationId": "change_password_api_auth_password_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_NoneType_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/avatar": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Upload Avatar",
+        "description": "上传头像（multipart 字段名 `file`）。校验 / 落盘在 `services.avatars`（≤2MB、JPG/PNG/WebP/GIF）。",
+        "operationId": "upload_avatar_api_auth_avatar_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_avatar_api_auth_avatar_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_UserOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Reset Avatar",
+        "description": "恢复默认头像（清库内 URL + 删头像文件）。",
+        "operationId": "reset_avatar_api_auth_avatar_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_UserOut_"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/users/{user_id}/favorites": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Favorites",
+        "operationId": "favorites_api_users__user_id__favorites_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_list_ComicOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}/favorites/{comic_id}": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Favorite State",
+        "operationId": "favorite_state_api_users__user_id__favorites__comic_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_FavoriteStateOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Add Favorite",
+        "operationId": "add_favorite_api_users__user_id__favorites__comic_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_FavoriteStateOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Remove Favorite",
+        "operationId": "remove_favorite_api_users__user_id__favorites__comic_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_FavoriteStateOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}/history": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "History",
+        "operationId": "history_api_users__user_id__history_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_list_HistoryEntryOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Put History",
+        "description": "写入/更新阅读进度（翻页时自动调用，**每次都校验章节归属**）。\n\n⚠️ 这条校验是 2026-09-21 补的：`history` 表对 `comic(id)` 有外键，但章节没有 ——\n传一个不存在的 comicId 会撞外键失败 → **500**；传\"合法 comicId + 乱填 chapterId\"\n则会静默写进一条脏进度（连不上章节，列表里标题是空的）。一次主键查询就能同时挡掉两种，\n返回 404 说明原因。",
+        "operationId": "put_history_api_users__user_id__history_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoryPut"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_NoneType_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}/history/{comic_id}": {
+      "delete": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Remove History",
+        "operationId": "remove_history_api_users__user_id__history__comic_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9._:-]+$",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_NoneType_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/comics/{comic_id}/comments": {
+      "get": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "List Comments",
+        "description": "评论列表（**最新在前**）+ 总数 + 该作品的评论开关状态。",
+        "operationId": "list_comments_api_comics__comic_id__comments_get",
+        "parameters": [
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_CommentPageOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "comments"
+        ],
+        "summary": "Add Comment",
+        "description": "发表一条评论（需登录 + 评论区开启）。\n\n返回新评论的 id —— 前端据此**重拉第一页**（评论最新在前，新那条自然出现在顶部），\n比在本地拼一条更稳：作者名等字段的兜底规则只有后端这一份。",
+        "operationId": "add_comment_api_comics__comic_id__comments_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_CommentAddedOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/sources": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Sources",
+        "operationId": "admin_sources_api_admin_sources_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_list_SourceInfoOut__"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/sources/{name}/toggle": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Toggle Source",
+        "operationId": "admin_toggle_source_api_admin_sources__name__toggle_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_SourceToggleOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/sync": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Sync",
+        "description": "手动触发采集（后台线程执行，返回 `taskId` 供前端轮询）。动作见 `admin_jobs.sync_job`。\n\n任务**落库**（`admin_task`）并与触发账号绑定：api 重启后任务不丢，也能看出是谁点的。",
+        "operationId": "admin_sync_api_admin_sync_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminSyncBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_TaskIdOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/schedule": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Get Schedule",
+        "description": "「定时任务」当前配置 + 运行态（下次执行时刻 / 最近一次结果 / 是否在跑）。\n\n配置落盘在运行时数据目录 `<data>/schedule.json`（读写归 crawler 的\n`scheduling/schedule.py`）；进程内执行器见 `services.scheduler`。",
+        "operationId": "admin_get_schedule_api_admin_schedule_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ScheduleStatusOut_"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Put Schedule",
+        "description": "保存「定时任务」配置。\n\n形状校验在 `schemas.AdminScheduleBody`（非空、长度上限、`mode` 收口成两个字面量）；\n**cron 的语义校验**（5 段、取值范围、步长）在 `services.scheduler.update()` 里用\n`parse_cron` 做，非法在这里转成 **400**，消息里带段名与原因，可直接展示给用户。\n\n未注册的源名会被丢弃并记 warning —— 所以**返回值才是实际生效的配置**。",
+        "operationId": "admin_put_schedule_api_admin_schedule_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminScheduleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ScheduleStatusOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/schedule/run-now": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Schedule Run Now",
+        "description": "请求立即执行一轮（不等 cron 命中）。\n\n⚠️ 采集**不在本进程**跑：这里只写一条触发请求（`schedule_run_now.json`），\n独立进程 `comic-scheduler` 在下一个 tick（≤5s）内看到就跳一轮。所以返回的是\n\"已请求\"，**不是 `taskId`** —— 结果看 `GET /api/admin/schedule` 的\n`running` / `lastRunAt` / `lastMessage`，以及**任务表** `admin_task`\n（`task_type=schedule`，会记下点按钮的是谁）。\n上一轮还在跑时执行器会跳过（不排队、不重入）。",
+        "operationId": "admin_schedule_run_now_api_admin_schedule_run_now_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ScheduleRunNowOut_"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/heal-covers": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Heal Covers",
+        "description": "封面自愈（**按作品**）：填漫画名称或 ID（可多个），**强制**回源重抓封面并覆盖。\n\n用于修复「封面文件在、但内容是错的」—— 普通自愈只看文件在不在，永远修不到错图；\n这里 `force=True` 跳过「文件在即健康」的早返回，对命中作品重新下载覆盖。\n`keyword` **必填**：逗号 / 空格 / 换行分隔，每项是作品 ID 或名称（可混填，一次多部）。\n解析与动作见 `services.admin_jobs.parse_heal_keyword` / `heal_covers_job`。",
+        "operationId": "admin_heal_covers_api_admin_heal_covers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminHealBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_TaskIdOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/inspect": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Inspect",
+        "description": "失效巡检（**全库维护的唯一入口**）：转存未转存页 + **全表**校验已转存对象 + 全库封面自愈。\n\n三步做什么、为什么定时巡检不含第 3 步，见 `services.admin_jobs.inspect_job`。",
+        "operationId": "admin_inspect_api_admin_inspect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminInspectBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_TaskIdOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/import": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Import",
+        "description": "按需导入一部作品（后台线程执行，返回 `taskId` 供前端轮询）。\n\n与「采集」的区别：采集只能碰到源站「最近更新」榜上的作品；本接口按用户\n指定（关键词 / 作品链接 / 作品 ID）收录**榜单之外**的作品，并**全量收目录**\n（而不是只收最新 1 话）。导入**不下载正文图**：只写书目 + 全量章节 + 封面，\n正文图在用户阅读该话时按需取回并顺手落盘（见 services/ondemand）。\n\n⚠️ 对**已入库**作品的重复导入是**幂等补章**：补齐库内缺失的**所有**章节（含中间空洞）——\n管理台「作品管理」页每行的「补全章节」即复用此行为（掉出「最近更新」列表的作品\n只能按作品定位补，见 `pages/admin/comics.vue`）。\n\n失败原因（源站搜不到 / 付费锁定 / 源不支持搜索）会写进任务 message，\n前端消息中心直接显示，不需要额外错误通道。",
+        "operationId": "admin_import_api_admin_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminImportBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_TaskIdOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/tasks": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Tasks",
+        "description": "最近的后台任务（**读库** `admin_task`，按 id 倒序 = 时间倒序）。\n\n`mine=true` 只看**自己触发的**（任务已与触发账号绑定）；任务里带 `userId`/`username`，\n所以\"这条是谁点的\"一眼可见。",
+        "operationId": "admin_tasks_api_admin_tasks_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "mine",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Mine"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_list_AdminTaskOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Task",
+        "operationId": "admin_task_api_admin_tasks__task_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_AdminTaskOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/logs/options": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Log Options",
+        "description": "日志查询页的筛选候选值（级别 / 事件类型）。",
+        "operationId": "admin_log_options_api_admin_logs_options_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_LogOptionsOut_"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/logs/purge": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Logs Purge",
+        "description": "删除 `days` 天前的日志（保留策略的手动入口；默认不做自动清理）。",
+        "operationId": "admin_logs_purge_api_admin_logs_purge_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PurgeOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/logs": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Logs",
+        "description": "运行日志查询（`log_record` 表）：级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / 时间窗 + 分页。\n\n日志由 logging Handler 在打日志时自动落库（见 crawler 的 `log_handler`），\n所以这里查到的就是 api.log 里那些业务日志，只是**能按条件筛**、且不再需要前端轮询。",
+        "operationId": "admin_logs_api_admin_logs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "name": "event",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "comic_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Comic Id"
+            }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "with_exc",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "With Exc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PageResult_LogRecordOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/logs/{log_id}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Admin Log Detail",
+        "description": "单条日志（含异常堆栈全文）。",
+        "operationId": "admin_log_detail_api_admin_logs__log_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "log_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Log Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_LogRecordOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/comics": {
+      "get": {
+        "tags": [
+          "admin-comics"
+        ],
+        "summary": "Admin Comics",
+        "description": "作品列表（**含已下架**），按最近更新倒序；`keyword` 匹配 标题/作者/分类/标签。",
+        "operationId": "admin_comics_api_admin_comics_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Keyword"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PageResult_AdminComicOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/comics/{comic_id}/listing": {
+      "post": {
+        "tags": [
+          "admin-comics"
+        ],
+        "summary": "Admin Comic Listing",
+        "description": "上架 / 下架一部作品。\n\n下架**只改 `comic.listed`**、不删任何数据；前台立刻不可见（列表 / 搜索 / 收藏 / 历史 /\n详情页全部），重新上架即恢复。会写一条结构化日志（谁、哪部、上/下架）备查。",
+        "operationId": "admin_comic_listing_api_admin_comics__comic_id__listing_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ComicListingBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ComicListingOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/comics/{comic_id}/comment": {
+      "post": {
+        "tags": [
+          "admin-comics"
+        ],
+        "summary": "Admin Comic Comment",
+        "description": "开关**单作品**的评论区（全站总开关在 `PUT /api/admin/settings/comment`）。\n\n⚠️ 单作品打开**不等于**能评论 —— 全站总开关关着时照样拦（两者是 AND，见 `services.comments`）。",
+        "operationId": "admin_comic_comment_api_admin_comics__comic_id__comment_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentSwitchBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ComicCommentSwitchOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/settings/comment": {
+      "get": {
+        "tags": [
+          "admin-comics"
+        ],
+        "summary": "Admin Get Comment Setting",
+        "description": "读**全站评论总开关**。",
+        "operationId": "admin_get_comment_setting_api_admin_settings_comment_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_CommentSwitchOut_"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "admin-comics"
+        ],
+        "summary": "Admin Put Comment Setting",
+        "description": "写**全站评论总开关**：关掉 = 所有作品的评论区一起停（单作品开关保持原样，不覆盖）。",
+        "operationId": "admin_put_comment_setting_api_admin_settings_comment_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentSwitchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_CommentSwitchOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/comics/{comic_id}/comments": {
+      "get": {
+        "tags": [
+          "admin-comics"
+        ],
+        "summary": "Admin Comic Comments",
+        "description": "某部作品的评论（管理视角）。\n\n与公开接口的区别：**不查前台可见性** —— 下架的作品在这里照样能看到并清理它的评论\n（那正是下架之后仍需要做的治理动作）。作品本身不存在时仍 404。",
+        "operationId": "admin_comic_comments_api_admin_comics__comic_id__comments_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "comic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comic Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PageResult_CommentOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/comments/{comment_id}": {
+      "delete": {
+        "tags": [
+          "admin-comics"
+        ],
+        "summary": "Admin Delete Comment",
+        "description": "删除一条评论（**物理删除**，不可恢复 —— 与\"下架\"刻意不同：评论是用户内容，\n删掉就该消失，没有\"重新上架\"的语义）。",
+        "operationId": "admin_delete_comment_api_admin_comments__comment_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "comment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Comment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_NoneType_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "tags": [
+          "admin-users"
+        ],
+        "summary": "Admin List Users",
+        "description": "用户列表（关键字匹配用户名/昵称，分页）。",
+        "operationId": "admin_list_users_api_admin_users_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keyword"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_PageResult_AdminUserOut__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users/{user_id}/role": {
+      "post": {
+        "tags": [
+          "admin-users"
+        ],
+        "summary": "Admin Set User Role",
+        "description": "把某个用户设为 `admin` / `user`（授权 / 取消授权）。\n\n拒绝的情况（400）：改自己、授予 `superadmin`、目标是超级管理员 —— 见 `services/accounts.set_role`。",
+        "operationId": "admin_set_user_role_api_admin_users__user_id__role_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUserRoleBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_UserRoleOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/messages": {
+      "get": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "List Messages",
+        "description": "**发给我的**消息列表（最近 N 条）+ 未读数。\n\n可见范围：定向发给我的（`toUserId`）+ 我这个角色够得着的（`minRole`，见模块 docstring）。\n`unread_only=true` 只返回未读（此时不掺\"正在跑的任务\"—— 它们不算未读）。\n返回形状：`{items: [...], unread: N}`；`items[].id` 字符串（消息 = `msg-<id>`，\n正在跑的任务 = 任务号），标记已读要用 `messageId`（任务条目为 `null`）。",
+        "operationId": "list_messages_api_messages_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "unread_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Unread Only"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_MessageFeedOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "Publish Message",
+        "description": "发一条消息 —— **其他模块的写入入口**。\n\n- 管理台/外部系统：带管理员 JWT；\n- 进程间：带 `X-Service-Token`（由 `comic_core.notify.publish_message` 生成）。\n\n**收件范围**（不填 = 所有登录用户）：`toUserId` 定向某人；`minRole` 最低角色要求\n（`''`/`user` < `admin` < `superadmin`，`admin` 时超管也看得到）。\n`kind` 自由（任务消息用任务类型：`sync`/`inspect`/`heal`/`import`/`schedule`；\n其它写者自定义，如 `system`/`notice`）；`level` 取 `info`/`warn`/`error`（非法值落 `info`）。",
+        "operationId": "publish_message_api_messages_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_MessageItemOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/messages/unread": {
+      "get": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "Unread",
+        "description": "我的未读数（只给角标用；列表接口本来也会带回来）。",
+        "operationId": "unread_api_messages_unread_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_UnreadOut_"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/messages/{message_id}/read": {
+      "post": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "Mark Read",
+        "description": "把某一条标记为**我**已读（`message_id` 是列表里的 `messageId`）；别人的未读不受影响。",
+        "operationId": "mark_read_api_messages__message_id__read_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ChangedOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/messages/read-all": {
+      "post": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "Mark All Read",
+        "description": "把**我看到的**全部标为已读（按账号各一份：`message_read` 表）。",
+        "operationId": "mark_all_read_api_messages_read_all_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_ChangedOut_"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AdminComicOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "cover": {
+            "type": "string",
+            "title": "Cover"
+          },
+          "latestChapterTitle": {
+            "type": "string",
+            "title": "Latestchaptertitle"
+          },
+          "chapterCount": {
+            "type": "integer",
+            "title": "Chaptercount"
+          },
+          "views": {
+            "type": "integer",
+            "title": "Views"
+          },
+          "favoriteCount": {
+            "type": "integer",
+            "title": "Favoritecount"
+          },
+          "heat": {
+            "type": "integer",
+            "title": "Heat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "listed": {
+            "type": "boolean",
+            "title": "Listed"
+          },
+          "commentEnabled": {
+            "type": "boolean",
+            "title": "Commentenabled"
+          },
+          "sourceComicId": {
+            "type": "string",
+            "title": "Sourcecomicid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "author",
+          "category",
+          "status",
+          "description",
+          "cover",
+          "latestChapterTitle",
+          "chapterCount",
+          "views",
+          "favoriteCount",
+          "heat",
+          "updatedAt",
+          "source",
+          "tags",
+          "listed",
+          "commentEnabled",
+          "sourceComicId"
+        ],
+        "title": "AdminComicOut",
+        "description": "管理台「作品管理」行 = `ComicOut` + 三个**治理字段**。\n\n`sourceComicId`：「补全章节」按 `(源, 源作品 ID)` 复用「按需导入」精确补章\n（源站搜索可能重名，只有 ID 是精确的）。\n\n⚠️ 管理台列表**不注入 `tags`**（注入要多一次批量查询，而列表不显示标签），\n所以那里的 `tags` 恒为空数组 —— 是刻意的，不是丢了。"
+      },
+      "AdminHealBody": {
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Keyword"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "keyword"
+        ],
+        "title": "AdminHealBody",
+        "description": "封面自愈入参：**按作品**修复封面（`keyword` 必填，**不允许留空**）。\n\n`keyword`：漫画**名称或 ID**，可一次填多部 —— 逗号 / 空格 / 换行分隔，每项是 id 或名称\n（混填即可）。命中作品后**强制回源重抓封面并覆盖**，用于修「文件在但内容是错的」封面\n（普通自愈只看文件在不在，永远修不到错图）。\n`source`：可再按源收窄（AND）；留空 = 不限源。"
+      },
+      "AdminImportBody": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source"
+          },
+          "keyword": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keyword"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "source_comic_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Comic Id"
+          },
+          "first_chapters": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Chapters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "AdminImportBody",
+        "description": "按需导入入参：收录一部用户指定的作品（三选一提供定位方式）。\n\n- `keyword`：按书名/关键词让源站搜索，取其第一条作为目标（主入口）；\n- `ref`：作品页链接或作品 ID（适配器 parse_comic_ref 解析，次入口）；\n- `source_comic_id`：直接指定源站作品 ID（最精确）。\n\n`first_chapters` 留空 = **全量收目录**（按需导入的默认语义）；给数字则只收最新 N 话。\n导入**不下载正文图**：只写书目 + 全量章节 + 封面，正文图在阅读时按需取回。"
+      },
+      "AdminInspectBody": {
+        "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "type": "object",
+        "title": "AdminInspectBody",
+        "description": "失效巡检入参（**全库维护的唯一入口**）：转存窗口内未转存页 + **全表**校验已转存对象\n+ 全库封面自愈。\n\nsource/since/until 只作用于「转存」部分；source 同时限定校验范围；全部留空 = 全库巡检。"
+      },
+      "AdminScheduleBody": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "cron": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Cron",
+            "default": "0 3 * * *"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "sync",
+              "inspect"
+            ],
+            "title": "Action",
+            "default": "sync"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "incremental",
+              "full"
+            ],
+            "title": "Mode",
+            "default": "incremental"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          }
+        },
+        "type": "object",
+        "title": "AdminScheduleBody",
+        "description": "「定时任务」保存入参（管理台「定时任务」栏）。\n\n节奏用 **5 段 cron**（`分 时 日 月 周`）表达 —— 「每天定点」与「每隔一段时间」\n已合并成同一个表达式：\n\n| 想要的效果 | 表达式 |\n|---|---|\n| 每天 03:00（默认） | `0 3 * * *` |\n| 每隔 15 分钟 | `*/15 * * * *` |\n| 每 6 小时 | `0 */6 * * *` |\n| 每周一 03:00 | `0 3 * * 1` |\n\n这里只收口**形状**（非空、长度 ≤ 64）；段数 / 取值范围 / 步长的语义校验在\n`services.scheduler.update()` 里用 `parse_cron` 做，非法返 **400** 并带上段名与原因\n（唯一定义处是 crawler 的 `scheduling/cron.py`）。\n\n每轮对 `sources` 里的每个源执行一次采集（`mode` 增量/全量，`limit` / `since` 透传，\n与「触发采集」是同一套参数、最终调同一个 `admin_jobs.sync_job`）。\n\n`sources` 留空 = 全部「**代码里默认启用**」的源（`mangadex` 因 AUP 非商用默认关闭）；\n定时任务**不看**管理台那张开关 —— 它按\"参数即准入\"运行。要采集默认关闭的源\n（如 `mangadex`），必须在这里显式点名。"
+      },
+      "AdminSyncBody": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Source"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "incremental",
+              "full"
+            ],
+            "title": "Mode",
+            "default": "incremental"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "AdminSyncBody",
+        "description": "采集入参。\n\n`mode` 用 `Literal` 收口：此前任意字符串都按\"非 full 即 incremental\"处理，\n写成 `mode=\"ful\"` 这种笔误会**静默按增量跑**（用户以为跑了全量）。"
+      },
+      "AdminTaskOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Params"
+          },
+          "userId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Userid"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "startedAt": {
+            "type": "string",
+            "title": "Startedat"
+          },
+          "finishedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finishedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "status",
+          "message",
+          "username",
+          "startedAt"
+        ],
+        "title": "AdminTaskOut",
+        "description": "管理台后台任务（`admin_task` 表）。\n\n⚠️ 任务**落库**（2026-10-06 从进程内 dict 搬来）：api 重启不丢、且与**触发账号**绑定\n（`userId`/`username`），所以能看出\"这条是谁点的\"；定时轮次没有账号，`userId` 为 `None`。\n\n`result` / `params` 是**自由形状**（各任务类型不同：采集统计、导入结果、入参快照…），\n故声明为 `dict`——这是刻意的，不是偷懒：给它定死结构会让新增任务类型时改不动。"
+      },
+      "AdminUserOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "nickname": {
+            "type": "string",
+            "title": "Nickname"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "nickname",
+          "role",
+          "createdAt"
+        ],
+        "title": "AdminUserOut",
+        "description": "授权页的用户行（管理台视角：含角色与注册时间，不含任何凭据）。"
+      },
+      "AdminUserRoleBody": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "title": "AdminUserRoleBody",
+        "description": "授权页入参：给某个用户设置角色。\n\n取值只接受 `admin`（普通管理员）/ `user`（普通用户）—— **合法性在 `services/accounts.py`**\n里判（那里可单元测试），这里只描述形状。"
+      },
+      "ApiEnvelope_AdminTaskOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AdminTaskOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[AdminTaskOut]"
+      },
+      "ApiEnvelope_AuthResultOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/AuthResultOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[AuthResultOut]"
+      },
+      "ApiEnvelope_ChangedOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ChangedOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[ChangedOut]"
+      },
+      "ApiEnvelope_ComicCommentSwitchOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ComicCommentSwitchOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[ComicCommentSwitchOut]"
+      },
+      "ApiEnvelope_ComicListingOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ComicListingOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[ComicListingOut]"
+      },
+      "ApiEnvelope_ComicOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ComicOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[ComicOut]"
+      },
+      "ApiEnvelope_CommentAddedOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CommentAddedOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[CommentAddedOut]"
+      },
+      "ApiEnvelope_CommentPageOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CommentPageOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[CommentPageOut]"
+      },
+      "ApiEnvelope_CommentSwitchOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CommentSwitchOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[CommentSwitchOut]"
+      },
+      "ApiEnvelope_FavoriteStateOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/FavoriteStateOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[FavoriteStateOut]"
+      },
+      "ApiEnvelope_HealthOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/HealthOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[HealthOut]"
+      },
+      "ApiEnvelope_LogOptionsOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LogOptionsOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[LogOptionsOut]"
+      },
+      "ApiEnvelope_LogRecordOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/LogRecordOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[LogRecordOut]"
+      },
+      "ApiEnvelope_MessageFeedOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MessageFeedOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[MessageFeedOut]"
+      },
+      "ApiEnvelope_MessageItemOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MessageItemOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[MessageItemOut]"
+      },
+      "ApiEnvelope_NoneType_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "type": "null",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[NoneType]"
+      },
+      "ApiEnvelope_PageResult_AdminComicOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PageResult_AdminComicOut_"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[PageResult[AdminComicOut]]"
+      },
+      "ApiEnvelope_PageResult_AdminUserOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PageResult_AdminUserOut_"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[PageResult[AdminUserOut]]"
+      },
+      "ApiEnvelope_PageResult_ComicOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PageResult_ComicOut_"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[PageResult[ComicOut]]"
+      },
+      "ApiEnvelope_PageResult_CommentOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PageResult_CommentOut_"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[PageResult[CommentOut]]"
+      },
+      "ApiEnvelope_PageResult_LogRecordOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PageResult_LogRecordOut_"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[PageResult[LogRecordOut]]"
+      },
+      "ApiEnvelope_PurgeOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PurgeOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[PurgeOut]"
+      },
+      "ApiEnvelope_ScheduleRunNowOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ScheduleRunNowOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[ScheduleRunNowOut]"
+      },
+      "ApiEnvelope_ScheduleStatusOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ScheduleStatusOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[ScheduleStatusOut]"
+      },
+      "ApiEnvelope_SourceToggleOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SourceToggleOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[SourceToggleOut]"
+      },
+      "ApiEnvelope_TaskIdOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/TaskIdOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[TaskIdOut]"
+      },
+      "ApiEnvelope_UnreadOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UnreadOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[UnreadOut]"
+      },
+      "ApiEnvelope_UserOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UserOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[UserOut]"
+      },
+      "ApiEnvelope_UserRoleOut_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "$ref": "#/components/schemas/UserRoleOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[UserRoleOut]"
+      },
+      "ApiEnvelope_list_AdminTaskOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AdminTaskOut"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[list[AdminTaskOut]]"
+      },
+      "ApiEnvelope_list_CategoryOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryOut"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[list[CategoryOut]]"
+      },
+      "ApiEnvelope_list_ChapterOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ChapterOut"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[list[ChapterOut]]"
+      },
+      "ApiEnvelope_list_ComicOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ComicOut"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[list[ComicOut]]"
+      },
+      "ApiEnvelope_list_HistoryEntryOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryEntryOut"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[list[HistoryEntryOut]]"
+      },
+      "ApiEnvelope_list_PageOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PageOut"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[list[PageOut]]"
+      },
+      "ApiEnvelope_list_SourceInfoOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SourceInfoOut"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[list[SourceInfoOut]]"
+      },
+      "ApiEnvelope_list_SourceSearchGroupOut__": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SourceSearchGroupOut"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[list[SourceSearchGroupOut]]"
+      },
+      "AuthResultOut": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "user"
+        ],
+        "title": "AuthResultOut",
+        "description": "登录 / 注册的返回：token + 用户。"
+      },
+      "Body_upload_avatar_api_auth_avatar_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_avatar_api_auth_avatar_post"
+      },
+      "CategoryOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "count"
+        ],
+        "title": "CategoryOut",
+        "description": "分类标签及其作品数（首项恒为「全部」）。"
+      },
+      "ChangePasswordBody": {
+        "properties": {
+          "oldPassword": {
+            "type": "string",
+            "title": "Oldpassword"
+          },
+          "newPassword": {
+            "type": "string",
+            "title": "Newpassword"
+          }
+        },
+        "type": "object",
+        "required": [
+          "oldPassword",
+          "newPassword"
+        ],
+        "title": "ChangePasswordBody",
+        "description": "修改密码入参（校验原密码 + 新密码长度策略都在 `routers/auth.py`，那里给中文提示）。"
+      },
+      "ChangedOut": {
+        "properties": {
+          "changed": {
+            "type": "integer",
+            "title": "Changed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "changed"
+        ],
+        "title": "ChangedOut",
+        "description": "「标记已读」类接口的返回：本次新增的记账行数（0 = 本来已读）。"
+      },
+      "ChapterOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "comicId": {
+            "type": "integer",
+            "title": "Comicid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "orderNo": {
+            "type": "integer",
+            "title": "Orderno"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "isNew": {
+            "type": "boolean",
+            "title": "Isnew"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "comicId",
+          "title",
+          "orderNo",
+          "createdAt",
+          "isNew"
+        ],
+        "title": "ChapterOut",
+        "description": "章节契约。`orderNo` 是入库序号（库列名 `chapter_no`）。\n\n`isNew` = 属于「最近一批入库」（详情页右上角角标），由\n`services.chapters.mark_latest_batch` 先注入 —— 读不到就当 False，不回退查库。"
+      },
+      "ComicCommentSwitchOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "commentEnabled": {
+            "type": "boolean",
+            "title": "Commentenabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "commentEnabled"
+        ],
+        "title": "ComicCommentSwitchOut",
+        "description": "单作品评论开关结果。\n\n⚠️ 单作品打开**不等于**能评论 —— 全站总开关关着时照样拦（两者是 AND）。"
+      },
+      "ComicListingBody": {
+        "properties": {
+          "listed": {
+            "type": "boolean",
+            "title": "Listed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "listed"
+        ],
+        "title": "ComicListingBody",
+        "description": "作品上下架入参：`listed=True` 上架 / `False` 下架。"
+      },
+      "ComicListingOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "listed": {
+            "type": "boolean",
+            "title": "Listed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "listed"
+        ],
+        "title": "ComicListingOut",
+        "description": "上下架结果（下架**只改 `comic.listed`**、不删任何数据，重新上架即恢复）。"
+      },
+      "ComicOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "cover": {
+            "type": "string",
+            "title": "Cover"
+          },
+          "latestChapterTitle": {
+            "type": "string",
+            "title": "Latestchaptertitle"
+          },
+          "chapterCount": {
+            "type": "integer",
+            "title": "Chaptercount"
+          },
+          "views": {
+            "type": "integer",
+            "title": "Views"
+          },
+          "favoriteCount": {
+            "type": "integer",
+            "title": "Favoritecount"
+          },
+          "heat": {
+            "type": "integer",
+            "title": "Heat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "author",
+          "category",
+          "status",
+          "description",
+          "cover",
+          "latestChapterTitle",
+          "chapterCount",
+          "views",
+          "favoriteCount",
+          "heat",
+          "updatedAt",
+          "source",
+          "tags"
+        ],
+        "title": "ComicOut",
+        "description": "作品契约（**前台**）。字段按来源分三类 —— 与 `comic-front/src/types.ts` 同款标注：\n\n- **源站原始**：`title` / `author` / `category` / `status` / `description` /\n  `latestChapterTitle` / `source` / `tags`（经 adapter 归一后各源一致）\n- **平台派生**：`id` / `chapterCount` / `views` / `favoriteCount` / `heat` / `updatedAt`\n- **组装**：`cover`（由 id 拼 `/api/covers/{id}`，**不外泄图床真实路径**）\n\n⚠️ 治理字段（`listed` / `commentEnabled` / `sourceComicId`）**不在这里** ——\n普通用户拿不到、也不需要知道哪部被下架，它们只走 `AdminComicOut`。"
+      },
+      "CommentAddedOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "CommentAddedOut",
+        "description": "发表评论的返回：新评论 id。\n\n前端据此**重拉第一页**（评论最新在前，新那条自然出现在顶部），\n比本地拼一条更稳 —— 作者名等兜底规则只有后端这一份。"
+      },
+      "CommentBody": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "CommentBody",
+        "description": "发表一条评论（`POST /api/comics/{id}/comments`）。\n\n`content` 上限**与 `comment.content VARCHAR(500)` 对齐** —— 不设上限时超长会一路走到\nINSERT 才撞列宽（那是 500，入口拦掉是 422）。下限 1：空白评论没有意义；\n路由还会 `strip()` 后再判一次（全是空格也算空）。"
+      },
+      "CommentOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "authorId": {
+            "type": "string",
+            "title": "Authorid"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "content",
+          "author",
+          "authorId",
+          "createdAt"
+        ],
+        "title": "CommentOut",
+        "description": "一条评论。\n\n`author` 的兜底**刻意写在后端**（`serializers.to_comment`）：账号已删 = 「已注销用户」，\n这样各页面拿到的是同一份文案，不必各写一遍。"
+      },
+      "CommentPageOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CommentOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pageSize": {
+            "type": "integer",
+            "title": "Pagesize"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pageSize",
+          "enabled"
+        ],
+        "title": "CommentPageOut",
+        "description": "评论列表 = 分页壳 + 开关状态。\n\n`enabled` = 全站总开关 AND 单作品开关。**关闭时也照样返回列表接口**\n（`enabled=false`、列表为空），而不是 404 —— 详情页要能区分\n「还没有人评论」与「评论区已关闭」。"
+      },
+      "CommentSwitchBody": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "CommentSwitchBody",
+        "description": "评论开关入参（**单作品**开关与**全站总开关**共用这个形状）。"
+      },
+      "CommentSwitchOut": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "CommentSwitchOut",
+        "description": "评论开关状态（单作品与全站总开关**共用**这个形状）。"
+      },
+      "FavoriteStateOut": {
+        "properties": {
+          "favorited": {
+            "type": "boolean",
+            "title": "Favorited"
+          }
+        },
+        "type": "object",
+        "required": [
+          "favorited"
+        ],
+        "title": "FavoriteStateOut",
+        "description": "某部作品当前**是否被我收藏**（`favorited`）—— 详情页的「收藏 / 已收藏」按钮读它。"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthOut": {
+        "properties": {
+          "comics": {
+            "type": "integer",
+            "title": "Comics"
+          },
+          "chapters": {
+            "type": "integer",
+            "title": "Chapters"
+          },
+          "pages": {
+            "type": "integer",
+            "title": "Pages"
+          },
+          "views": {
+            "type": "integer",
+            "title": "Views"
+          },
+          "categories": {
+            "type": "integer",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "comics",
+          "chapters",
+          "pages",
+          "views",
+          "categories"
+        ],
+        "title": "HealthOut",
+        "description": "`GET /api/health` —— 首页页脚据此标注数据来源是否可达。"
+      },
+      "HistoryEntryOut": {
+        "properties": {
+          "comicId": {
+            "type": "integer",
+            "title": "Comicid"
+          },
+          "chapterId": {
+            "type": "integer",
+            "title": "Chapterid"
+          },
+          "pageNo": {
+            "type": "integer",
+            "title": "Pageno"
+          },
+          "readAt": {
+            "type": "string",
+            "title": "Readat"
+          },
+          "chapterTitle": {
+            "type": "string",
+            "title": "Chaptertitle"
+          },
+          "comic": {
+            "$ref": "#/components/schemas/ComicOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "comicId",
+          "chapterId",
+          "pageNo",
+          "readAt",
+          "chapterTitle",
+          "comic"
+        ],
+        "title": "HistoryEntryOut",
+        "description": "一条阅读历史（**含对应的作品行**，供书架/续读直接用，免去前端再查一次）。\n\n作品行由 `db.get_comics_by_ids` 一次批量取回（逐条 `get_comic` 会让接口随历史条数线性变慢）；\n库里已不存在的作品**整条跳过**，不让接口整体失败。\n\n⚠️ `readAt` 用 `TimeStr` 归一成 ISO 字符串：存储层给的是 **`datetime` 对象**\n（不是字符串），写 `str` 会在响应校验时直接 **500**（2026-10-13 实测）。"
+      },
+      "HistoryPut": {
+        "properties": {
+          "comicId": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Comicid"
+          },
+          "chapterId": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Chapterid"
+          },
+          "pageNo": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Pageno",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "required": [
+          "comicId",
+          "chapterId"
+        ],
+        "title": "HistoryPut",
+        "description": "阅读进度入参。\n\n`comicId` / `chapterId` 必须是**正整数**：0 与负数在库里永远是无效主键，\n放行只会换来一次外键失败（500）。真正的\"存不存在\"由路由查库判（→ 404）。"
+      },
+      "LogOptionsOut": {
+        "properties": {
+          "levels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Levels"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "levels",
+          "events"
+        ],
+        "title": "LogOptionsOut",
+        "description": "日志查询页的筛选候选值（级别 / 事件类型）。"
+      },
+      "LogRecordOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          },
+          "logger": {
+            "type": "string",
+            "title": "Logger"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "taskId": {
+            "type": "string",
+            "title": "Taskid"
+          },
+          "taskType": {
+            "type": "string",
+            "title": "Tasktype"
+          },
+          "excType": {
+            "type": "string",
+            "title": "Exctype"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "comicId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comicid"
+          },
+          "comicTitle": {
+            "type": "string",
+            "title": "Comictitle"
+          },
+          "chapterId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapterid"
+          },
+          "chapterTitle": {
+            "type": "string",
+            "title": "Chaptertitle"
+          },
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint"
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pages"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "event": {
+            "type": "string",
+            "title": "Event"
+          },
+          "excText": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exctext"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "createdAt",
+          "level",
+          "logger",
+          "message",
+          "taskId",
+          "taskType",
+          "excType",
+          "source",
+          "comicTitle",
+          "chapterTitle",
+          "endpoint",
+          "reason",
+          "event"
+        ],
+        "title": "LogRecordOut",
+        "description": "运行日志一行（`log_record` 表）。\n\n日志由 logging Handler 在打日志时自动落库（见 crawler 的 `log_handler`），\n所以这里查到的就是 `api.log` 里那些业务日志，只是**能按条件筛**。"
+      },
+      "LoginBody": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginBody",
+        "description": "登录入参（长度策略同上，见 `routers/auth.py`）。"
+      },
+      "MessageBody": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "maxLength": 16,
+            "title": "Kind",
+            "default": "system"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warn",
+              "error"
+            ],
+            "title": "Level",
+            "default": "info"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Body",
+            "default": ""
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Params"
+          },
+          "taskId": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Taskid",
+            "default": ""
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Source",
+            "default": ""
+          },
+          "userId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Userid"
+          },
+          "username": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Username",
+            "default": ""
+          },
+          "toUserId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Touserid"
+          },
+          "minRole": {
+            "type": "string",
+            "enum": [
+              "",
+              "user",
+              "admin",
+              "superadmin"
+            ],
+            "title": "Minrole",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "MessageBody",
+        "description": "发一条消息（`POST /api/messages`）—— **其他模块的写入入口**。\n\n`kind` 刻意**不用 Literal 收口**：这是个开放写入接口，别的模块可以有自定义消息类型\n（任务消息用任务类型 `sync`/`inspect`/`heal`/`import`/`schedule`；其余如 `system`/`notice`）。\n但**长度上限必须有** —— 这些值直接落 VARCHAR 列，超长要么被静默截断、要么报错。\n`level` 则收口成三档（前端据此显示 完成/警告/失败），非法值在存储层兜成 `info`。\n\n**收件范围**（两个条件同时成立才可见；都不填 = 所有登录用户）：\n- `toUserId`：定向发给某个人；\n- `minRole` ：最低角色要求（`''`/`user` < `admin` < `superadmin`；`admin` 时超管也看得到）。\n  采集/巡检这类**任务**消息请传 `admin` —— 那是管理台的事，普通用户不需要看。\n⚠️ `minRole` 用 `Literal` 收口（写错了会静默发给所有人，比 422 危险），\n  非法的角色值会直接 422 报错。"
+      },
+      "MessageFeedOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MessageItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "unread": {
+            "type": "integer",
+            "title": "Unread"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "unread"
+        ],
+        "title": "MessageFeedOut",
+        "description": "消息列表 + 未读数（一次拿回，前端轮询只发一个请求）。"
+      },
+      "MessageItemOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "messageId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messageid"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Params"
+          },
+          "taskId": {
+            "type": "string",
+            "title": "Taskid"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "minRole": {
+            "type": "string",
+            "title": "Minrole"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time"
+          },
+          "read": {
+            "type": "boolean",
+            "title": "Read"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "level",
+          "title",
+          "body",
+          "taskId",
+          "source",
+          "username",
+          "minRole",
+          "status",
+          "read"
+        ],
+        "title": "MessageItemOut",
+        "description": "消息中心的一条（`message` 表 + 「正在跑的任务」）。\n\n⚠️ 列表里有**两种**条目，靠 `status` 与 `messageId` 区分：\n\n- **已发生的消息**：`id = \"msg-<数字>\"`、`messageId` 有值、`status` 为 `done`/`failed`；\n- **正在跑的任务**：`id` = 任务号、`messageId = None`、`status = \"running\"`\n  （**仅管理员及以上**可见，由 `services.messages.feed` 临时并入）。\n\n标记已读要用 `messageId`（任务条目为 `None`，没有可标记的对象）。"
+      },
+      "PageOut": {
+        "properties": {
+          "pageNo": {
+            "type": "integer",
+            "title": "Pageno"
+          },
+          "imageUrl": {
+            "type": "string",
+            "title": "Imageurl"
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pageNo",
+          "imageUrl",
+          "width",
+          "height"
+        ],
+        "title": "PageOut",
+        "description": "阅读器的一页。\n\n`imageUrl` 指向 `/api/images/{comicId}/{chapterId}/{pageNo}` —— **不暴露源站地址**，\n真实取图（已转存文件 / 源站穿透 / SVG 占位）由 `services.images` 三级兜底决定。"
+      },
+      "PageResult_AdminComicOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminComicOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pageSize": {
+            "type": "integer",
+            "title": "Pagesize"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pageSize"
+        ],
+        "title": "PageResult[AdminComicOut]"
+      },
+      "PageResult_AdminUserOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pageSize": {
+            "type": "integer",
+            "title": "Pagesize"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pageSize"
+        ],
+        "title": "PageResult[AdminUserOut]"
+      },
+      "PageResult_ComicOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ComicOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pageSize": {
+            "type": "integer",
+            "title": "Pagesize"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pageSize"
+        ],
+        "title": "PageResult[ComicOut]"
+      },
+      "PageResult_CommentOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CommentOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pageSize": {
+            "type": "integer",
+            "title": "Pagesize"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pageSize"
+        ],
+        "title": "PageResult[CommentOut]"
+      },
+      "PageResult_LogRecordOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LogRecordOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pageSize": {
+            "type": "integer",
+            "title": "Pagesize"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pageSize"
+        ],
+        "title": "PageResult[LogRecordOut]"
+      },
+      "PurgeOut": {
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "title": "Deleted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "title": "PurgeOut",
+        "description": "清理日志的结果：删除条数。"
+      },
+      "RegisterBody": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "nickname": {
+            "type": "string",
+            "title": "Nickname",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "RegisterBody",
+        "description": "注册入参。长度策略（用户名 3~32、密码 6~128）在 `routers/auth.py` 判 —— 那里给中文提示。"
+      },
+      "ScheduleConfigOut": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "cron": {
+            "type": "string",
+            "title": "Cron"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "cron",
+          "action",
+          "sources",
+          "mode"
+        ],
+        "title": "ScheduleConfigOut",
+        "description": "「定时任务」配置（落盘在运行时数据目录 `<data>/schedule.json`）。\n\n节奏用 **5 段 cron**（`分 时 日 月 周`）；`sources` 留空 = 全部「代码里默认启用」的源\n（定时任务**不看**管理台的源开关 —— 它按\"参数即准入\"运行）。"
+      },
+      "ScheduleRunNowOut": {
+        "properties": {
+          "requested": {
+            "type": "boolean",
+            "title": "Requested"
+          },
+          "requestedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requestedat"
+          },
+          "userId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Userid"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "requested"
+        ],
+        "title": "ScheduleRunNowOut",
+        "description": "「立即执行一次」的返回 —— **只是\"请求已提交\"**，不是 taskId。\n\n采集在独立进程里跑，api 拿不到任务号；结果看 `ScheduleStatusOut` 的\n`running` / `lastRunAt` / `lastMessage`，以及任务表（`task_type=schedule`）。"
+      },
+      "ScheduleStatusOut": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/ScheduleConfigOut"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "nextRunAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextrunat"
+          },
+          "serverTime": {
+            "type": "string",
+            "title": "Servertime"
+          },
+          "running": {
+            "type": "boolean",
+            "title": "Running"
+          },
+          "lastRunAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastrunat"
+          },
+          "lastStatus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Laststatus"
+          },
+          "lastMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastmessage"
+          },
+          "lastTaskId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lasttaskid"
+          },
+          "lastSources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Lastsources"
+          },
+          "cronError": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cronerror"
+          },
+          "executorAlive": {
+            "type": "boolean",
+            "title": "Executoralive"
+          },
+          "heartbeatAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeatat"
+          },
+          "executorPid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executorpid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "config",
+          "sources",
+          "serverTime",
+          "running",
+          "lastSources",
+          "executorAlive"
+        ],
+        "title": "ScheduleStatusOut",
+        "description": "「定时任务」配置 + 运行态（配置页每次渲染都读它）。\n\n`sources` 是**后端算出的本轮实际源**（配置留空时的默认集），未必等于 `config.sources`。\n`executorAlive` / `heartbeatAt` 反映**独立执行器进程**（`comic-scheduler`）的存活 ——\n它不在 api 进程里，所以\"在不在\"本身就是个要展示的状态。"
+      },
+      "SourceInfoOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "interval": {
+            "type": "integer",
+            "title": "Interval"
+          },
+          "comicCount": {
+            "type": "integer",
+            "title": "Comiccount"
+          },
+          "lastSync": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastsync"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "enabled",
+          "priority",
+          "interval",
+          "comicCount"
+        ],
+        "title": "SourceInfoOut",
+        "description": "数据源一行（管理台「采集管理」页的开关列表）。\n\n`interval` 是增量轮询间隔（秒）；`comicCount` 是库内该源作品数；\n`lastSync` 上次同步完成时间 —— 实测是 `datetime`，故用 `TimeStr`。"
+      },
+      "SourceSearchGroupOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceSearchItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "title": "SourceSearchGroupOut",
+        "description": "按源分组的结果（单源失败静默跳过，故数组里可能没有某个源）。"
+      },
+      "SourceSearchItemOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "sourceComicId": {
+            "type": "string",
+            "title": "Sourcecomicid"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "cover": {
+            "type": "string",
+            "title": "Cover"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "latestChapterTitle": {
+            "type": "string",
+            "title": "Latestchaptertitle"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "comicId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comicid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "sourceComicId",
+          "title",
+          "author",
+          "cover",
+          "status",
+          "latestChapterTitle",
+          "tags"
+        ],
+        "title": "SourceSearchItemOut",
+        "description": "源站搜索命中的一条（**只读、不写库**）。\n\n`comicId` 非 `None` = 库内已收录 → 前端显示「已收录，直接打开」，\n否则显示「导入并阅读」。\n⚠️ 这里 `cover` 是**源站外链**（可能被防盗链拦），与 `ComicOut.cover`\n（本地 `/api/covers/{id}`）语义不同 —— 前端对前者要容错隐藏破图。"
+      },
+      "SourceToggleOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "enabled"
+        ],
+        "title": "SourceToggleOut",
+        "description": "开关一个源的结果。"
+      },
+      "TaskIdOut": {
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "title": "Taskid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "taskId"
+        ],
+        "title": "TaskIdOut",
+        "description": "后台任务已派发的返回：前端拿 `taskId` 轮询 `GET /api/admin/tasks/{id}`。"
+      },
+      "UnreadOut": {
+        "properties": {
+          "unread": {
+            "type": "integer",
+            "title": "Unread"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unread"
+        ],
+        "title": "UnreadOut",
+        "description": "未读数（只给角标用）。"
+      },
+      "UpdateProfileBody": {
+        "properties": {
+          "nickname": {
+            "type": "string",
+            "title": "Nickname"
+          }
+        },
+        "type": "object",
+        "required": [
+          "nickname"
+        ],
+        "title": "UpdateProfileBody",
+        "description": "个人资料修改入参（目前只有昵称；登录名 username 不可改）。长度策略见 `routers/auth.py`。"
+      },
+      "UserOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "nickname": {
+            "type": "string",
+            "title": "Nickname"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "avatarUrl": {
+            "type": "string",
+            "title": "Avatarurl"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "nickname",
+          "role",
+          "avatarUrl",
+          "createdAt"
+        ],
+        "title": "UserOut",
+        "description": "用户对外视图 —— **永不包含 `password_hash`**（这是它存在的首要理由）。\n\n`role` 必须给前端：顶栏「管理」入口与 `/#/admin*` 守卫都靠它判断\n（服务端另有 `require_admin` 兜底，前端那层只是体验）。\n`avatarUrl` 为 `''` = 未上传 → 前端回退「首字母头像」。"
+      },
+      "UserRoleOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "role"
+        ],
+        "title": "UserRoleOut",
+        "description": "授权结果：被改的用户 id 与新角色。"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

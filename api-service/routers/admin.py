@@ -29,22 +29,35 @@ from schemas import (
     AdminScheduleBody,
     AdminSyncBody,
 )
+from schemas_out import (
+    AdminTaskOut,
+    ApiEnvelope,
+    LogOptionsOut,
+    LogRecordOut,
+    PageResult,
+    PurgeOut,
+    ScheduleRunNowOut,
+    ScheduleStatusOut,
+    SourceInfoOut,
+    SourceToggleOut,
+    TaskIdOut,
+)
 from services import admin_jobs, logs, scheduler, sources, tasks
 
 router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 
 
-@router.get("/api/admin/sources")
+@router.get("/api/admin/sources", response_model=ApiEnvelope[list[SourceInfoOut]])
 def admin_sources():
     return ok(sources.meta())
 
 
-@router.post("/api/admin/sources/{name}/toggle")
+@router.post("/api/admin/sources/{name}/toggle", response_model=ApiEnvelope[SourceToggleOut])
 def admin_toggle_source(name: str):
     return ok({"name": name, "enabled": sources.toggle(name)})
 
 
-@router.post("/api/admin/sync")
+@router.post("/api/admin/sync", response_model=ApiEnvelope[TaskIdOut])
 def admin_sync(body: AdminSyncBody, user: dict = Depends(require_admin)):
     """手动触发采集（后台线程执行，返回 `taskId` 供前端轮询）。动作见 `admin_jobs.sync_job`。
 
@@ -62,7 +75,7 @@ def admin_sync(body: AdminSyncBody, user: dict = Depends(require_admin)):
     return ok({"taskId": task_id})
 
 
-@router.get("/api/admin/schedule")
+@router.get("/api/admin/schedule", response_model=ApiEnvelope[ScheduleStatusOut])
 def admin_get_schedule():
     """「定时任务」当前配置 + 运行态（下次执行时刻 / 最近一次结果 / 是否在跑）。
 
@@ -72,7 +85,7 @@ def admin_get_schedule():
     return ok(scheduler.status())
 
 
-@router.put("/api/admin/schedule")
+@router.put("/api/admin/schedule", response_model=ApiEnvelope[ScheduleStatusOut])
 def admin_put_schedule(body: AdminScheduleBody):
     """保存「定时任务」配置。
 
@@ -88,7 +101,7 @@ def admin_put_schedule(body: AdminScheduleBody):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/api/admin/schedule/run-now")
+@router.post("/api/admin/schedule/run-now", response_model=ApiEnvelope[ScheduleRunNowOut])
 def admin_schedule_run_now(user: dict = Depends(require_admin)):
     """请求立即执行一轮（不等 cron 命中）。
 
@@ -102,7 +115,7 @@ def admin_schedule_run_now(user: dict = Depends(require_admin)):
     return ok(scheduler.run_now(user))
 
 
-@router.post("/api/admin/heal-covers")
+@router.post("/api/admin/heal-covers", response_model=ApiEnvelope[TaskIdOut])
 def admin_heal_covers(body: AdminHealBody, user: dict = Depends(require_admin)):
     """封面自愈（**按作品**）：填漫画名称或 ID（可多个），**强制**回源重抓封面并覆盖。
 
@@ -124,7 +137,7 @@ def admin_heal_covers(body: AdminHealBody, user: dict = Depends(require_admin)):
     return ok({"taskId": task_id})
 
 
-@router.post("/api/admin/inspect")
+@router.post("/api/admin/inspect", response_model=ApiEnvelope[TaskIdOut])
 def admin_inspect(body: AdminInspectBody, user: dict = Depends(require_admin)):
     """失效巡检（**全库维护的唯一入口**）：转存未转存页 + **全表**校验已转存对象 + 全库封面自愈。
 
@@ -140,7 +153,7 @@ def admin_inspect(body: AdminInspectBody, user: dict = Depends(require_admin)):
     return ok({"taskId": task_id})
 
 
-@router.post("/api/admin/import")
+@router.post("/api/admin/import", response_model=ApiEnvelope[TaskIdOut])
 def admin_import(body: AdminImportBody, user: dict = Depends(require_admin)):
     """按需导入一部作品（后台线程执行，返回 `taskId` 供前端轮询）。
 
@@ -171,7 +184,7 @@ def admin_import(body: AdminImportBody, user: dict = Depends(require_admin)):
     return ok({"taskId": task_id})
 
 
-@router.get("/api/admin/tasks")
+@router.get("/api/admin/tasks", response_model=ApiEnvelope[list[AdminTaskOut]])
 def admin_tasks(limit: int = 30, mine: bool = False, user: dict = Depends(require_admin)):
     """最近的后台任务（**读库** `admin_task`，按 id 倒序 = 时间倒序）。
 
@@ -181,7 +194,7 @@ def admin_tasks(limit: int = 30, mine: bool = False, user: dict = Depends(requir
     return ok(tasks.recent(limit, user_id=user.get("id") if mine else None))
 
 
-@router.get("/api/admin/tasks/{task_id}")
+@router.get("/api/admin/tasks/{task_id}", response_model=ApiEnvelope[AdminTaskOut])
 def admin_task(task_id: str):
     t = tasks.get(task_id)
     if not t:
@@ -189,19 +202,19 @@ def admin_task(task_id: str):
     return ok(t)
 
 
-@router.get("/api/admin/logs/options")
+@router.get("/api/admin/logs/options", response_model=ApiEnvelope[LogOptionsOut])
 def admin_log_options():
     """日志查询页的筛选候选值（级别 / 事件类型）。"""
     return ok(logs.options())
 
 
-@router.post("/api/admin/logs/purge")
+@router.post("/api/admin/logs/purge", response_model=ApiEnvelope[PurgeOut])
 def admin_logs_purge(days: int = 30):
     """删除 `days` 天前的日志（保留策略的手动入口；默认不做自动清理）。"""
     return ok({"deleted": logs.purge(days)})
 
 
-@router.get("/api/admin/logs")
+@router.get("/api/admin/logs", response_model=ApiEnvelope[PageResult[LogRecordOut]])
 def admin_logs(
     level: str | None = None,
     source: str | None = None,
@@ -229,7 +242,7 @@ def admin_logs(
     )
 
 
-@router.get("/api/admin/logs/{log_id}")
+@router.get("/api/admin/logs/{log_id}", response_model=ApiEnvelope[LogRecordOut])
 def admin_log_detail(log_id: int):
     """单条日志（含异常堆栈全文）。"""
     row = logs.detail(log_id)

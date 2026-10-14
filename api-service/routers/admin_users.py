@@ -16,18 +16,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.responses import ok
 from core.security import require_superadmin
 from schemas import AdminUserRoleBody
+from schemas_out import AdminUserOut, ApiEnvelope, PageResult, UserRoleOut
 from services import accounts
 
 router = APIRouter(tags=["admin-users"], dependencies=[Depends(require_superadmin)])
 
 
-@router.get("/api/admin/users")
+@router.get("/api/admin/users", response_model=ApiEnvelope[PageResult[AdminUserOut]])
 def admin_list_users(keyword: str | None = None, page: int = 1, page_size: int = 20):
     """用户列表（关键字匹配用户名/昵称，分页）。"""
     return ok(accounts.list_users(keyword=keyword, page=page, page_size=page_size))
 
 
-@router.post("/api/admin/users/{user_id}/role")
+@router.post("/api/admin/users/{user_id}/role", response_model=ApiEnvelope[UserRoleOut])
 def admin_set_user_role(
     user_id: int, body: AdminUserRoleBody, actor: dict = Depends(require_superadmin)
 ):

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -37,6 +38,7 @@ from routers.users import (  # noqa: E402  （必须在装桩之后导入）
     remove_history,
 )
 from schemas import HistoryPut  # noqa: E402
+from schemas_out import HistoryEntryOut  # noqa: E402
 
 
 def _row(comic_id: int, title: str = "") -> dict:
@@ -63,7 +65,9 @@ def _history_row(comic_id: int, chapter_id: int) -> dict:
         "comic_id": comic_id,
         "chapter_id": chapter_id,
         "page_no": 1,
-        "read_at": "2026-09-14 12:00:00",
+        # ⚠️ 存储层给的是 datetime 对象（不是字符串）—— 用字符串 mock 会漏掉
+        # 「模型声明成 str → 响应校验 500」这类回归（2026-10-13 实测踩到）
+        "read_at": datetime(2026, 9, 14, 12, 0, 0),
         "chapter_title": "第1话",
     }
 
@@ -82,7 +86,7 @@ class TestBatchListing(unittest.TestCase):
 
         out = favorites("u1", user={"id": 1})
 
-        self.assertEqual([c["id"] for c in out["data"]], [13, 12, 11])
+        self.assertEqual([c.id for c in out["data"]], [13, 12, 11])
         self.assertEqual(_DB.single_calls, [])            # ← 没有逐条 get_comic
         self.assertEqual(_DB.batch_calls, [[13, 12, 11]])  # ← 就一次
 
@@ -93,7 +97,7 @@ class TestBatchListing(unittest.TestCase):
 
         out = favorites("u1", user={"id": 1})
 
-        self.assertEqual([c["id"] for c in out["data"]], [11])
+        self.assertEqual([c.id for c in out["data"]], [11])
 
     def test_favorites_empty_returns_empty(self):
         """空收藏不做任何查询。"""
@@ -108,8 +112,9 @@ class TestBatchListing(unittest.TestCase):
 
         item = favorites("u1", user={"id": 1})["data"][0]
 
-        self.assertEqual(item["source"], "zaimanhua")
-        self.assertEqual(item["tags"], [])
+        # 2026-10-13：`to_comic` 返回模型（`schemas_out.ComicOut`）→ 属性访问
+        self.assertEqual(item.source, "zaimanhua")
+        self.assertEqual(item.tags, [])
 
     # ---------------- 历史 ----------------
 
@@ -129,7 +134,7 @@ class TestBatchListing(unittest.TestCase):
         self.assertEqual(_DB.batch_calls, [[6, 999, 5]])
 
     def test_history_keeps_entry_fields(self):
-        """历史条目自带字段（章节 / 页码 / 时间）原样保留。"""
+        """历史条目自带字段（章节 / 页码 / 时间）；readAt 必须能被响应模型接住（datetime → ISO）。"""
         _DB.comics = {5: _row(5)}
         _USERS.history_rows = [_history_row(5, 50)]
 
@@ -138,8 +143,11 @@ class TestBatchListing(unittest.TestCase):
         self.assertEqual(entry["chapterId"], 50)
         self.assertEqual(entry["pageNo"], 1)
         self.assertEqual(entry["chapterTitle"], "第1话")
-        self.assertEqual(entry["readAt"], "2026-09-14 12:00:00")
-        self.assertEqual(entry["comic"]["id"], 5)
+        # 直接调路由函数拿到的是原始值（datetime 对象，未经 response_model 校验）
+        self.assertEqual(entry["readAt"], datetime(2026, 9, 14, 12, 0, 0))
+        # ⚠️ 关键回归（2026-10-13 实测 500）：模型必须能接住 datetime 并转 ISO
+        self.assertEqual(HistoryEntryOut.model_validate(entry).readAt, "2026-09-14T12:00:00")
+        self.assertEqual(entry["comic"].id, 5)
 
     # ---------------- 历史的归属与写入校验（2026-09-21 修 IDOR + 两个 500） ----------------
 
