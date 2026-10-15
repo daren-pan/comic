@@ -14,15 +14,16 @@
 //
 // 用法（与 comic-front 的 `onReachBottom(loadMore)` 一一对应）：
 //     useReachBottom(loadMore)
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onActivated, onBeforeUnmount, onDeactivated, onMounted } from 'vue'
 
 export function useReachBottom(onReach: () => void, threshold = 300): void {
   let scheduled = false
   let disposed = false
+  let active = true // keep-alive 激活状态（见下）
 
   const check = () => {
     scheduled = false
-    if (disposed) return
+    if (disposed || !active) return
     const el = document.documentElement
     if (el.scrollHeight - el.scrollTop - el.clientHeight < threshold) onReach()
   }
@@ -37,4 +38,9 @@ export function useReachBottom(onReach: () => void, threshold = 300): void {
     disposed = true // 卸载后若还有未执行的 rAF，检查直接跳过
     window.removeEventListener('scroll', handler)
   })
+
+  // keep-alive（2026-10-15）：页面被缓存切走（如进详情）时暂停检查 —— 否则在详情页滚动到底
+  // 会误触发本页的「触底加载」，后台凭空多拉一批（返回时列表比离开时多出一截）。
+  onDeactivated(() => (active = false))
+  onActivated(() => (active = true))
 }

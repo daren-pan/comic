@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { getCategories, getComics } from '../api'
 import type { CategoryCount, Comic } from '../types'
 import ComicCard from '../components/ComicCard.vue'
@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router'
 import { getSeasonLogo } from '../utils/season'
 import { useLayoutMode } from '../utils/layout'
 import Layout from '../components/Layout.vue'
+import { useScrollKeep } from '../composables/useScrollKeep'
 
 const router = useRouter()
 
@@ -134,6 +135,13 @@ onBeforeUnmount(() => {
   stopBc()
   document.removeEventListener('visibilitychange', onVis)
 })
+// keep-alive（2026-10-15）：页面被缓存切走（进详情等）时也暂停轮播 —— 原设计「离开页面就暂停」，
+// 缓存后「离开」不再触发卸载（onBeforeUnmount 不执行），改由 activated / deactivated 接管。
+onDeactivated(() => { pageVisible.value = false })
+onActivated(() => { pageVisible.value = document.visibilityState === 'visible' })
+
+// keep-alive：切走再回来停在原处（从详情返回时保留位置，见 composables/useScrollKeep.ts）
+useScrollKeep()
 
 </script>
 

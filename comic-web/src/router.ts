@@ -52,6 +52,9 @@ function requireRole(superOnly: boolean) {
   }
 }
 
+/** keep-alive 缓存的列表页（路由名）—— 与 App.vue 的 keepAliveViews（组件名）一一对应 */
+const KEEP_ALIVE_ROUTES = new Set(['home', 'latest', 'rank', 'search'])
+
 export const router = createRouter({
   // hash 模式：构建产物可离线双击打开，无需服务器配置
   history: createWebHashHistory(),
@@ -75,7 +78,12 @@ export const router = createRouter({
     { path: '/admin/users', name: 'adminUsers', component: () => import('./views/AdminUsersView.vue'), beforeEnter: requireRole(true) },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
-  scrollBehavior() {
+  scrollBehavior(_to, _from, savedPosition) {
+    // popstate（后退/前进）且目标是列表页：这里**不滚动** —— vue-router 的 savedPosition 在
+    // SPA 内部导航下记录的是「到达该条目时」的位置（实测为 {top:0}，不是离开时的），不可用；
+    // 滚动恢复由列表页自己的 useScrollKeep 在 activated 时做（配合 App.vue 的 keep-alive）。
+    if (savedPosition && KEEP_ALIVE_ROUTES.has(_to.name as string)) return false
+    // 其余导航（点链接进入新页面 / 非列表页的返回）→ 回顶
     return { top: 0 }
   },
 })

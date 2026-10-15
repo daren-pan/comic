@@ -13,6 +13,7 @@ import ComicCard from '../components/ComicCard.vue'
 import FilterBar from '../components/FilterBar.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePagedList } from '../composables/usePagedList'
+import { useScrollKeep } from '../composables/useScrollKeep'
 import Layout from '../components/Layout.vue'
 import Pager from '../components/Pager.vue'
 
@@ -160,8 +161,22 @@ onMounted(async () => {
   categories.value = await getCategories()
   applyQuery()
 })
-// compat 层的 route.query 每次登记都会换成新对象；改看 fullPath（字符串按值比较）避免重复触发
-watch(() => route.fullPath, applyQuery)
+// compat 层的 route.query 每次登记都会换成新对象；改看 fullPath（字符串按值比较）避免重复触发。
+// ⚠️ keep-alive（2026-10-15）：本页被缓存后，fullPath 变化有两类「不该重搜」的情形 ——
+//   ① 离开本页（进详情等）：路由已不是 search，不响应（否则后台会把列表重置掉）；
+//   ② 从详情返回：URL 条件与当前列表一致，保留缓存结果（否则返回即重置回第 1 页）。
+watch(() => route.fullPath, () => {
+  if (route.name !== 'search') return // ① 已离开本页
+  const c = route.query.category as string | undefined
+  const k = route.query.keyword as string | undefined
+  const nextCat = c && categories.value.some((x) => x.name === c) ? c : '全部'
+  const nextKw = k ?? ''
+  if (nextCat === category.value && nextKw === keyword.value) return // ② 条件未变 → 保留
+  applyQuery()
+})
+
+// keep-alive：切走再回来停在原处（从详情返回时保留位置与页码，见 composables/useScrollKeep.ts）
+useScrollKeep()
 // uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）
 
 </script>

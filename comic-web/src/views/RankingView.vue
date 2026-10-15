@@ -15,6 +15,7 @@ import type { CategoryCount, Comic } from '../types'
 import { useReachBottom } from '../composables/useReachBottom'
 import { useRouter } from 'vue-router'
 import { usePagedList } from '../composables/usePagedList'
+import { useScrollKeep } from '../composables/useScrollKeep'
 import { formatHeat } from '../utils/format'
 import Layout from '../components/Layout.vue'
 import FilterBar from '../components/FilterBar.vue'
@@ -73,6 +74,8 @@ onMounted(async () => {
 // uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）
 // 触底追加下一批（替代 IntersectionObserver）
 useReachBottom(loadMore)
+// keep-alive：切走再回来停在原处（从详情返回时保留位置，见 composables/useScrollKeep.ts）
+useScrollKeep()
 
 </script>
 
