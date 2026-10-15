@@ -135,6 +135,11 @@ mysql 容器执行，不依赖 Python / 不需要挂载；跑完自动体检）�
   ⚠️ `core` 上下文**三个消费方都要挂**（crawler / api / scheduler 层）—— 漏了它 pip 会去 PyPI 找
   `comic-core`（并不存在，实测 404）而直接报错。
   前端镜像**反向不依赖后端**（nginx.conf 里的 `upstream comic-app:8000` 构建期不解析、运行期才需要）；
+- **基础镜像来自本项目 ACR**（`crpi-zu4tna9y8drenzc4.cn-hangzhou.personal.cr.aliyuncs.com/comic-website`
+  的 `python:3.13-slim` / `nginx:alpine` / `mysql:8.0`）—— 不再依赖 m.daocloud.io 等公共代理
+  （它们间歇性 502，会让构建"时好时坏"）。首次搭建 / 升级基础镜像用 `bash deploy/push-base-images.sh`
+  推送（日常构建不需要）；⚠️ 仓库为**私有** —— **服务器需先 `docker login` 一次**（之后持久有效），
+  或去控制台把三个仓库改为公开。详见 NOTES.md §2.3；
 - **构建上下文就是模块文件夹**（`context: ./api`），里面只有产物 + Dockerfile，
   所以不需要 `.dockerignore`，也不会把 `.git`/`.venv`/`node_modules` 送进构建；
 - **wheel 装进 site-packages 后相对路径推导失效**，所以镜像里显式给了

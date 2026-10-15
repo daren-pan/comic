@@ -14,9 +14,9 @@
 # ⚠️ 与 api 镜像的区别：这里**没有** HTTP 端口、没有前端、也没有 uvicorn ——
 #    它是一个常驻的守护进程（每 5s 看一次表），靠 SIGTERM 干净退出（`docker stop`）。
 
-# 基础镜像经 DaoCloud 加速站拉取（m.daocloud.io 代理 docker.io，与 crawler/api 层同一来源）——
-# 国内直连 Docker Hub 拉 python:3.13-slim 常超时。要换回官方源，删掉前缀即可。
-FROM m.daocloud.io/docker.io/library/python:3.13-slim
+# 基础镜像来自**本项目 ACR**（deploy/push-base-images.sh 推送）—— 不再依赖 m.daocloud.io
+# 等公共代理（间歇性 502 会让构建"时好时坏"，见 deploy/NOTES.md §2.2/§2.3）。
+FROM crpi-zu4tna9y8drenzc4.cn-hangzhou.personal.cr.aliyuncs.com/comic-website/python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -21,9 +21,9 @@
 #    后端只在内网提供 /api/* —— 既不需要前端镜像，也不需要 COMIC_DIST_DIR。
 #    main.py 那层挂载有 `if DIST_DIR.is_dir()` 守卫：目录不存在就自然不挂，无需改后端代码。
 
-# 基础镜像经 DaoCloud 加速站拉取（m.daocloud.io 代理 docker.io，与 crawler 层同一个来源）——
-# 国内直连 Docker Hub 拉 python:3.13-slim 常超时。要换回官方源，删掉前缀即可。
-FROM m.daocloud.io/docker.io/library/python:3.13-slim
+# 基础镜像来自**本项目 ACR**（deploy/push-base-images.sh 推送）—— 不再依赖 m.daocloud.io
+# 等公共代理（间歇性 502 会让构建"时好时坏"，见 deploy/NOTES.md §2.2/§2.3）。
+FROM crpi-zu4tna9y8drenzc4.cn-hangzhou.personal.cr.aliyuncs.com/comic-website/python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -7,8 +7,9 @@
 # 前端只有一个镜像、自带 nginx（没有独立的反代容器）：nginx 与静态产物在同一个容器里，
 # 不存在「反代活着但产物不在」的悬空状态。（comic-web 的镜像部署已于 2026-10-10 下线。）
 #
-# 基础镜像经 DaoCloud 加速站拉取（m.daocloud.io 代理 docker.io）；换回官方源删掉前缀即可。
-FROM m.daocloud.io/docker.io/library/nginx:alpine
+# 基础镜像来自**本项目 ACR**（deploy/push-base-images.sh 推送）—— 不再依赖 m.daocloud.io
+# 等公共代理（间歇性 502 会让构建"时好时坏"，见 deploy/NOTES.md §2.2/§2.3）。
+FROM crpi-zu4tna9y8drenzc4.cn-hangzhou.personal.cr.aliyuncs.com/comic-website/nginx:alpine
 
 # 站点配置烘进镜像 —— 改配置 = 重建这一层，可版本化 / 可回滚（与产物同一策略）
 COPY nginx.conf /etc/nginx/conf.d/default.conf

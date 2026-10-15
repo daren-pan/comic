@@ -67,3 +67,34 @@
 > （scheduler / mysql / web / front 本来就没这行、一直构建正常 —— 即内置前端足够）。
 > ⚠️ 以后新增 Dockerfile 不要加 `# syntax=`；切换前端版本属一次性缓存失效（实测一轮 32s，
 > 之后恢复全缓存）。
+
+### 2.2 构建"时好时坏"的镜像源根因（已由 §2.3 根治）
+
+- **日期**：2026-10-15
+- **现象**：同一份代码，构建有时通、有时挂 —— 报错集中在
+  `[internal] load metadata for ...` / `resolve image config for ...` + `502 Bad Gateway`。
+- **机制（实测）**：BuildKit 每轮构建都会"解析基础镜像"，**本地镜像库已有该镜像时是纯本地操作、
+  零网络**（用 DNS 无法解析的假域名 + 本地镜像实测构建成功）；缺镜像时才会走网络 ——
+  撞上 daocloud 间歇抽风（502）即挂。另：Dockerfile 里 `m.daocloud.io/...` 是**直连引用**，
+  与 daemon 的 `registry-mirrors` 配置无关（加速器只作用于 `docker.io` 官方名）。
+- **过程方案（均已被 §2.3 取代，留档）**：① 离线 save/load 转移基础镜像；② 等镜像源恢复带重试补拉；
+  ③ 配阿里云加速器（daemon.json）。
+
+### 2.3 基础镜像改从本项目 ACR 拉取（根治"看镜像源脸色"）
+
+- **日期**：2026-10-15
+- **决策**：三个基础镜像（`python:3.13-slim` / `nginx:alpine` / `mysql:8.0`）推送到本项目 ACR
+  （`crpi-zu4tna9y8drenzc4.cn-hangzhou.personal.cr.aliyuncs.com/comic-website`），
+  6 个 Dockerfile 的 `FROM` 直接引用 ACR（不再出现 `m.daocloud.io`）。
+- **配套**：`deploy/push-base-images.sh` —— 首次搭建 / 基础镜像升级时推送用（日常构建不跑）。
+  ⚠️ 仓库为**私有**（个人版推送自动创建的仓库默认私有）——**服务器需先 `docker login` 一次**
+  （凭证持久保存，之后构建自动带上）；或把三个仓库改为公开可免登录。
+  > ⚠️ 2026-10-15 复核更正：此前"公开可拉"是误判（当时只查"有没有 token"、未解码权限）。
+  > 纯匿名实测：token 为空权限（`access: []`）、匿名拉 manifest 被 401 拒。
+- **基础镜像升级流程**（以后要动版本时）：
+  1. 本机拉新版本（如 `docker pull python:3.14-slim`），同步改 `push-base-images.sh` 里的标签；
+  2. `bash deploy/push-base-images.sh` 推到 ACR；
+  3. 改 6 个 Dockerfile 的 `FROM` 标签（python 三处 / nginx 两处 / mysql 一处）；
+  4. 正常 `up.sh` 构建（自动从 ACR 拉新版）。
+- **实测**（2026-10-15）：三镜像推送 `PUSH-ALL-OK`；**6 个镜像全部重建成功**、日志 `m.daocloud`
+  引用数 **0**；匿名拉取复核：token 为空权限、manifest 被 401 拒（→ 私有，服务器需登录）。
