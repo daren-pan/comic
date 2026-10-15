@@ -61,6 +61,9 @@
 - **位置**：`deploy/build.sh`（`build_wheel` 之前的 `export SOURCE_DATE_EPOCH`）、
   `deploy/scheduler/Dockerfile`（pip 行）；机理涉及各 `deploy/*/Dockerfile` 的 COPY→pip 层序。
 
-> 附注（镜像源话题，暂搁置）：各 Dockerfile 顶部的 `# syntax=docker/dockerfile:1.4` 会让每轮构建
-> 去拉语法镜像的元数据（走 daemon 镜像源）——镜像源抽风时（如 daocloud 502）会直接挂构建，
-> 实测撞到过一次。将来若治镜像源问题可一并评估（删 syntax 行用内置前端）。
+> 附注（2026-10-15 已治）：`# syntax=docker/dockerfile:1.4` 会让每轮构建去拉"语法镜像"
+> （docker/dockerfile）的元数据 —— 镜像源抽风时（daocloud 502）直接挂构建（服务器实测：
+> 卡 121s 后报 502，api / crawler 两处都挂）。已删掉这两处该行、改用 BuildKit 内置前端
+> （scheduler / mysql / web / front 本来就没这行、一直构建正常 —— 即内置前端足够）。
+> ⚠️ 以后新增 Dockerfile 不要加 `# syntax=`；切换前端版本属一次性缓存失效（实测一轮 32s，
+> 之后恢复全缓存）。

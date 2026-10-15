@@ -1,5 +1,9 @@
-# syntax=docker/dockerfile:1.4
 # crawler 模块 —— 采集层（可单独用：docker run --rm comic-crawler:1.0.0 python -m comic_crawler.cli list）
+#
+# ⚠️ 本文件刻意**不写** `# syntax=docker/dockerfile:1.4`：pin 前端版本会让每轮构建去拉
+#    "语法镜像"（docker/dockerfile）的元数据 —— 镜像源抽风时（daocloud 502）直接挂构建
+#    （2026-10-15 服务器实测：卡 121s 后报 502）。内置前端已支持本文件全部特性
+#    （`--mount=type=cache` / 命名上下文 `COPY --from=core`），详见 deploy/NOTES.md。
 # 产物：deploy/build.sh 用 crawler-service/pyproject.toml 构建 wheel 到本目录 dist/
 #
 # 依赖**公共内核**的方式：只要它的 **wheel 产物**（deploy/core/dist/），构建时经 BuildKit
