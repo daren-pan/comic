@@ -30,6 +30,8 @@
 - **结论**：`deploy/web/` 已删除，compose / build 脚本里不再有 `comic-web` 服务与 `WEB_PORT`；
   旧前端保留在仓库里仅作参考实现。
 
+> ⚠️ 2026-10-14 复核更正：本节决策**已被推翻** —— comic-web 以纯 Vue3 重写（蓝本取自 comic-front），`deploy/web/` 回归、compose / build 脚本重新有 `comic-web` 服务与 `WEB_PORT`，两个前端镜像功能等价（宿主 85 / 86）。本节仅作 2026-10-10 当时的决策留档。
+
 ---
 
 ## 二、踩坑记录

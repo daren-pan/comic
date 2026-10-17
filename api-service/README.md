@@ -1,7 +1,6 @@
 # api-service（FastAPI）
 
-对外 REST API（**纯 API**；前端产物由 `comic-front` 镜像自带的 nginx 发、不同源托管 ——
-comic-web 的镜像部署已于 2026-10-10 下线）；读取 crawler-service 落库的数据（唯一存储：MySQL）。
+对外 REST API（**纯 API**；前端产物由两个前端镜像 comic-web / comic-front 各自自带的 nginx 发、不同源托管 —— 两者功能等价，宿主 85 / 86）；读取 crawler-service 落库的数据（唯一存储：MySQL）。
 装配入口 `main.py` **只做三件事**：建 app → `include_router` → （有前端 dist 时才）挂载。
 依赖采集层的方式只有两处，且**方向单向**：① `pyproject.toml` 的 `dependencies` 里 `comic-crawler>=1.0.0`；
 ② 代码里**只 import `comic_crawler.facade`**（采集侧对外契约面，见 `crawler-service/README.md`）——

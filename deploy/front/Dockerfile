@@ -4,8 +4,8 @@
 # 产物：deploy/build.sh 把 comic-front/dist/build/h5 复制到本目录 dist/，再构建本镜像。
 # 用法：镜像自带 nginx，直接跑就是一个完整站点入口（宿主端口由 compose 映射，见 docker-compose.yml）。
 #
-# 前端只有一个镜像、自带 nginx（没有独立的反代容器）：nginx 与静态产物在同一个容器里，
-# 不存在「反代活着但产物不在」的悬空状态。（comic-web 的镜像部署已于 2026-10-10 下线。）
+# 两个前端镜像各自带 nginx（没有独立的反代容器）：nginx 与静态产物在同一个容器里，
+# 不存在「反代活着但产物不在」的悬空状态。（另一个前端镜像 comic-web 与本镜像功能等价、各自带 nginx；它曾于 2026-10-10 下线，2026-10-14 以纯 Vue3 重写后恢复。）
 #
 # 基础镜像来自**本项目 ACR**（deploy/push-base-images.sh 推送）—— 不再依赖 m.daocloud.io
 # 等公共代理（间歇性 502 会让构建"时好时坏"，见 deploy/NOTES.md §2.2/§2.3）。
