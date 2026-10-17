@@ -15,7 +15,7 @@ rem  步骤 2  按依赖顺序构建镜像
 rem             mysql -> crawler -> api -> scheduler -> web/front
 rem
 rem  其中 mysql 镜像是本项目**独占**的数据库（MySQL 8.0，见 docker-compose.yml）——数据卷首次
-rem  启动时会自动执行烘在镜像里的建库脚本，10 张表直接建好。
+rem  启动时会自动执行烘在镜像里的建库脚本，15 张表直接建好。
 rem          （api 构建时要读采集层的 wheel 产物，scheduler 要读采集层 + 公共内核的 —— 所以
 rem           两者的**产物**必须先出（步骤 1 已保证）。模块之间**没有镜像依赖**：都只是在
 rem           pyproject.toml 的 dependencies 里声明上游，构建时由 pip 解析安装。）

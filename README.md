@@ -64,7 +64,7 @@ comic/
 # 0. 配置一次（deploy/.env 已 gitignore）
 cp deploy/.env.example deploy/.env     # 至少填 MYSQL_ROOT_PASSWORD 与 COMIC_JWT_SECRET
 
-# 1. 起数据库 —— 数据卷为空时自动执行建库脚本（烘在镜像里），10 张表直接建好，无需手工跑 SQL
+# 1. 起数据库 —— 数据卷为空时自动执行建库脚本（烘在镜像里），15 张表直接建好，无需手工跑 SQL
 docker compose -f deploy/docker-compose.yml up -d comic-mysql
 
 # 2. 启动站点（连接参数**无需手工导出**：代码兜底读 deploy/.env）

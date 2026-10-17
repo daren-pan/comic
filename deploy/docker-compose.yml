@@ -66,7 +66,7 @@ x-app-env: &app-env
 
 services:
   # ---------------- 数据库（本项目独占一个实例，不与别的系统共用）----------------
-  # 首次启动自动执行建库脚本（烘在镜像里）→ 10 张表直接建好，无需手工跑 SQL。
+  # 首次启动自动执行建库脚本（烘在镜像里）→ 15 张表直接建好，无需手工跑 SQL。
   # 数据在 mysql_data 卷里；⚠️ 改 MYSQL_ROOT_PASSWORD 只对**新卷**生效（见 .env.example）。
   comic-mysql:
     container_name: comic-mysql
@@ -212,7 +212,7 @@ networks:
 #
 #   · 起停：docker compose -f deploy/docker-compose.yml up -d     # 会一并起 mysql
 #   · 首次启动自动建表：建库脚本烘在镜像里（deploy/mysql/），数据卷为空时自动执行 →
-#     10 张表直接建好，不需要手工跑任何 SQL。
+#     15 张表直接建好，不需要手工跑任何 SQL。
 #   · 连法：comic-app 走编排内网 `comic-mysql:3306`；宿主端口 3309 只是给 Navicat/IDEA 从本机连用。
 #   · 数据在 mysql_data 卷里，`down` 不会删卷；备份 = mysqldump + 卷快照。
 #   · 图库与源开关状态**不在卷里** —— 在宿主目录（bind 到容器 /data，默认 `crawler-service/data`），
