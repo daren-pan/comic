@@ -3,6 +3,12 @@
 > 数据来源：对其他漫画网站的抓取聚合
 > 版本：v1.0 ｜ 日期：2026-09-02
 
+> ⚠️ **本文是 v1.0 设计方案稿（2026-09-02），不是现状说明** —— 文中 Redis 缓存、Elasticsearch 搜索、
+> OSS+CDN 图床、MQ 异步、API 网关、MySQL 主从读写分离、`source` 源站表等**均未实现**；
+> 尤其 §3.1 的「核心表 8 张」是**方案设计值**，与现状（**15 张**表，见 `comic-core/sql/mysql_schema.sql`）不同。
+> 现状请以根 `README.md` / `docs/deploy.md` / `docs/architecture-report.md` 为准。
+> 本文保留作设计意图存档，**改动现状时不必同步本文**。
+
 ---
 
 ## 0. 方案概述
