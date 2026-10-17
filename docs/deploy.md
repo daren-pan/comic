@@ -1,7 +1,7 @@
 # 上线部署（后端）
 
 > 适用：把 `api-service` + `crawler-service` + 前端部署到一台**服务器**上对外提供服务。
-> 后端是**纯 API**（`/api/*` + `/docs`）；前端一个镜像（comic-front）、自带 nginx（默认宿主 86）。
+> 后端是**纯 API**（`/api/*` + `/docs`）；前端两个镜像（comic-web 网页端 / comic-front 移动端）、各自带 nginx（默认宿主 85 / 86）。
 
 ## 0. 先选一种方式
 
@@ -19,6 +19,7 @@
 
 ```
 deploy/
+├── web/        Dockerfile + nginx.conf + dist/（网页端产物）    → comic-web:1.0.0  自带 nginx，宿主 85
 ├── front/      Dockerfile + nginx.conf + dist/（前端产物）    → comic-front:1.0.0  自带 nginx，宿主 86
 ├── core/       dist/comic_core-*.whl                          → **无镜像**（纯库，只作命名构建上下文 `core`）
 ├── crawler/    Dockerfile + dist/comic_crawler-*.whl          → comic-crawler:1.0.0  采集层（可单独当 CLI 镜像）
@@ -26,7 +27,7 @@ deploy/
 ├── mysql/      Dockerfile + sql/（建库脚本产物）              → comic-mysql:1.0.0    本项目独占的库（FROM mysql:8.0）
 ├── build.sh / build.bat                                       生成产物 + 按序构建这些镜像
 ├── up.sh                                                      **一键**：前端 build + 上面这些 + up -d + 自检
-├── docker-compose.yml                                         编排：comic-mysql + comic-app + comic-scheduler + comic-front
+├── docker-compose.yml                                         编排：comic-mysql + comic-app + comic-scheduler + comic-web + comic-front
 └── .env.example                                               配置模板（`deploy/.env` 已 gitignore）
 ```
 
@@ -50,7 +51,7 @@ comic-front 1:1 迁移），区别只在实现：
 权限、备份策略都独立（曾与别的系统共用过实例，出现过"别人的表建进我们库"这类问题，独立实例最省心）。
 
 - **首次启动自动建表**：建库脚本烘在 `deploy/mysql` 镜像里，数据卷为空时自动执行 →
-  10 张表直接建好，**不需要手工跑任何 SQL**；
+  15 张表直接建好，**不需要手工跑任何 SQL**；
 - 版本选 8.0 而非 5.7：5.7 已于 2023-10 EOL（不再有安全更新）。8.0 默认认证插件是
   `caching_sha2_password`，PyMySQL 需要 `cryptography` —— 已在 crawler/api 的依赖里声明，
   构建镜像时自动装上，**无需改代码**；`my.cnf` 里显式锁了 `utf8mb4_general_ci`
@@ -66,6 +67,7 @@ comic-front 1:1 迁移），区别只在实现：
 | 模块 | 产物 | 怎么来的 |
 |---|---|---|
 | `crawler` / `api` | **wheel**（`*.whl`） | 各自的 `pyproject.toml`（= 那个模块的 pom.xml）经 `pip wheel` 构建 |
+| `web` | `dist/` 静态文件 | `cd comic-web && npm run build` 后复制进来；来源可用 `WEB_SRC=<目录>` 覆盖 |
 | `front` | `dist/` 静态文件 | `cd comic-front && npm run build:h5` 后复制进来；来源可用 `FRONT_SRC=<目录>` 覆盖 |
 
 wheel 里只有包本身与依赖声明：**测试、文档、样例夹具自动被排除**（例如 crawler 的
@@ -91,7 +93,7 @@ docker compose -f deploy/docker-compose.yml up -d
 > 所以不会出现两套 hash 产物混在一起。
 
 > `up.sh` 就是把这几步串起来的**幂等**一键脚本：**`git pull` 更新代码** → 前置检查 → 前端 build →
-> `build.sh` → `up -d`（comic-front + scheduler）→ 自检（mysql healthy → 容器内 `/api/health` →
+> `build.sh` → `up -d`（comic-web / comic-front + scheduler）→ 自检（mysql healthy → 容器内 `/api/health` →
 > 数据目录可写 → 入口 HTTP 码 + 前端身份）。重复跑只是更新代码 + 重新构建 + `up -d`，**不会清数据**。
 >
 > ⚠️ 开头的 `git pull` 只做**快进**（`--ff-only`），并把「更新了哪几条提交」打出来；
@@ -245,7 +247,7 @@ cd comic-web && npm install && npm run build    # 先构建前端 → comic-web/
 | `src/comic_core/` | 公共内核（领域模型 / 存储契约与 MySQL 实现 / 图库读写 / 标签归一），**含词表数据 `data/`** |
 | `src/comic_crawler/` | 采集服务包（适配器 / 存储 / 调度 / CLI） |
 | `dist/` | 前端产物（同源托管） |
-| `sql/mysql_schema.sql` | 建库脚本（10 张表，含 `log_record`） |
+| `sql/mysql_schema.sql` | 建库脚本（15 张表，含 `log_record`） |
 | `requirements.txt` | core + crawler + api 依赖**合并去重**（`sort -u` 生成） |
 | `README-DEPLOY.md` | 一页运行说明（脚本自动生成） |
 
@@ -266,6 +268,11 @@ cd comic-web && npm install && npm run build    # 先构建前端 → comic-web/
 | `COMIC_JWT_SECRET` | `comic-demo-secret-change-me` | ⚠️ **必须换强随机值**，否则 token 可被伪造 |
 | `COMIC_IMAGE_ROOT` | 空（= `<out>/data/image_store`） | 指向**持久盘**，且**必须绝对路径** |
 | `COMIC_TZ` | `Asia/Shanghai` | 容器时区（compose 用，app/scheduler/mysql 共用）。**别删**：镜像默认 UTC，而日志与 `sync_time` 都按本机时间写库 → 不设会让管理台日志时间早 8 小时。改完要 `up -d` 重建容器 |
+| `WEB_PORT` | `85` | 网页端 comic-web 的**宿主**端口（容器内 80）；端口占用改这里 |
+| `FRONT_PORT` | `86` | 移动端 comic-front 的**宿主**端口（容器内 80） |
+| `MYSQL_HOST_PORT` | `3309` | comic-mysql 的**宿主**端口（Navicat/IDEA 本机连用；容器内走内网 3306） |
+| `MYSQL_BIND` | `0.0.0.0` | 数据库端口绑定的宿主地址；只允许本机连就设 `127.0.0.1` |
+| `COMIC_DATA_HOST` | 空（= `../crawler-service/data`） | 图库 + 源开关状态的宿主目录（bind 到容器 `/data`）；服务器指到仓库外独立盘 |
 
 > 管理台**日志查询页的时间列**已固定按北京时间出参（`services/logs.to_beijing`）：容器时区配对了
 > 是恒等变换，漏配/没重建就自动补 8 小时 —— 页面不再依赖这一项是否改对；但**筛选**的时间窗
@@ -280,7 +287,7 @@ cd comic-web && npm install && npm run build    # 先构建前端 → comic-web/
 ## 5. 建库
 
 **默认形态（§1 的 compose，自带 `comic-mysql`）不需要这一步** —— 数据卷为空时容器会自动执行
-烘在镜像里的 `sql/mysql_schema.sql`，10 张表直接建好。只有**连外部 MySQL**（不推荐：会与别的系统共库、
+烘在镜像里的 `sql/mysql_schema.sql`，15 张表直接建好。只有**连外部 MySQL**（不推荐：会与别的系统共库、
 权限与备份互相牵连）时才需要手工建一次：
 
 ```bash
@@ -438,7 +445,7 @@ apk 无关的镜像构建走 `PIP_INDEX`（见 `deploy/build.sh` 注释）可换
 | 步骤 | 结果 |
 |---|---|
 | 导出 | `mysqldump --single-transaction --add-drop-table` → `backup/comic_3307_20260915_142703.sql(.gz)`（1.5 MB / 338 KB） |
-| 导入独占实例 | 10 张表**逐表精确行数一致**：comic 92 / chapter 650 / page 6437 / comic_tag 400 / tag 61 / user 11 / favorite 8 / history 15 / log_record 9 / sync_log 43 |
+| 导入独占实例 | **（2026-09-15 当时 10 张表）**逐表精确行数一致：comic 92 / chapter 650 / page 6437 / comic_tag 400 / tag 61 / user 11 / favorite 8 / history 15 / log_record 9 / sync_log 43 |
 | 备份可用性 | 把 dump 恢复到临时库比对（差异仅来自导出后的新写入，已逐条核实）→ **可完整回滚** ✅ |
 | 端到端接口 | **35 项全过**（列表/分页/排序/关键字/分类/详情/章节/分页图/封面/源站搜索/注册登录/鉴权 401/收藏/历史/管理台）。<br>2026-09-18 追加「三档角色鉴权」验证：匿名 401；**普通管理员**管理台/日志/任务 200 但**授权页 403**；普通用户全 403；超管全 200；授权与取消授权**即时生效**（同一 token 403→200→403，无需重新登录）；改自己 400 / 授予 superadmin 400 / 动超管 400 / 不存在用户 404 |
 | 采集服务 | 容器内 `cli list` / `cli show` 正常读新库（源站、中文、章节号均正确） |
@@ -453,6 +460,8 @@ apk 无关的镜像构建走 `PIP_INDEX`（见 `deploy/build.sh` 注释）可换
    ⚠️ 现已改为 bind 共用同一份宿主目录，**不再需要"灌卷"这一步**，见 §12）。
 2. **MySQL 8.0 的认证插件**：默认 `caching_sha2_password`，宿主机上的老客户端（如 MySQL 5.7 的 `mysql`
    命令）可能连不上；PyMySQL 侧需要 `cryptography`（已在依赖里，本地 venv 也要装一次）。
+
+> 注：本节表数与行数为 2026-09-15 的历史快照（当时 10 张表）；现库为 15 张表，见 comic-core/sql/mysql_schema.sql。
 
 ## 12. 运行时数据目录（图库 / 源开关状态）——本地与容器**共用同一份**
 
