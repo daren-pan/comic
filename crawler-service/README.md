@@ -11,7 +11,7 @@
 ```
 crawler-service/
 ├── src/comic_crawler/
-│   ├── cli.py                          # 命令行入口（run / transfer-images / inspect / serve / list / show）
+│   ├── cli.py                          # 命令行入口（transfer-images / inspect / list / show）
 │   ├── facade.py                       # **对外契约面**：api-service 唯一允许 import 的模块（见下节）
 │   ├── sources/                        # 源站层：契约在外，各源在里
 │   │   ├── base.py · registry.py       #   L1 契约：CrawlerAdapter 抽象 + @register 注册表
@@ -20,7 +20,7 @@ crawler-service/
 │   ├── images/                         # 图片层
 │   │   └── transfer.py                 #   懒转存 · 读时穿透取图 · 封面落盘
 │   ├── scheduling/                     # 编排层：何时跑 / 跑一次做什么
-│   │   ├── sync.py · ondemand.py · heal.py · scheduler.py
+│   │   ├── sync.py · ondemand.py · heal.py · runner.py · schedule.py · schedule_state.py · cron.py
 │   └── http.py                         # HTTP 抓取封装
 ├── data/                               # 运行时数据（gitignore）：image_store/ 图库 + source_state.json 源开关
 └── tests/                              # 单元测试（含分层守卫）
