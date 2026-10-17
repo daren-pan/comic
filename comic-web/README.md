@@ -30,7 +30,7 @@ comic-web/
     ├── style.css             # 全局设计变量与工具类（含夜间主题变量组）
     ├── types.ts              # 领域类型（核心类型从后端 OpenAPI 自动生成提取）
     ├── api/                  # request 单通道 + 业务模块；generated/ 为自动生成（勿手改）
-    ├── composables/          # 页面共享模式（usePagedList：分页/竞态/失败回退；useReachBottom）
+    ├── composables/          # 页面共享模式（usePagedList：分页/竞态/失败回退；useReachBottom；useScrollKeep：列表页滚动保持）
     ├── stores/               # Pinia：user（登录态）/ message（消息中心）
     ├── components/           # Layout / ComicCard / Pager / StateView / FilterBar / Picker / DateInput / AdminTabs / UserAvatar
     ├── utils/                # 适配层：storage / event / ui / theme / layout / nav / format / season / icons
@@ -129,3 +129,9 @@ npm run gen:api         # 从后端 OpenAPI 快照生成类型（见上「后端
   不要在页面里手写 `reqId` 令牌与页码回退。
 - **表面色一律走 CSS 变量，禁止再写 `#fff`**：主题（明亮 / 夜间）就是换一套变量值，写死的白底在夜间
   会变成「白底 + 浅字」。变量分工见 `style.css` 注释。
+- **列表页 keep-alive（2026-10-15）**：4 个列表页（首页 / 最近更新 / 热度排行 / 分类搜索）由 `App.vue` 的
+  `<keep-alive :include="keepAliveViews">` 缓存，从详情页返回时保留列表与滚动位置（对齐 comic-front 的
+  uni 页面栈行为）。**组件名清单 = `App.vue` 的 `keepAliveViews`**，与 `router.ts` 的 `KEEP_ALIVE_ROUTES`
+  一一对应 —— **改一处要改另一处**。滚动恢复由列表页自己的 `useScrollKeep()` 负责；⚠️ 不要依赖
+  vue-router 的 `scrollBehavior(savedPosition)`（SPA 内导航下它记的是「到达时」的位置，恒为 0）。
+  其余页面（详情 / 阅读器 / 我的 / 登录 / 管理台）**不进缓存**。
