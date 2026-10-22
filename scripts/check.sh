@@ -20,8 +20,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-PY="$ROOT/crawler-service/.venv/Scripts/python.exe"          # Windows venv layout
-[ -x "$PY" ] || PY="$ROOT/crawler-service/.venv/bin/python"  # macOS / Linux
+# python 环境统一用 crawler-service/.venv（与线上镜像 python:3.13 对齐）；
+# 不存在或依赖不全时交给 dev.sh 自动创建，不解析系统 python、不改动它。
+VENV="$ROOT/crawler-service/.venv"
+PY="$VENV/Scripts/python.exe"; [ -x "$PY" ] || PY="$VENV/bin/python"
+ENV_IMPORTS="fastapi,uvicorn,httpx,parsel,pymysql,cryptography,zhconv,bcrypt,jwt,python_multipart"
+if [ ! -x "$PY" ] || ! "$PY" -c "import $ENV_IMPORTS" >/dev/null 2>&1; then
+  echo "-> [0/5] 准备 python 环境（$VENV）"
+  bash "$ROOT/scripts/dev.sh" bootstrap
+  PY="$VENV/Scripts/python.exe"; [ -x "$PY" ] || PY="$VENV/bin/python"
+fi
 
 echo "-> [1/5] crawler-service unit tests + 分层守卫"
 # ⚠️ `PYTHONPATH` 不能省：`comic_core` / `comic_crawler` 两个本地包**并未安装进 venv**

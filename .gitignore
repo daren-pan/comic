@@ -4,6 +4,9 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+# 项目内基础解释器（scripts/dev.sh 自动下载的官方 CPython，约 41MB，不入库）
+.python/
+.python.tmp/
 .pytest_cache/
 
 # ---- Node ----
