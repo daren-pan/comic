@@ -11,7 +11,8 @@
 ├── mcp/
 │   └── playwright.json          # playwright 的 MCP 配置
 └── skills/
-    └── qwen-image-t2i-pipeline/ # qwen-image 生图流水线（T2I / I2I 双模式）
+    ├── qwen-image-t2i-pipeline/ # qwen-image 生图流水线（T2I / I2I 双模式）
+    └── start-dev/               # 本地开发环境启停（status / up / down / bootstrap）
 ```
 
 ## 怎么用
@@ -54,6 +55,10 @@ python script/qwen-image.py --image 底图.png \
 
 把 `skills/qwen-image-t2i-pipeline/` 整个目录拷到目标 agent 的 skill 目录
 （WorkBuddy 是 `~/.workbuddy/skills/`；其他 agent 见各自的 skill 约定）。
+
+- `qwen-image-t2i-pipeline` —— 生图流水线，**跨项目通用**。
+- `start-dev` —— 本仓库 `scripts/dev.sh` 的用法封装（启动前后端 / 查状态 / 停服务 / 补 python 环境）。
+  它**绑定本项目**：命令依赖 `scripts/dev.sh`、`.python/` 与 `.venv`，换项目要改内容，不是拿来即用的通用技能。
 
 ## qwen-image 写 prompt 的经验
 
