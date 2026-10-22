@@ -49,10 +49,14 @@ comic/
 
 - **分工**：本地开发 = **宿主直跑**（uvicorn + Vite）；上线 = **Docker Compose**（`deploy/`，见 `docs/deploy.md`）。
 - **启动前**：Docker Desktop 在跑、`comic-mysql` Up（`docker ps`）—— 本地直连宿主 `127.0.0.1:3309`，无需手工导出环境变量。
+- **python 环境（两层，都在项目内、都进 .gitignore）**：
+  - `.python/` —— **基础解释器**，官方 CPython 3.13.17（版本号是 `dev.sh` 里的 `PY_VERSION`）。缺了自动从 nuget 官方包（约 15MB）下载解压，**不需要机器上先装 python**。
+  - `crawler-service/.venv` —— **运行环境**，由 `.python` 创建并装齐 comic-core / crawler-service / api-service 三份 requirements；其 `pyvenv.cfg` 的 `home` 指向 `.python`（可用 `sys.base_prefix` 核对）。
+  两者缺失或依赖不全时 `up api` / `check.sh` 会自动建齐（也可手动 `bash scripts/dev.sh bootstrap`，幂等）；venv 底座与 `.python` 不一致会自动重建。**不碰系统 python**；非 Windows 平台无便携构建，改用系统 `python3.13` 作底座。版本锁 3.13（对齐线上镜像 `python:3.13-slim`），**不降级**。
 - **后端**：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 >> ../logs/api.log 2>&1`
 - **前端 · comic-web**：`cd comic-web && npm run dev`（:5173）；构建 `build`（详见其 README）
 - **前端 · comic-front**：`cd comic-front && npm run dev:h5`（:5174）；构建 `build:h5`（详见其 README）
-- **定时任务执行器**：`cd comic-scheduler && ../crawler-service/.venv/Scripts/python.exe -m comic_scheduler`（依赖两个本地包，需 `PYTHONPATH=../crawler-service/src;../comic-core/src`；容器里是 `comic-scheduler` 服务，配置页 `/#/admin/schedule`）
+- **定时任务执行器**：`cd comic-scheduler && ~/.workbuddy/binaries/python/envs/comic/Scripts/python.exe -m comic_scheduler`（即上面那个共享解释器；依赖两个本地包，需 `PYTHONPATH=../crawler-service/src;../comic-core/src`；容器里是 `comic-scheduler` 服务，配置页 `/#/admin/schedule`）
 - **上线一键**：`bash deploy/up.sh`（**不带参数 = 两个入口都起**，网页端 85 + 移动端 86）/ `--web`（只起网页端）/ `--front`（只起移动端）。只重建某一层：`bash deploy/build.sh --web|--front`。
 - **停止**：**按 PID 停**（起停细节见 `docs/deploy.md` §6）；**禁用 `taskkill /IM python.exe`**（会误伤同机其它 Python 服务）。
 
