@@ -2,6 +2,7 @@ fastapi>=0.111
 uvicorn>=0.30
 bcrypt>=4.0
 PyJWT>=2.8
+python-multipart>=0.0.9
 
 # ⚠️ 这里**只列第三方依赖**。`comic_core` / `comic_crawler` 都是仓库内的本地包
 #    （PyPI 上不存在，实测 404），不能写进 requirements.txt，
