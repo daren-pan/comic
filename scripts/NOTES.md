@@ -108,3 +108,20 @@
   拉起 base 解释器作为子进程（cmdline 仍显示 venv 路径）；真正监听端口的是子进程。
 - **结论**：判断"到底用的哪个环境"看 `sys.prefix` / `site.getsitepackages()`，不看 `Get-Process.Path`。
   `down` 用 netstat 拿到的正是子进程，杀掉后垫片随之退出，按 PID 停仍然成立。
+
+### 2.6 前置条件：只检测 + 给指引，不替用户装（2026-10-22）
+
+- **背景 / 现象**：新机器上 `up api` 只报"MySQL 未就绪（先 docker start comic-mysql）"——
+  但新机器压根没这个容器，`docker start` 必然失败，提示反而误导；`up web` 报
+  "node_modules 不完整（不要自行安装，报告用户）" 后直接退出，等于让调用方卡死。
+- **结论**：加两段纯检测逻辑，**只打印该执行的命令，不执行安装**：
+  - `mysql_probe()` 区分 `no-docker` / `docker-down` / `missing`（容器没建过）/ `stopped` / `starting` /
+    `unhealthy`，由 `mysql_tip()` 给对应命令；`up api` 在**下载 python 之前**就先过这一关。
+  - `check_front()` 检查 node 是否存在、主版本 ≥18、`node_modules` 是否齐全、关键 bin（`vite.js` / `uni.js`）是否在，
+    缺哪样就提示 `cd <项目> && npm ci`。
+  - `status` 一并展示：mysql 状态 + `deps` 行（web / front 依赖是否已装）。
+- **为什么不自动装**：`npm ci` 首次 1~3 分钟、`compose up -d comic-mysql` 要构建镜像 ——
+  这类重操作让用户知情后再跑，比脚本悄悄执行更可控（也避免 agent 在用户不知情时动依赖）。
+- **实测**：`docker-down`（`DOCKER_HOST` 指到死端口）、`missing`（stub docker）、
+  无 node（剥 PATH）、node_modules 缺失（假 ROOT）四个分支都实跑验证过输出；
+  `up api` 在 MySQL 不可用时 exit 1，且不会触达 python 下载。

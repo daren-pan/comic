@@ -191,20 +191,80 @@ http_code() {
   ' "$1" "$2" 2>/dev/null
 }
 
-mysql_state() {
-  if ! command -v docker >/dev/null 2>&1; then echo "docker 不可用"; return; fi
-  docker ps --filter name=comic-mysql --format "{{.Status}}" 2>/dev/null | head -1
+# ── 前置条件检测（只检测 + 给操作指引，不替用户装）──────────────────
+# mysql 状态：healthy / starting / unhealthy / running / stopped / missing / no-docker / docker-down
+mysql_probe() {
+  if ! command -v docker >/dev/null 2>&1; then echo no-docker; return; fi
+  if ! docker info >/dev/null 2>&1; then echo docker-down; return; fi
+  local st
+  st="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' comic-mysql 2>/dev/null | tr -d '\r')"
+  case "$st" in
+    healthy|starting|unhealthy|running) echo "$st" ;;
+    exited|created|paused|dead) echo stopped ;;
+    "") echo missing ;;                      # 容器压根没建过（新机器就是这种）
+    *) echo "$st" ;;
+  esac
+}
+
+mysql_tip() {  # mysql_tip <mysql_probe 的状态>
+  case "$1" in
+    no-docker)   printf '   没找到 docker 命令：先安装 Docker（https://docs.docker.com/engine/install/）后重试\n' ;;
+    docker-down) printf '   docker 命令在，但守护进程没响应：启动 Docker 服务后重试（Linux: sudo systemctl start docker）\n' ;;
+    missing)     printf '   数据库容器还没创建过，起一次（会构建 mysql 镜像，约 1~2 分钟）：\n'
+                 printf '     docker compose -f deploy/docker-compose.yml up -d comic-mysql\n' ;;
+    stopped)     printf '   容器存在但没在跑：docker start comic-mysql\n' ;;
+    starting)    printf '   容器正在启动，等十几秒再试；看状态：docker ps --filter name=comic-mysql\n' ;;
+    unhealthy)   printf '   在跑但健康检查没过：docker logs comic-mysql --tail 50\n' ;;
+    *)           printf '   看详细状态：docker ps -a --filter name=comic-mysql\n' ;;
+  esac
+}
+
+# 前端前置：node 存在 + 版本够 + 依赖已装（不自动装，只给指引）
+check_front() {  # check_front web|front
+  local t="$1" dir name bin major
+  case "$t" in
+    web)   dir="$ROOT/comic-web";   name="comic-web";   bin="node_modules/vite/bin/vite.js" ;;
+    front) dir="$ROOT/comic-front"; name="comic-front"; bin="node_modules/@dcloudio/vite-plugin-uni/bin/uni.js" ;;
+  esac
+  if ! command -v node >/dev/null 2>&1; then
+    echo "❌ 前置条件不满足：没找到 node（前端需要 Node.js 18+）" >&2
+    echo "   装 Node LTS：https://nodejs.org/ （或用 WorkBuddy 自带的受管 Node）" >&2
+    return 1
+  fi
+  major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null)"
+  if [ -n "$major" ] && [ "$major" -lt 18 ] 2>/dev/null; then
+    echo "❌ 前置条件不满足：Node 版本过低（当前 $(node -v 2>/dev/null)，需要 18+）" >&2
+    echo "   升级：https://nodejs.org/ 或 nvm install 20" >&2
+    return 1
+  fi
+  if [ ! -d "$dir/node_modules" ]; then
+    echo "❌ 前置条件不满足：$name 还没装依赖（node_modules 不存在）" >&2
+    echo "   装一次即可（首次约 1~3 分钟）：cd $name && npm ci" >&2
+    return 1
+  fi
+  if [ ! -f "$dir/$bin" ]; then
+    echo "❌ 前置条件不满足：$name/node_modules 不完整（缺 $bin）" >&2
+    echo "   可能是上次装到一半中断，重装：cd $name && npm ci" >&2
+    return 1
+  fi
+  return 0
 }
 
 cmd_status() {
   echo "── 本地开发环境状态 ─────────────────────────"
-  local ms t port pid code
-  ms="$(mysql_state)"
-  if [ -n "$ms" ]; then
-    echo "  mysql   comic-mysql：$ms"
+  local ms t port pid code wf ff
+  ms="$(mysql_probe)"
+  if [ "$ms" = "healthy" ]; then
+    echo "  $(printf '%-7s' mysql) comic-mysql：healthy"
   else
-    echo "  mysql   comic-mysql：未运行（docker start comic-mysql）"
+    echo "  $(printf '%-7s' mysql) comic-mysql：⛔ $ms"
+    mysql_tip "$ms"
   fi
+  wf="✅"; [ -d "$ROOT/comic-web/node_modules" ]   || wf="⛔ 未装"
+  ff="✅"; [ -d "$ROOT/comic-front/node_modules" ] || ff="⛔ 未装"
+  echo "  $(printf '%-7s' deps) web $wf · front $ff"
+  [ "$wf" != "✅" ] && echo "          cd comic-web && npm ci"
+  [ "$ff" != "✅" ] && echo "          cd comic-front && npm ci"
   if [ -x "$PY_BASE" ]; then
     echo "  $(printf '%-7s' base) .python/（$("$PY_BASE" -V 2>&1 | sed 's/^Python //')）"
   else
@@ -248,20 +308,22 @@ cmd_up() {
 
   case "$t" in
     api)
+      local ms
+      ms="$(mysql_probe)"
+      if [ "$ms" != "healthy" ]; then
+        echo "❌ 前置条件不满足：MySQL 未就绪（当前：$ms）" >&2
+        mysql_tip "$ms" >&2
+        exit 1
+      fi
       ensure_env "$VENV" || exit 1
       PY="$VENV/Scripts/python.exe"; [ -x "$PY" ] || PY="$VENV/bin/python"
-      case "$(mysql_state)" in
-        *healthy*) ;;
-        *) echo "❌ MySQL 未就绪（先 docker start comic-mysql 并等 healthy）"; exit 1 ;;
-      esac
       echo "[api] 启动 uvicorn → http://127.0.0.1:8000  （日志：logs/api.log）"
       echo "[api] 解释器：$PY（crawler-service/.venv）"
       cd "$ROOT/api-service" || exit 1
       exec "$PY" -m uvicorn main:app --host 127.0.0.1 --port 8000 >> "$ROOT/logs/api.log" 2>&1
       ;;
     web)
-      [ -f "$ROOT/comic-web/node_modules/vite/bin/vite.js" ] || {
-        echo "❌ comic-web/node_modules 不完整（不要自行安装，报告用户）"; exit 1; }
+      check_front web || exit 1
       echo "[web] 启动 vite → http://127.0.0.1:5173  （日志：logs/vite.log）"
       cd "$ROOT/comic-web" || exit 1
       if npm --version >/dev/null 2>&1; then
@@ -271,8 +333,7 @@ cmd_up() {
       exec node node_modules/vite/bin/vite.js >> "$ROOT/logs/vite.log" 2>&1
       ;;
     front)
-      [ -f "$ROOT/comic-front/node_modules/@dcloudio/vite-plugin-uni/bin/uni.js" ] || {
-        echo "❌ comic-front/node_modules 不完整（不要自行安装，报告用户）"; exit 1; }
+      check_front front || exit 1
       echo "[front] 启动 uni（H5）→ http://127.0.0.1:5174  （日志：logs/vite-front.log）"
       cd "$ROOT/comic-front" || exit 1
       if npm --version >/dev/null 2>&1; then

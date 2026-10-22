@@ -46,6 +46,9 @@ bash scripts/dev.sh down api    # 停（也支持 web / front / all）
   `pyvenv.cfg` 的 `home` 指向 `.python`。`up api` / `check.sh` 会自动建齐，底座不一致会自动重建。
   详见 `NOTES.md` §2.4。
 - 前端用标准 `npm run dev` / `npm run dev:h5`（`npm` 已由受管 Node 接管），探测失败时才回退 node 直调 bin —— 见 `NOTES.md` §2.1；
+- **前置条件会先检测再给指引**（不替用户安装）：`up api` 检查 MySQL —— 区分「没装 docker / 守护进程没起 /
+  容器没建过 / 容器停了 / 健康检查没过」，每种给对应命令；`up web` / `up front` 检查 node 是否存在、版本是否 ≥18、
+  `node_modules` 是否齐全，缺就提示 `cd <项目> && npm ci`。`status` 也会一并显示这些状态。
 - `up` 是**前台**进程：人在终端跑（Ctrl+C 停），agent 调用时加 `run_in_background: true`；
 - 停止按端口找 PID（`taskkill //PID`），**不要 `taskkill /IM python.exe`**。
 
