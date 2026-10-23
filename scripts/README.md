@@ -12,6 +12,7 @@ Windows（`.bat`）与 Unix（`.sh`）各一份，内容等价。
 | `check.bat` / `.sh` | **一键自检**：crawler 单测 + api 分层守卫 + 前端 `tsc --noEmit` | 提交前跑一次；可软链进 `.git/hooks/pre-commit` 自动拦截 |
 | `dev.sh` | **本地开发环境**：`status` / `up api`·`web`·`front` / `down ...` / `bootstrap` | python 是项目内两层：`.python/` 底座 + `crawler-service/.venv`（缺失自动下载/创建）；前端用标准 `npm run dev`；`up` 是前台进程，agent 用 `run_in_background` |
 | `package.bat` / `.sh` | **打包部署产物**到 `build/deploy`（部署时才生成，不入库） | 需要先 `npm run build` 出 `comic-web/dist` |
+| `parse-request.py` | **需求表 → 任务档案**：解析 `docs/requirements/` 里的 xlsx/csv，生成 `00-request.md` / `01-brief.md` / `state.json` | 按「需求单」sheet 固定行位 4~17 取 B 列；必填缺失 exit 2；`--stdout` 只打印。见 [`../docs/requirements/README.md`](../docs/requirements/README.md) |
 
 ## 自检（提交前建议跑一次）
 
