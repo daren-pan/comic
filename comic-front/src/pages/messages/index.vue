@@ -14,12 +14,23 @@
 import { ref } from 'vue'
 import { onHide, onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { isLoggedIn } from '../../api'
-import { kindLabel, statusLabel, fmtMsgTime, paramSummary, useMessageStore } from '../../stores/message'
+import { kindLabel, statusLabel, fmtMsgTime, paramSummary, detailPath, useMessageStore } from '../../stores/message'
+import type { NoticeItem } from '../../stores/message'
 import { setRoute, useRouter } from '../../utils/router'
 import Layout from '../../components/Layout.vue'
 
 const router = useRouter()
 const msgStore = useMessageStore()
+
+// 可跳转条目（收藏更新通知）点整条进详情，其余只标已读。
+// markRead 不 await：它失败只影响未读角标（store 里已 catch），不该拖住跳转；
+// 离开页面时 onHide / onUnload → markAllRead() 会整体兜底落库。
+// 跳转走 utils/router 兼容层（router.push），由它翻译成 pages/comic/index?id= —— 不直接调 uni.navigateTo。
+function openItem(n: NoticeItem) {
+  void msgStore.markRead(n)
+  const path = detailPath(n)
+  if (path) router.push(path)
+}
 
 // 门卫通过前不渲染主体（未登录会被跳走）
 const ready = ref(false)
@@ -72,12 +83,13 @@ onUnload(() => msgStore.markAllRead())
         {{ msgStore.loading ? '加载中…' : '暂无消息' }}
       </view>
       <view v-else class="msg-list">
+        <!-- 可跳转条目（收藏更新）点整条进详情，其余只标已读 -->
         <view
           v-for="n in msgStore.notices"
           :key="n.id"
           class="msg-item"
-          :class="[n.kind, n.status, { unread: !n.read }]"
-          @click="msgStore.markRead(n)"
+          :class="[n.kind, n.status, { unread: !n.read, linkable: !!detailPath(n) }]"
+          @click="openItem(n)"
         >
           <view class="msg-item-head">
             <text class="msg-kind u-span">{{ kindLabel(n.kind) }}</text>
@@ -169,6 +181,12 @@ onUnload(() => msgStore.markAllRead())
   word-break: break-all;
 }
 .msg-src { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+
+/* 可跳转条目（收藏更新通知）：整条可点，与不可点的任务消息区分开 */
+.msg-item.linkable { cursor: pointer; }
+.msg-item.linkable:hover .msg-summary { color: var(--primary); text-decoration: underline; }
+/* 触屏没有 hover —— 用按压态给移动端一个「这条能点」的即时反馈（只 front 加，web 无需） */
+.msg-item.linkable:active { background: var(--primary-soft); }
 
 .msg-link {
   border: none;

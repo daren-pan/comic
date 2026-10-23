@@ -99,6 +99,22 @@ export function paramSummary(n: NoticeItem): string {
   return parts.join(' · ')
 }
 
+/**
+ * 消息条目的**站内详情页路径**；不可跳转返回 ''（空串 = 不是"详情链接条目"）。
+ *
+ * 只有收藏更新通知（`kind === 'update'`，由 `comic_core.fanout` 发）带 `params.comicId`：
+ * 判定唯一入口就在这里，页面只负责"有值就 push"，不自己读 params。
+ *
+ * ⚠️ 与 comic-web 的同名函数**保持一致**（两端各一份、无共享包）：改这里必须同步改另一端。
+ */
+export function detailPath(n: NoticeItem): string {
+  if (n.kind !== 'update') return ''
+  const p = n.params
+  if (!p || typeof p !== 'object') return ''
+  const id = Number((p as Record<string, unknown>).comicId)
+  return Number.isInteger(id) && id > 0 ? `/comic/${id}` : ''
+}
+
 export const useMessageStore = defineStore('message', () => {
   const notices = ref<NoticeItem[]>([])
   const unread = ref(0)
