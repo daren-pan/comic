@@ -82,6 +82,9 @@ deploy/front/dist/
 .DS_Store
 Thumbs.db
 
-# ---- 需求表副本（用户填写的内容不入库，只留模板与说明）----
-# 已解析的内容留档在 docs/tasks/<TASK-ID>/00-request.md
-docs/requirements/req-2*.xlsx
+# ---- 需求表与任务档案（只入库模板，不入库具体需求 / 任务）----
+# 入库：docs/tasks/_template/ 全部 + docs/requirements/README.md + req-template.xlsx
+# 不入库：用户填写的需求表、解析出的任务档案
+docs/requirements/req-*.xlsx
+!docs/requirements/req-template.xlsx
+docs/tasks/TASK-*/
