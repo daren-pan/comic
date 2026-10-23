@@ -1,0 +1,49 @@
+{
+  "id": "TASK-20261022-01",
+  "stage": "closed",
+  "gate": {
+    "brief": "accepted-by-user",
+    "design": "pass",
+    "dev": "pass",
+    "verify": "pass",
+    "release": "na",
+    "close": "committed"
+  },
+  "decisions": {
+    "syncComicFront": true,
+    "clickArea": "whole-item",
+    "keyboardA11y": false,
+    "decidedAt": "2026-10-22T17:38"
+  },
+  "whitelist": [
+    "comic-web/src/stores/message.ts",
+    "comic-web/src/views/MessagesView.vue",
+    "comic-web/tests/message-detail-link.test.ts",
+    "comic-front/src/stores/message.ts",
+    "comic-front/src/pages/messages/index.vue",
+    "comic-front/tests/message-detail-link.test.ts"
+  ],
+  "verify": {
+    "result": "deliverable",
+    "web": "lint 0 / typecheck 0 / vitest 19 passed / build ok",
+    "front": "lint 0 err (4 legacy warnings) / typecheck 0 / vitest 25 passed / build ok",
+    "e2e": "web -> #/comic/44 h1 match; front -> #/pages/comic/index?id=44 h1 match",
+    "unverified": [
+      "真实登录全链（无账号口令，用合法结构 JWT + 拦截 /api/messages 替代）",
+      "顶栏铃铛轮询/toast（未改 Layout）",
+      "front 详情页返回落点",
+      "uni 原生端"
+    ]
+  },
+  "commits": [
+    "4fc0453 feat(web): 消息中心收藏更新提示可跳转详情页",
+    "e991701 feat(front): 消息中心收藏更新提示可跳转详情页"
+  ],
+  "pendingUser": [
+    "是否补 NOTES 两条（需扩白名单）"
+  ],
+  "attempt": 4,
+  "source": "需求登记表-v1.xlsx",
+  "startedAt": "2026-10-22T17:20:20",
+  "updatedAt": "2026-10-23T15:58:00"
+}
