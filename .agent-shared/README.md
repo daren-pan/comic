@@ -1,11 +1,12 @@
-# .agent-shared —— playwright / qwen-image 的跨 agent 复用包
+# .agent-shared —— 跨 agent 复用包
 
-把 **qwen-image 的直连脚本**与 **playwright 的 MCP 配置**放在这里，换 agent
+把**脚本、MCP 配置、技能、协作协议与角色卡**放在这里，换 agent
 （Claude Code / Cursor / OpenCode / Codex …）时照着装回去即可。
 
 ```
 .agent-shared/
 ├── README.md                    # 本文件（说明 + 用法）
+├── agents/                      # ⭐ AI 协作协议 + 5 张角色卡（lead / design / dev / test / ops）
 ├── script/
 │   └── qwen-image.py            # ⭐ 直连脚本：T2I 文生图 + I2I 图生图（不走 MCP）
 ├── mcp/
@@ -17,6 +18,24 @@
 ```
 
 ## 怎么用
+
+### AI 协作协议与角色卡（`agents/`）
+
+本项目的**多角色协作规范**备份。源文件在 `.workbuddy/agents/`（该目录被 gitignore，不进版本库），
+这里留一份可在换 agent / 换机器时恢复。
+
+| 文件 | 内容 |
+|---|---|
+| `README.md` | 协作协议总纲：沟通拓扑、调度规范、上下文节流、派单巡检、产出模板 |
+| `lead.md` | **负责人**：唯一对外接口，派单 / 中转 / 汇总；含「上下文节流」「派单巡检（看门狗）」硬规则 |
+| `design.md` | 设计：出方案不写实现；**文件级白名单是硬产出**；回报 ≤15 行 |
+| `dev.md` | 开发：按白名单改代码、自测、写 `03-impl.md` |
+| `test.md` | 测试：独立验收、结论只能是「可交付 / 需修复」 |
+| `ops.md` | 运维：发布或免上线（N/A 也要写原因） |
+
+**恢复方式**：把 `agents/*.md` 拷回 `.workbuddy/agents/` 即可。
+
+> ⚠️ 与 `skills/` 一样，**源在 `.workbuddy/agents/`**，这里是副本，改完要手动同步。
 
 ### qwen-image —— 直连脚本，**不用装 MCP**
 
