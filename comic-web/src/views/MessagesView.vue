@@ -13,12 +13,22 @@
 // 左侧留缝、又盖住页面内容 —— 看着像弹窗；整页才是移动端该有的形态。
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { isLoggedIn } from '../api'
-import { kindLabel, statusLabel, fmtMsgTime, paramSummary, useMessageStore } from '../stores/message'
+import { kindLabel, statusLabel, fmtMsgTime, paramSummary, detailPath, useMessageStore } from '../stores/message'
+import type { NoticeItem } from '../stores/message'
 import { useRouter } from 'vue-router'
 import Layout from '../components/Layout.vue'
 
 const router = useRouter()
 const msgStore = useMessageStore()
+
+// 可跳转条目（收藏更新通知）点整条进详情，其余只标已读。
+// markRead 不 await：它失败只影响未读角标（store 里已 catch），不该拖住跳转；
+// 离开页面时 onBeforeUnmount → markAllRead() 会整体兜底落库。
+function openItem(n: NoticeItem) {
+  msgStore.markRead(n)
+  const path = detailPath(n)
+  if (path) router.push(path)
+}
 
 // 挂载后置 true 渲染主体（未登录会被替换到登录页）
 const ready = ref(false)
@@ -64,12 +74,13 @@ onBeforeUnmount(() => msgStore.markAllRead())
         {{ msgStore.loading ? '加载中…' : '暂无消息' }}
       </div>
       <div v-else class="msg-list">
+        <!-- 可跳转条目（收藏更新）点整条进详情，其余只标已读 -->
         <div
           v-for="n in msgStore.notices"
           :key="n.id"
           class="msg-item"
-          :class="[n.kind, n.status, { unread: !n.read }]"
-          @click="msgStore.markRead(n)"
+          :class="[n.kind, n.status, { unread: !n.read, linkable: !!detailPath(n) }]"
+          @click="openItem(n)"
         >
           <div class="msg-item-head">
             <span class="msg-kind u-span">{{ kindLabel(n.kind) }}</span>
@@ -161,6 +172,10 @@ onBeforeUnmount(() => msgStore.markAllRead())
   word-break: break-all;
 }
 .msg-src { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+
+/* 可跳转条目（收藏更新通知）：整条可点，与不可点的任务消息区分开 */
+.msg-item.linkable { cursor: pointer; }
+.msg-item.linkable:hover .msg-summary { color: var(--primary); text-decoration: underline; }
 
 .msg-link {
   border: none;
