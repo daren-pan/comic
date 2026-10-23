@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { getFavorites, getHistoryWithDetail, removeHistory } from '../../api'
 import { useUserStore } from '../../stores/user'
@@ -8,6 +8,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import { openNewTab, setRoute, useRouter } from '../../utils/router'
 import Layout from '../../components/Layout.vue'
 import { formatDateTime } from '../../utils/format'
+import { buildReadAtMap, hasUpdate } from '../../utils/favorite'
 
 const router = useRouter()
 const favorites = ref<Comic[]>([])
@@ -39,6 +40,16 @@ function continueRead(h: HistoryEntry) {
   // 新标签页打开阅读器，书架保留在当前标签页（与详情页点章节的行为一致）
   openNewTab(`/reader/${h.comicId}/${h.chapterId}`)
 }
+
+// 最近阅读点封面 / 文字 → 详情页（`/comic/<id>` 由 utils/router 翻译成 pages/comic/index?id=）；
+// 续读仍走 continueRead
+function goDetail(h: HistoryEntry) {
+  router.push('/comic/' + h.comicId)
+}
+
+// 收藏「新」角标：把历史压成「本作品最后一次阅读时间」，模板里与 Comic.updatedAt 比对
+const readAtMap = computed(() => buildReadAtMap(history.value))
+
 // uni 页面生命周期：登记该页对应的 web 路径（替代 vue-router 的路由状态）
 onLoad((options) => setRoute('/me', options ?? {}))
 
@@ -60,7 +71,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
       <view v-else-if="tab === 'history'">
         <view v-if="history.length === 0" class="empty">还没有阅读记录，去首页找一本看看吧</view>
         <view v-else class="list">
-          <view v-for="h in history" :key="h.comicId" class="row" @click="continueRead(h)">
+          <view v-for="h in history" :key="h.comicId" class="row" @click="goDetail(h)">
             <image mode="aspectFill" class="row-cover u-img" :src="h.comic?.cover" :alt="h.comic?.title" />
             <view class="row-main">
               <view class="u-h4">{{ h.comic?.title }}</view>
@@ -68,7 +79,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
               <view class="row-sub dim u-p">读到第 {{ h.pageNo }} 页 · {{ formatDateTime(h.readAt) }}</view>
             </view>
             <view class="row-actions" @click.stop>
-              <button class="btn ghost sm u-button" @click="continueRead(h)">续读</button>
+              <button class="btn ghost sm u-button" @click.stop="continueRead(h)">续读</button>
               <button class="btn ghost sm danger u-button" @click="onRemove(h.comicId)">删除</button>
             </view>
           </view>
@@ -86,6 +97,7 @@ onLoad((options) => setRoute('/me', options ?? {}))
           <view v-for="c in favorites" :key="c.id" class="fav-item" @click="router.push(`/comic/${c.id}`)">
             <view class="fav-thumb">
               <image mode="aspectFill" class="u-img" :src="c.cover" :alt="c.title" />
+              <text v-if="hasUpdate(c, readAtMap)" class="fav-badge">新</text>
             </view>
             <view class="u-p">{{ c.title }}</view>
             <text class="u-span">{{ c.chapterCount }} 话</text>
@@ -158,6 +170,14 @@ onLoad((options) => setRoute('/me', options ?? {}))
 /* 封面 3:4 比例盒：用「高度 0 + padding-bottom 撑比例」（padding 百分比按包含块**宽度**解析）。 */
 .fav-thumb { position: relative; height: 0; padding-bottom: 133.33%; background: var(--bg); }
 .fav-thumb .u-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 收藏「新」角标：贴封面右上角；pointer-events: none 保证不吞掉整卡的点击 */
+.fav-badge {
+  position: absolute; top: 6px; right: 6px; z-index: 1;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--primary); color: #fff;
+  font-size: 11px; font-weight: 600; line-height: 16px;
+  pointer-events: none;
+}
 .fav-item .u-p { margin: 6px 0 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
 .fav-item .u-span { font-size: 12px; color: var(--text-2); }
 
