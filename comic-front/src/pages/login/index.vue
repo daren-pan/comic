@@ -133,6 +133,13 @@ onLoad((options) => {
             <input class="u-input" v-model="password" type="password" autocomplete="current-password" placeholder="至少 6 位" @confirm="submit" />
           </view>
 
+          <!-- 「忘记密码」入口：密码框下方（找不到密码的人视线就在这儿）。
+               ⚠️ 这是 <form @submit> 内部，uni 的 button 不写 `form-type` 就不会提交
+               （与 web 端写 `type="button"` 同一个意思）。 -->
+          <view class="forgot">
+            <button class="link u-button" @click="router.push('/reset')">忘记密码？</button>
+          </view>
+
           <view v-if="error" class="error u-p">{{ error }}</view>
 
           <button class="btn block u-button" form-type="submit" :disabled="loading">
@@ -201,6 +208,19 @@ onLoad((options) => {
 .field .u-input:focus { outline: none; border-color: var(--primary); background: var(--card); }
 
 .error { color: #e23; font-size: 13px; margin: -4px 0 10px; text-align: left; }
+
+/* 「忘记密码？」：密码框右下角的纯文字按钮（配色沿用左上角 .back 的绿色） */
+.forgot { text-align: right; margin: -6px 0 12px; }
+.forgot .link {
+  border: none;
+  background: none;
+  color: #15803d;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 0;
+  line-height: 1.6;
+}
+.forgot .link:hover { color: #166534; text-decoration: underline; }
 
 .btn.block { width: 100%; justify-content: center; padding: 12px; font-size: 15px; }
 

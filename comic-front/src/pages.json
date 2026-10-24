@@ -10,6 +10,7 @@
     { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/messages/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/login/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/reset/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/admin/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/admin/logs", "style": { "navigationStyle": "custom" } },
     { "path": "pages/admin/users", "style": { "navigationStyle": "custom" } },

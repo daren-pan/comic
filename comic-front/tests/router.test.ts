@@ -21,6 +21,7 @@ describe('toUniUrl —— web 路径 → uni 页面地址（去程映射）', ()
       '/profile': 'pages/profile/index',
       '/messages': 'pages/messages/index',
       '/login': 'pages/login/index',
+      '/reset': 'pages/reset/index',
       '/admin': 'pages/admin/index',
       '/admin/logs': 'pages/admin/logs',
       '/admin/users': 'pages/admin/users',
@@ -68,7 +69,7 @@ describe('toUniUrl —— web 路径 → uni 页面地址（去程映射）', ()
 
 describe('parentOf —— 层级返回的固定上级（回程映射）', () => {
   it('静态二级页回首页', () => {
-    for (const p of ['/rank', '/me', '/profile', '/messages', '/login', '/admin']) {
+    for (const p of ['/rank', '/me', '/profile', '/messages', '/login', '/reset', '/admin']) {
       expect(parentOf(p), `${p} 的上级应是首页`).toBe('/')
     }
   })

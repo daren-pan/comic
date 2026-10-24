@@ -735,6 +735,38 @@ Trust 完成后本会话的 `mcp__playwright__*` 才会回到索引。
 **Trust 完成前**：不要静默退回「读代码猜」。可先用本机替代手段临时取证（直接 `curl` 打接口看响应、
 无头浏览器 CDP 脚本、让用户贴控制台截图），并**说明这是临时手段**、已在等 Trust。
 
+### 4.4 hash 直链冷启动是空白页 —— 与「新页面未登记会静默跳首页」是两个坑（2026-10-24）
+
+#### 直接打开 `/#/reset`、`/#/login`、`/#/me` 得到空白页 + `[Vue Router warn] No match found`
+
+- **背景 / 现象**：验收新增的「忘记密码」页（`pages/reset/index.vue`）时，直接访问
+  `http://localhost:5174/#/reset` —— **整页空白**，控制台只有一条
+  `[Vue Router warn]: No match found for location with path "/reset"`。
+  同一个地址在 **应用内点「忘记密码？」跳过去**完全正常，**在该页按 F5 刷新也正常**。
+- **根因**：**框架固有，不是本仓库的 bug** —— 本仓库 uni H5 的地址栏用的是 uni 自己的页面路径
+  （`#/pages/reset/index`），仓库里**没有**「web 路径 → uni 页面路径」的反向转换代码；
+  `toUniUrl()` 只做正向（web 路径 → uni 地址，见 `src/utils/router.ts` 的 `STATIC`）。
+  冷启动时 uni 拿到的是 `#/reset`，它不认识，于是 vue-router 匹配不到任何页面。
+  同理 §4.1 记的 `#/search` 也是这个原因。
+- **结论**：**不要用 `#/<web 路径>` 冷启动验收新页面**。可用的三种形态：
+  - 应用内跳转（点入口进）；
+  - 进到该页后**原地刷新**（此时地址已是 `#/pages/reset/index`）；
+  - 直接访问 `#/pages/reset/index`。
+- **实测**：`#/reset` → 空白 + `No match found`；应用内进入后刷新 → 正常渲染；`#/pages/reset/index` → 正常渲染。
+
+#### 它和「新页面四处没登记」的后果不同，别混为一谈
+
+| 坑 | 触发条件 | 症状 | 怎么发现 |
+|---|---|---|---|
+| **hash 直链冷启动**（本节） | 用 `#/<web 路径>` 直接打开 | **空白页** + `[Vue Router warn] No match found` | 看控制台 |
+| **新页面没登记**（§见 `utils/router.ts` 注释） | `pages.json` / `STATIC` / `PARENTS` / `tests/router.test.ts` 漏任一处 | 点入口**静默跳首页**（`/pages/index/index`），页面不报错 | 控制台只有一句 `[router] 未登记的 web 路径 …` |
+
+- **结论**：验收新页面不能只看"打开是白页就报缺陷"，也不能只看"点了没跳错就算过" —— 两条都要看：
+  ① 应用内进入该页正常渲染；② 在该页原地刷新仍停留在该页；③ 控制台**没有**
+  `[router] 未登记的 web 路径` 这条 warn。三条同时成立才算登记齐全。
+- **位置**：`src/utils/router.ts`（`STATIC` / `PARENTS` / 兜底 warn）、`src/pages.json`、
+  `tests/router.test.ts`；本条由 `TASK-20261024-01` 的 `/reset` 验收踩出。
+
 ---
 
 ## 五、工程与协作的坑

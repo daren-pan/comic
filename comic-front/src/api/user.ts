@@ -66,6 +66,69 @@ export function changePassword(oldPassword: string, newPassword: string): Promis
   return request<null>('/api/auth/password', { method: 'PUT', data: { oldPassword, newPassword } })
 }
 
+// ---- 邮箱验证码：忘记密码 / 绑定邮箱（2026-10-24）----
+// 与 comic-web 的 `src/api/user.ts` **同名同签名**（只有底层传输不同）——
+// 两端页面代码因此可以逐行对照，改动不会漂移。
+// ⚠️ `/password/reset*` 是匿名接口；`/email*` 三个需要登录（请求层自动附 token）。
+
+/**
+ * 给「已绑定该邮箱的账号」发一条找回密码验证码（**匿名**可调）
+ *
+ * ⚠️ 无论邮箱是否注册，后端都返回成功（反枚举）—— 调用方**不能**用它判断邮箱存不存在。
+ * @returns 冷却秒数（前端据此开始倒计时）
+ * @see POST /api/auth/password/reset/code
+ */
+export function sendResetCode(email: string): Promise<{ cooldownSeconds: number }> {
+  return request<{ cooldownSeconds: number }>('/api/auth/password/reset/code', {
+    method: 'POST',
+    data: { email },
+  })
+}
+
+/**
+ * 用邮箱验证码重置密码（**匿名**可调）
+ *
+ * 成功后旧密码与此前签发的 token 同时失效 → 调用方必须引导用户回登录页重新登录。
+ * @see POST /api/auth/password/reset
+ */
+export function resetPassword(email: string, code: string, newPassword: string): Promise<null> {
+  return request<null>('/api/auth/password/reset', {
+    method: 'POST',
+    data: { email, code, newPassword },
+  })
+}
+
+/**
+ * 给「要绑定的新邮箱」发一条验证码（**需登录**）
+ *
+ * 该邮箱已被别的账号绑定时后端返回 409「该邮箱已被其他账号绑定」。
+ * @see POST /api/auth/email/code
+ */
+export function sendBindCode(email: string): Promise<{ cooldownSeconds: number }> {
+  return request<{ cooldownSeconds: number }>('/api/auth/email/code', {
+    method: 'POST',
+    data: { email },
+  })
+}
+
+/**
+ * 校验验证码后把邮箱绑到当前账号（**需登录**；只能绑自己）
+ * @returns 脱敏后的邮箱（如 `ab***@qq.com`）
+ * @see PUT /api/auth/email
+ */
+export function bindEmail(email: string, code: string): Promise<{ email: string }> {
+  return request<{ email: string }>('/api/auth/email', { method: 'PUT', data: { email, code } })
+}
+
+/**
+ * 读当前账号的绑定邮箱（**需登录**；返回脱敏值）
+ * @returns 未绑定时 `{ email: '', bound: false }`
+ * @see GET /api/auth/email
+ */
+export function fetchEmail(): Promise<{ email: string; bound: boolean }> {
+  return request<{ email: string; bound: boolean }>('/api/auth/email')
+}
+
 /**
  * 上传头像（需登录；multipart 字段名 `file`，≤2MB，JPG / PNG / WebP / GIF）
  *
