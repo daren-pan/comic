@@ -126,9 +126,19 @@ CREATE TABLE IF NOT EXISTS user (
     --          'user'       = 普通用户（默认，无管理台权限）。
     -- 引导与迁移见 api-service/routers/auth.py 与 tools/add_user_role.py。
     role VARCHAR(32) NOT NULL DEFAULT 'user' COMMENT '角色：superadmin 超管（全库唯一）/ admin 管理员 / user 普通用户',
+    -- 绑定邮箱（2026-10-24 新增，「忘记密码」靠它收验证码）。
+    -- ⚠️ **必须可 NULL**：MySQL 唯一索引不比较 NULL（任意多行未绑定都合法），而 '' 是普通值 ——
+    --    第二行 '' 直接撞 uk_email 报 1062，上线即挡死所有未绑定用户。代码里空串显式转 NULL。
+    email VARCHAR(128) NULL DEFAULT NULL COMMENT '绑定邮箱（找回密码用；NULL = 未绑定，同一邮箱全库唯一）',
+    -- 密码最近修改时刻：改密 / 重置时刷新，`get_current_user` 据此让**更早签发的 token 失效**。
+    -- 不加索引：只在拿到整行后做一次内存比较，没有按它查询的路径。
+    password_changed_at DATETIME NULL DEFAULT NULL COMMENT '密码最近修改时刻（改密 / 重置时刷新；旧 token 据此失效，NULL = 从未改过）',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
-    UNIQUE KEY uk_username (username)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户表（角色三档：superadmin / admin / user）';
+    UNIQUE KEY uk_username (username),
+    -- 邮箱全库唯一：既是「找回密码」的定位方式，也兜住并发绑定同一邮箱（两账号抢写 → 1062 → 409）。
+    -- 排序规则 utf8mb4_general_ci 下 A@x.com / a@x.com 视为重复；代码仍统一 strip().lower() 后写入。
+    UNIQUE KEY uk_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户表（角色三档 + 可绑定邮箱用于找回密码）';
 
 CREATE TABLE IF NOT EXISTS favorite (
     id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
@@ -320,3 +330,34 @@ CREATE TABLE IF NOT EXISTS app_setting (
     v VARCHAR(255) NOT NULL DEFAULT '' COMMENT '配置值（字符串，由读取方解释）',
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='全站级键值配置（目前放 comment_enabled 全站评论总开关）';
+
+-- ---------------------------------------------------------------------------
+-- 邮箱验证码（2026-10-24 新增，配合 user.email 做「忘记密码」与「绑定邮箱」）。
+-- 一行 = 一次发码请求；**无论邮箱是否已注册都落行** —— 让 60s 冷却与小时配额对
+-- 「已注册」「未注册」完全一致，否则状态码/次数差异就成了邮箱枚举侧信道。
+--
+-- 为什么不塞进 user 表：一行存一个码 → 新码只能覆盖旧码，无法审计、无法按 IP 限流；
+-- 而且 user 是鉴权热表（`get_current_user` 每个带 token 的请求都 SELECT *），
+-- 临时数据不该蹭进来。为什么不用 Redis：本项目唯一存储就是 MySQL（无缓存组件）。
+--
+-- 码**只存 HMAC-SHA256**（密钥复用 COMIC_JWT_SECRET）：库泄露也无法离线爆破 6 位空间。
+-- 无外键：账号改绑 / 删号后这些行仍需按发码记录限流，外键会阻止历史行保留。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS email_code (
+    id INT AUTO_INCREMENT COMMENT '自增主键',
+    email VARCHAR(128) NOT NULL COMMENT '收件邮箱（小写归一；无论是否已注册都落行 —— 让冷却/配额对「已注册」与「未注册」完全一致，避免邮箱枚举）',
+    purpose VARCHAR(16) NOT NULL DEFAULT 'reset' COMMENT '用途：reset 找回密码 / bind 绑定邮箱（两种用途的码互不干扰）',
+    code_hash CHAR(64) NOT NULL COMMENT '验证码的 HMAC-SHA256 十六进制（密钥复用 COMIC_JWT_SECRET；不存明文，库泄露也无法离线爆破 6 位码）',
+    attempts TINYINT NOT NULL DEFAULT 0 COMMENT '已校验失败次数（达到 5 即整行作废，此后正确码也不接受）',
+    req_ip VARCHAR(64) NOT NULL DEFAULT '' COMMENT '申请来源 IP（每 IP 每小时配额用；反代下取 X-Forwarded-For 首段，空串 = 取不到）',
+    expires_at DATETIME NOT NULL COMMENT '过期时刻（发放时刻 + 10 分钟）',
+    consumed_at DATETIME NULL COMMENT '消费/作废时刻（非空 = 不可再用：已成功使用 / 被新码顶掉 / 次数超限 三种情形都写它）',
+    created_at DATETIME NOT NULL COMMENT '发放时刻（60 秒重发冷却、小时配额、24 小时垃圾清理都基于此列）',
+    PRIMARY KEY (id),
+    -- 冷却 / 每邮箱小时配额 / 取最新码：一条索引同时服务这三条查询
+    KEY idx_code_lookup (email, purpose, created_at),
+    -- 每 IP 小时配额
+    KEY idx_code_ip (req_ip, created_at),
+    -- 24h 垃圾行清理
+    KEY idx_code_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='邮箱验证码：一行 = 一次发码请求（找回密码 / 绑定邮箱共用；单次有效、带次数与配额上限）';
