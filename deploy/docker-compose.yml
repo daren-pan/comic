@@ -63,6 +63,18 @@ x-app-env: &app-env
   # 于是服务器上的日志时间会比北京时间早 8 小时（2026-09-18 排查「管理台日志时间对不上」）。
   # 本地直跑时本机已是本地时区，容器必须对齐到同一时区，两边看到的时间才一致。
   TZ: ${COMIC_TZ:-Asia/Shanghai}
+  # 邮件通道（2026-10-24 新增，「忘记密码」的邮箱验证码）：容器里的进程只能从环境变量读配置，
+  # 所以必须在这里透传，否则生产读不到 SMTP → 用户永远收不到验证码（功能等同不可用）。
+  # 全部有默认值 = 空：**不配也能启动**（允许"先上线、后补邮箱"），只是拿不到验证码。
+  # ⚠️ COMIC_SMTP_PASSWORD 刻意**不做 `:?` 强校验**（同上：先上线后补）；
+  #    COMIC_MAIL_FALLBACK=log 仅本地验收用，生产设为空 —— 它会把验证码写进日志表。
+  COMIC_SMTP_HOST: ${COMIC_SMTP_HOST:-}
+  COMIC_SMTP_PORT: ${COMIC_SMTP_PORT:-587}
+  COMIC_SMTP_USER: ${COMIC_SMTP_USER:-}
+  COMIC_SMTP_PASSWORD: ${COMIC_SMTP_PASSWORD:-}
+  COMIC_SMTP_TLS: ${COMIC_SMTP_TLS:-1}
+  COMIC_MAIL_FROM: ${COMIC_MAIL_FROM:-}
+  COMIC_MAIL_FALLBACK: ${COMIC_MAIL_FALLBACK:-}
 
 services:
   # ---------------- 数据库（本项目独占一个实例，不与别的系统共用）----------------
