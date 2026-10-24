@@ -51,6 +51,36 @@ class ChangePasswordBody(BaseModel):
     newPassword: str
 
 
+# ---- 邮箱验证码：找回密码 / 绑定邮箱（2026-10-24 新增）----
+# 同一条既有分工：本文件只声明**形状**，格式 / 长度 / 频控都在 `routers/auth.py` 与
+# `services/email_codes.py`（那里给中文提示、决定返 400 还是 429）。
+
+
+class SendCodeBody(BaseModel):
+    """「发验证码」入参（`POST /api/auth/password/reset/code` 与 `POST /api/auth/email/code` 共用）。
+
+    只带一个邮箱，所以两个端点能共用同一个形状；**用途（reset / bind）由路径决定**，
+    不接受前端传 `purpose` —— 否则前端可以拿「绑定邮箱」的码去重置密码。
+    """
+
+    email: str
+
+
+class ResetPasswordBody(BaseModel):
+    """忘记密码重置入参（匿名可调；验证码格式与正确性在 `services/email_codes.py` 判）。"""
+
+    email: str
+    code: str
+    newPassword: str
+
+
+class BindEmailBody(BaseModel):
+    """绑定 / 更换邮箱入参（需登录；`user` 取自 token，**不接受 userId** —— 天然免越权）。"""
+
+    email: str
+    code: str
+
+
 class HistoryPut(BaseModel):
     """阅读进度入参。
 

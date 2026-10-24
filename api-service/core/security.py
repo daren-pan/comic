@@ -33,6 +33,11 @@ _JWT_SECRET = os.environ.get("COMIC_JWT_SECRET", "comic-demo-secret-change-me")
 _JWT_ALGO = "HS256"
 _JWT_EXP_HOURS = 24 * 7  # 7 天
 
+#: 内部其他用途复用同一密钥的**只读入口**（目前 = 邮箱验证码的 HMAC，见 `services/email_codes.py`）。
+#: 目的只是「别在第二处再抄一遍默认值」—— 两个默认值一旦漂移，验证码就会算不出同样的哈希。
+#: ⚠️ 不新增环境变量：同一密钥已经由 compose 的 `x-app-env` 注入，多一个变量就多一处漏配。
+HMAC_SECRET = _JWT_SECRET
+
 ROLE_SUPERADMIN = "superadmin"
 ROLE_ADMIN = "admin"
 ROLE_USER = "user"
@@ -79,13 +84,27 @@ def decode_token(token: str) -> dict:
 
 
 def get_current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> dict:
-    """从 `Authorization: Bearer <token>` 解析当前登录用户。"""
+    """从 `Authorization: Bearer <token>` 解析当前登录用户。
+
+    **改密 / 重置之后，更早签发的 token 立即失效**（2026-10-24）：
+    JWT 是无状态的、项目里没有 token 吊销表，而 `iat` 本来就在 payload 里 ——
+    于是只需把「密码最近修改时刻」写进 `user.password_changed_at`（`update_password` 里刷新），
+    这里比较一次即可，签发逻辑与前端都不用改。
+
+    三条边界（写错会把全站踢成 401，见设计 R7）：
+    - `password_changed_at` 为 `NULL`（从未改过）→ **跳过**判定，存量 token 不受影响；
+    - 留 **5 秒时钟容差**：改密后前端立刻重登，新 token 的 `iat` 可能比库里时刻小一点点；
+    - 时刻来自 MySQL `DATETIME`（naive，按本机时区解释），`.timestamp()` 按同一时区换算。
+    """
     if cred is None:
         raise HTTPException(status_code=401, detail="not authenticated")
     payload = decode_token(cred.credentials)
     user = users.get_user(payload.get("sub", ""))
     if not user:
         raise HTTPException(status_code=401, detail="user not found")
+    changed = user.get("password_changed_at")
+    if changed and int(payload.get("iat", 0)) + 5 < int(changed.timestamp()):
+        raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
     return user
 
 

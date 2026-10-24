@@ -129,3 +129,70 @@
   与触发账号绑定；api 启动时把上一进程残留的 `running` 标成「服务重启，任务中断」。
   读写实现在 `comic_core.storage.mysql.task_store`。
 - **位置**：`services/tasks.py`。
+
+---
+
+## 五、邮箱验证码与找回密码（2026-10-24）
+
+> 需求 `TASK-20261024-01`：登录页「忘记密码」+ 个人中心的邮箱绑定。实现见
+> `services/email_codes.py` / `services/mailer.py` / `routers/auth.py` 尾部 5 个端点，
+> 表结构见 `comic-core/sql/mysql_schema.sql` 的 `email_code`。
+
+### 5.1 ⚠️ MySQL 单条 UPDATE 里自引用列会「从左往右」赋值
+
+- **日期**：2026-10-24
+- **背景 / 现象**：「验证码错 5 次整行作废」的写法规避成一条语句 ——
+  `UPDATE email_code SET attempts = attempts + 1, consumed_at = IF(attempts + 1 >= 5, NOW(), consumed_at) WHERE id=?`。
+  接口实测（设计验收 #14）发现**第 4 次错就把码作废了**，第 5 次返回的是「没有可用码」而不是「次数过多」；
+  更糟的是正确码在第 5 次之前就失效，用户会被提示去重新获取。
+- **根因**：MySQL 单表 `UPDATE` 的**赋值按书写顺序从左往右生效**，后一个赋值引用 `attempts` 时看到的是
+  **已经 +1 的值** —— 于是 `IF(attempts + 1 >= 5, …)` 实际判断成了「旧值 + 2 >= 5」，门槛整体前移一次。
+- **结论**：拆成 3 条朴素语句（`UPDATE attempts = attempts + 1` → `SELECT attempts` → 到顶再
+  `UPDATE consumed_at`）。这条路径每次校验最多走一次，不在热路径上，可读性优先。
+  **教训**：带自引用列的 `UPDATE` 一律先怀疑这个语义，别为了"一条语句"省往返。
+- **实测**：`test_email_code_flow.py` 的 `FakeCodes` 是 Python 实现，**测不出 MySQL 这个语义** ——
+  该 bug 是靠 curl 打真库（错 5 次 → 429、第 6 次传正确码 → 400）才暴露的。
+  修后库里该行 `attempts=5` 且 `consumed_at` 非空。
+- **位置**：`comic_core/storage/mysql/email_code_store.py`（`incr_attempts`）。
+
+### 5.2 ⚠️ `smtplib` 是阻塞调用：端点必须同步 `def`，超时必须小于前端
+
+- **日期**：2026-10-24
+- **背景 / 现象**：发验证码要等 SMTP 往返（外网 1~3 秒、超时上限 10 秒）。
+- **根因**：FastAPI 对 `async def` 端点**直接在事件循环里执行**；把阻塞的 `smtplib` 放进去，
+  一个慢 SMTP 就能把整个进程的所有请求一起卡住（不是只卡这一条）。写成普通 `def`
+  FastAPI 会丢进线程池，互不影响。
+- **结论**：5 个新端点（`/password/reset/code`、`/password/reset`、`/email/code`、`PUT /email`、
+  `GET /email`）**一律 `def`，不许 `async def`**，即使某个分支其实不发信。
+  另外 `services/mailer.TIMEOUT = 10` **必须小于前端请求层的 10s**（`comic-web/src/api/request.ts` 的
+  `TIMEOUT`）—— 否则前端先报「网络错误」，用户永远看不到后端的 503「验证码发送失败」文案。
+- **位置**：`routers/auth.py`（5 个端点）、`services/mailer.py`（`TIMEOUT`）。
+
+### 5.3 ⚠️ 反枚举与「绑定邮箱」的发信条件不同，别统一成一个判断
+
+- **日期**：2026-10-24
+- **背景 / 现象**：设计要求「先落库、再按"邮箱在 `user` 表存在"决定是否发信」。照搬到
+  `POST /api/auth/email/code`（个人中心绑定邮箱）会**永远发不出码** —— 绑定要绑的正是"还没被任何账号绑定"的邮箱。
+- **根因**：两个用途的目标相反：找回密码要**隐藏**"这个邮箱存不存在"，绑定邮箱要**明确**"这个邮箱还没被占用"。
+- **结论**：`issue()` 里按用途分叉 ——
+  - `reset`（匿名）：**未注册也落库、也占 60 秒冷却、也可能 429、返回同一句文案**，只是不发信（反枚举的关键）；
+  - `bind`（需登录）：**一律发信**，"已被别的账号占用"由 router 在发码 / 提交两步各查一次并返 409。
+- **实测**：未注册邮箱发码 → `200` 且文案与已注册逐字相同、`email_code` 落 1 行、日志里**没有**发信记录、
+  紧接着再发 → `429`；绑定新邮箱 → 日志能取到码、`PUT` 成功。
+- **位置**：`services/email_codes.py`（`issue`）、`routers/auth.py`（`send_bind_code`）。
+
+### 5.4 本地无 SMTP：`COMIC_MAIL_FALLBACK=log` 出码，且 `grep` 必须加 `-a`
+
+- **日期**：2026-10-24
+- **背景 / 现象**：开发机 / 验收环境没有 SMTP，用户永远收不到码，页面流程走不下去。
+- **结论**：设环境变量 `COMIC_MAIL_FALLBACK=log` 启动 api —— 未配置 SMTP 或发信失败时，
+  把验证码写一条 WARNING 日志并**视为发送成功**（`logger = logging.getLogger("comic.auth.mail")`，
+  root 上挂着落库 Handler，所以这条也会进 `log_record` 表）。
+  ⚠️ **仅限本地开发 / 验收**：等于把凭证展示给所有能看日志的人，生产必须留空。
+- **实测 / 坑**：`logs/api.log` 里混有非 UTF-8 字节，`grep` 会按**二进制**处理、只吐
+  `Binary file logs/api.log matches` —— 取码命令必须加 `-a`：
+  ```bash
+  grep -a -oE "验证码 [0-9]{6}" logs/api.log | tail -1 | grep -aoE "[0-9]{6}"
+  ```
+- **位置**：`services/mailer.py`（`_fallback_log` / `is_configured`）、`deploy/.env.example`。
+

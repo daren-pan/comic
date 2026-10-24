@@ -19,11 +19,13 @@
     from routers.users import favorites, history     # noqa: E402
 
 两个单例（`DB` / `USERS`）在各自的 `setUp` 里 `reset()` 即可。
+2026-10-24 起多了第三个：`CODES`（`email_code` 验证码表，见 `routers/auth` 的找回密码 / 绑定邮箱）。
 """
 from __future__ import annotations
 
 import sys
 import types
+from datetime import datetime, timedelta
 
 
 class FakeDB:
@@ -114,6 +116,9 @@ class FakeUsers:
             "role": role,
             "created_at": "2026-09-18 10:00:00",
             "password_hash": "$2b$12$fake",
+            # 邮箱相关列为 NULL（= 未绑定）+ 从未改过密码 —— 与老库里的行同形
+            "email": None,
+            "password_changed_at": None,
         }
 
     def get_user(self, user_id: str):
@@ -121,6 +126,27 @@ class FakeUsers:
 
     def get_user_by_username(self, username: str):
         return next((r for r in self.rows if r["username"] == username), None)
+
+    # --- 邮箱（2026-10-24：找回密码 / 绑定邮箱）---
+    def get_user_by_email(self, email: str):
+        """与 `MySQLUserStore` 同口径：按归一后的邮箱找，NULL 行永远不会命中。"""
+        wanted = (email or "").strip().lower()
+        if not wanted:
+            return None
+        return next((r for r in self.rows if (r.get("email") or "").strip().lower() == wanted), None)
+
+    def set_user_email(self, user_id: str, email: str) -> bool:
+        """空串写 `None`（= MySQL 的 NULL）；被别人占用时返回 False（唯一键冲突的那一半）。"""
+        row = self.get_user(user_id)
+        if not row:
+            return False
+        value = (email or "").strip().lower() or None
+        if value:
+            owner = self.get_user_by_email(value)
+            if owner and str(owner["id"]) != str(user_id):
+                return False
+        row["email"] = value
+        return True
 
     def count_privileged(self) -> int:
         """特权用户数（`superadmin` + `admin`）—— 契约里的"库里还没人能管理"判据。"""
@@ -153,8 +179,112 @@ class FakeUsers:
         return True
 
 
+class FakeCodes:
+    """假验证码表（`email_code`）：**内存里做真语义**，不是"只记录调用"的空壳。
+
+    为什么要有语义：`services/email_codes` 的正确性几乎全在时序上（60 秒冷却、每小时配额、
+    错误累计到 5 作废、过期、条件 UPDATE 抢占）。空壳桩（方法都 `return None`）会让那些
+    分支永远走不到，测试就变成"断言函数被调用过"，测不出任何东西。
+
+    时间用真实的 `datetime.now()`（与生产同一条路径），需要"一小时前发的码"时用
+    `backdate()` 把行的 `created_at` 往前挪 —— 比冻结时钟简单，也不引入依赖。
+    """
+
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+        self._seq = 0
+
+    def reset(self) -> None:
+        self.rows = []
+        self._seq = 0
+
+    # --- 测试辅助（生产契约里没有这些）---
+    def backdate(self, seconds: int) -> None:
+        """把所有行的 `created_at` 往前挪 `seconds` 秒（模拟"上次发码是 N 秒之前"）。"""
+        for row in self.rows:
+            row["created_at"] = row["created_at"].replace(microsecond=0) - timedelta(seconds=seconds)
+
+    def active_rows(self) -> list[dict]:
+        """还"活着"的行（未消费 + 未过期），断言"旧码被顶掉"用。"""
+        now = datetime.now()
+        return [r for r in self.rows if r["consumed_at"] is None and r["expires_at"] > now]
+
+    # --- EmailCodeStore 契约 ---
+    def insert_code(self, email, purpose, code_hash, expires_at, req_ip) -> int:
+        self._seq += 1
+        self.rows.append(
+            {
+                "id": self._seq,
+                "email": email,
+                "purpose": purpose,
+                "code_hash": code_hash,
+                "attempts": 0,
+                "req_ip": req_ip or "",
+                "expires_at": expires_at,
+                "consumed_at": None,
+                "created_at": datetime.now().replace(microsecond=0),
+            }
+        )
+        return self._seq
+
+    def latest_active(self, email, purpose):
+        now = datetime.now()
+        hit = [
+            r
+            for r in self.rows
+            if r["email"] == email
+            and r["purpose"] == purpose
+            and r["consumed_at"] is None
+            and r["expires_at"] > now
+        ]
+        return dict(hit[-1]) if hit else None
+
+    def latest_created_at(self, email, purpose):
+        hit = [r for r in self.rows if r["email"] == email and r["purpose"] == purpose]
+        return hit[-1]["created_at"] if hit else None
+
+    def incr_attempts(self, code_id: int) -> int:
+        for row in self.rows:
+            if row["id"] == code_id:
+                row["attempts"] += 1
+                if row["attempts"] >= 5:        # 与存储层 MAX_ATTEMPTS 同口径
+                    row["consumed_at"] = datetime.now().replace(microsecond=0)
+                return row["attempts"]
+        return 5
+
+    def consume(self, code_id: int) -> bool:
+        now = datetime.now()
+        for row in self.rows:
+            if row["id"] == code_id and row["consumed_at"] is None and row["expires_at"] > now:
+                row["consumed_at"] = now.replace(microsecond=0)
+                return True
+        return False
+
+    def invalidate_active(self, email, purpose) -> int:
+        now = datetime.now().replace(microsecond=0)
+        hit = [r for r in self.rows if r["email"] == email and r["purpose"] == purpose and r["consumed_at"] is None]
+        for row in hit:
+            row["consumed_at"] = now
+        return len(hit)
+
+    def count_recent(self, email=None, ip=None, *, since) -> int:
+        if email:
+            return sum(1 for r in self.rows if r["email"] == email and r["created_at"] >= since)
+        return sum(1 for r in self.rows if r["req_ip"] == ip and r["created_at"] >= since)
+
+    def delete_code(self, code_id: int) -> None:
+        self.rows = [r for r in self.rows if r["id"] != code_id]
+
+    def purge_expired(self, before) -> int:
+        keep = [r for r in self.rows if r["created_at"] >= before]
+        removed = len(self.rows) - len(keep)
+        self.rows = keep
+        return removed
+
+
 DB = FakeDB()
 USERS = FakeUsers()
+CODES = FakeCodes()
 
 _MARK = "_comic_test_stub"
 
@@ -172,4 +302,7 @@ def install_stub() -> None:
     setattr(stub, _MARK, True)
     stub.db = DB
     stub.users = USERS
+    # ⚠️ `codes` 漏了会让 `routers.auth` 导入即 `AttributeError`（它是 `from core.db import codes`），
+    # 后果不是"某个用例红"，而是**整个 unittest discover 挂掉**（设计 R12）。
+    stub.codes = CODES
     sys.modules["core.db"] = stub

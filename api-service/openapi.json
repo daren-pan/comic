@@ -750,6 +750,209 @@
         ]
       }
     },
+    "/api/auth/password/reset/code": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Send Reset Code",
+        "description": "**匿名**：给「已绑定该邮箱的账号」发一条找回密码验证码。\n\n⚠️ **反枚举**：邮箱未注册时也走完全相同的路径（同样校验 → 同样查冷却与配额 → 同样落库\n→ 只是不发信），状态码与文案逐字一致。所以这里**绝不能**因为「查不到用户」就返 404。",
+        "operationId": "send_reset_code_api_auth_password_reset_code_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendCodeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_dict_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/password/reset": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Reset Password",
+        "description": "**匿名**：用邮箱验证码重置密码（成功后旧密码与**已签发的 token 同时失效**）。\n\n校验顺序刻意是「邮箱 → 码形状 → 新密码长度 → 码是否正确」：前三条都不消耗验证码，\n用户不会因为密码填短了而白白烧掉一次机会（也少一次失败计数）。",
+        "operationId": "reset_password_api_auth_password_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_dict_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/email/code": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Send Bind Code",
+        "description": "**需登录**：给当前账号要绑定的邮箱发一条验证码。\n\n先判「这邮箱是不是已被**别的账号**绑了」→ 409（绑自己的当前邮箱不算冲突）。\n与 #1 的区别：这里不需要反枚举（调用方已登录，且邮箱占用与否本来就要明说）。",
+        "operationId": "send_bind_code_api_auth_email_code_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendCodeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_dict_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/email": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Read Email",
+        "description": "**需登录**：读当前账号的绑定邮箱（脱敏）。\n\n未绑定 → `{\"email\": \"\", \"bound\": False}`：个人中心据此显示「立即绑定」或「更换」。\n回脱敏值而不是完整邮箱 —— 这个响应没有「需要完整地址」的用途，少一处泄露面。",
+        "operationId": "read_email_api_auth_email_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_dict_"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Bind Email",
+        "description": "**需登录**：校验验证码后把邮箱绑到**当前账号**（不接受 userId —— 天然免越权）。\n\n占用检查放在 `check_and_consume` **之前**：码是对的但邮箱已被抢，不该白白烧掉一个有效码。\n并发情况下两人同时绑定同一邮箱：`uk_email` 兜底，`set_user_email` 返回 False → 409（设计 R14）。",
+        "operationId": "bind_email_api_auth_email_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindEmailBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiEnvelope_dict_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/users/{user_id}/favorites": {
       "get": {
         "tags": [
@@ -3904,6 +4107,30 @@
         ],
         "title": "ApiEnvelope[UserRoleOut]"
       },
+      "ApiEnvelope_dict_": {
+        "properties": {
+          "code": {
+            "type": "integer",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "data"
+        ],
+        "title": "ApiEnvelope[dict]"
+      },
       "ApiEnvelope_list_AdminTaskOut__": {
         "properties": {
           "code": {
@@ -4129,6 +4356,25 @@
         ],
         "title": "AuthResultOut",
         "description": "登录 / 注册的返回：token + 用户。"
+      },
+      "BindEmailBody": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "code"
+        ],
+        "title": "BindEmailBody",
+        "description": "绑定 / 更换邮箱入参（需登录；`user` 取自 token，**不接受 userId** —— 天然免越权）。"
       },
       "Body_upload_avatar_api_auth_avatar_post": {
         "properties": {
@@ -5239,6 +5485,30 @@
         "title": "RegisterBody",
         "description": "注册入参。长度策略（用户名 3~32、密码 6~128）在 `routers/auth.py` 判 —— 那里给中文提示。"
       },
+      "ResetPasswordBody": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "newPassword": {
+            "type": "string",
+            "title": "Newpassword"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "code",
+          "newPassword"
+        ],
+        "title": "ResetPasswordBody",
+        "description": "忘记密码重置入参（匿名可调；验证码格式与正确性在 `services/email_codes.py` 判）。"
+      },
       "ScheduleConfigOut": {
         "properties": {
           "enabled": {
@@ -5470,6 +5740,20 @@
         ],
         "title": "ScheduleStatusOut",
         "description": "「定时任务」配置 + 运行态（配置页每次渲染都读它）。\n\n`sources` 是**后端算出的本轮实际源**（配置留空时的默认集），未必等于 `config.sources`。\n`executorAlive` / `heartbeatAt` 反映**独立执行器进程**（`comic-scheduler`）的存活 ——\n它不在 api 进程里，所以\"在不在\"本身就是个要展示的状态。"
+      },
+      "SendCodeBody": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "SendCodeBody",
+        "description": "「发验证码」入参（`POST /api/auth/password/reset/code` 与 `POST /api/auth/email/code` 共用）。\n\n只带一个邮箱，所以两个端点能共用同一个形状；**用途（reset / bind）由路径决定**，\n不接受前端传 `purpose` —— 否则前端可以拿「绑定邮箱」的码去重置密码。"
       },
       "SourceInfoOut": {
         "properties": {
