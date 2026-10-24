@@ -130,6 +130,45 @@ class MySQLUserStore(UserStore):
                 row = cur.fetchone()
                 return dict(row) if row else None
 
+    # ---- 邮箱（2026-10-24，「忘记密码 / 绑定邮箱」的账号定位方式）----
+    def get_user_by_email(self, email: str) -> dict | None:
+        """按邮箱取用户（走 `uk_email`）。`email` 由调用方归一（`strip().lower()`）。"""
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM user WHERE email=%s", (email,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+
+    def set_user_email(self, user_id: str, email: str) -> bool:
+        """绑定 / 更换邮箱；空串写 `NULL`。
+
+        返回语义（契约 `UserStore.set_user_email`）：
+        - `True`  = 写成功（**包括"值没变"**：重复绑同一邮箱、清空本来就是 `NULL` 的邮箱）；
+        - `False` = 用户不存在 **或** 该邮箱已被别的账号占用（唯一键冲突，不抛异常）。
+
+        ⚠️ 空串 → `NULL` 是**硬要求**：`uk_email` 不比较 `NULL`，而 `''` 是普通值 ——
+        第二个未绑定用户写 `''` 会直接 1062（设计 R10）。
+        ⚠️ **不能只靠 `rowcount > 0`**：MySQL 的 UPDATE 在"新值 == 旧值"时返回 0 行，
+        于是"重复绑同一邮箱"会被误判成失败、调用方给用户 409「该邮箱已被其他账号绑定」
+        （2026-10-24 实测：`set_user_email(15, '')` 在 email 本就是 NULL 时返回了 False）。
+        0 行时再补一次存在性查询，把"没变化"与"人不在了"区分开。
+        并发绑定同一邮箱由 `uk_email` 兜底（设计 R14）：`IntegrityError` → `False` → 调用方 409。
+        """
+        value = (email or "").strip().lower() or None
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("UPDATE user SET email=%s WHERE id=%s", (value, user_id))
+                except pymysql.err.IntegrityError:
+                    conn.rollback()
+                    return False
+                conn.commit()
+                if cur.rowcount > 0:
+                    return True
+                # 0 行 = 「值没变」或「用户不存在」，补一条按主键的存在性查询才能区分
+                cur.execute("SELECT 1 FROM user WHERE id=%s", (user_id,))
+                return cur.fetchone() is not None
+
     # ---- 个人资料（改昵称 / 改密码 / 改头像，2026-10-12）----
     def update_nickname(self, user_id: str, nickname: str) -> None:
         with self._conn() as conn:
@@ -138,9 +177,17 @@ class MySQLUserStore(UserStore):
                 conn.commit()
 
     def update_password(self, user_id: str, password_hash: str) -> None:
+        """写新密码 + 刷新 `password_changed_at`（后者让旧 token 立即失效，见契约 `UserStore`）。
+
+        改密与「忘记密码重置」共用这一个写点 —— 只有一处写 `password_changed_at`，
+        `core/security.get_current_user` 就只需比较这一个时刻。
+        """
         with self._conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("UPDATE user SET password_hash=%s WHERE id=%s", (password_hash, user_id))
+                cur.execute(
+                    "UPDATE user SET password_hash=%s, password_changed_at=%s WHERE id=%s",
+                    (password_hash, _now(), user_id),
+                )
                 conn.commit()
 
     def update_avatar(self, user_id: str, avatar_url: str) -> None:

@@ -3,6 +3,7 @@
 - `_util.py`       —— 连接参数、热度算法（`HEAT_*` / `heat_sql`）、时间归一
 - `comic_store.py` —— `MySQLStorage`：漫画/章节/页/同步日志（采集侧 + 只读查询）
 - `user_store.py`  —— `MySQLUserStore`：用户/收藏/阅读历史
+- `email_code_store.py` —— `MySQLEmailCodeStore`：邮箱验证码（`email_code` 表，找回密码 / 绑定邮箱）
 - `log_store.py`   —— `MySQLLogStore`：运行日志（`log_record` 表）的读写与保留策略
 - `log_handler.py` —— `MySQLLogHandler`：把日志批量落库的 logging Handler
 - `task_store.py`  —— `MySQLTaskStore`：管理台后台任务（`admin_task` 表）的读写
@@ -16,6 +17,7 @@
 from ._util import HEAT_BASE, HEAT_PER_FAVORITE, HEAT_PER_VIEW, heat_sql
 from .comic_store import MySQLStorage
 from .comment_store import MySQLCommentStore
+from .email_code_store import MAX_ATTEMPTS, MySQLEmailCodeStore
 from .log_handler import MySQLLogHandler, record_to_row
 from .log_store import MAX_PAGE_SIZE, MySQLLogStore, build_filters
 from .message_store import LEVELS, MySQLMessageStore, task_message
@@ -26,6 +28,8 @@ from .user_store import MySQLUserStore
 __all__ = [
     "MySQLStorage",
     "MySQLUserStore",
+    "MySQLEmailCodeStore",
+    "MAX_ATTEMPTS",
     "MySQLLogStore",
     "MySQLTaskStore",
     "MySQLMessageStore",

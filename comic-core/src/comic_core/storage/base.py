@@ -1,4 +1,4 @@
-"""存储层契约：`Storage`（漫画侧）+ `UserStore`（用户中心）。
+"""存储层契约：`Storage`（漫画侧）+ `UserStore`（用户中心）+ `EmailCodeStore`（邮箱验证码）。
 
 对应架构方案 §3.1：表结构（comic / chapter / page / sync_log / tag / comic_tag）
 与 MySQL 版一致。本项目唯一实现为 `storage.mysql`。
@@ -280,6 +280,22 @@ class UserStore(ABC):
         """按用户名查用户（含 password_hash），用于注册去重与登录校验。"""
 
     @abstractmethod
+    def get_user_by_email(self, email: str) -> dict | None:
+        """按邮箱取用户（`email` 已由调用方 `strip().lower()`）；未绑定 / 不存在 → `None`。
+
+        走 `user.uk_email`，是「忘记密码 / 绑定邮箱」唯一的账号定位方式（登录仍只认 `username`）。
+        """
+
+    @abstractmethod
+    def set_user_email(self, user_id: str, email: str) -> bool:
+        """绑定 / 更换邮箱；`email` 为**空串时写 `NULL`**（= 未绑定），返回是否命中行。
+
+        ⚠️ 空串必须转 `NULL`：`uk_email` 不比较 `NULL`（多行未绑定合法），而 `''` 是普通值 ——
+        第二行 `''` 直接 1062，上线即挡死所有未绑定用户（设计 R10）。
+        **唯一键冲突不抛异常**：返回 `False`，由调用方转 409「该邮箱已被其他账号绑定」。
+        """
+
+    @abstractmethod
     def create_user(
         self, username: str, password_hash: str, nickname: str, role: str = "user"
     ) -> dict:
@@ -319,7 +335,12 @@ class UserStore(ABC):
 
     @abstractmethod
     def update_password(self, user_id: str, password_hash: str) -> None:
-        """写新密码散列（调用方先验原密码、自行散列，存储层只存）。"""
+        """写新密码散列（调用方先验原密码、自行散列，存储层只存）。
+
+        ⚠️ 实现必须**同时刷新 `password_changed_at`**：`api-service/core/security.py` 的
+        `get_current_user` 用它让「改密 / 重置之前签发的 token」立即失效（JWT 无状态，
+        没有吊销表）。改密与重置走同一个写点，所以只需比较这一个时刻。
+        """
 
     @abstractmethod
     def update_avatar(self, user_id: str, avatar_url: str) -> None:
@@ -359,3 +380,62 @@ class UserStore(ABC):
     @abstractmethod
     def delete_history(self, user_id: str, comic_id: int) -> None:
         """删除某作品的阅读历史。"""
+
+
+class EmailCodeStore(ABC):
+    """邮箱验证码契约：一行 = 一次发码请求（`email_code` 表）。
+
+    被 `api-service/services/email_codes.py` 使用。**所有方法都必须带 `purpose`**
+    （`'reset'` 找回密码 / `'bind'` 绑定邮箱）且**不给默认值** —— 默认值会让「忘记写 purpose」
+    静默串码（拿 bind 的码去重置密码）。两种用途的冷却、配额、作废各自独立。
+
+    为什么落持久存储而不是进程内存：冷却 / 次数 / 作废必须跨重启、跨多 worker 生效，
+    否则表现为「刚收到的码立刻无效」这类最难查的线上问题（本项目唯一存储 = MySQL）。
+    """
+
+    @abstractmethod
+    def insert_code(
+        self, email: str, purpose: str, code_hash: str, expires_at: datetime, req_ip: str
+    ) -> int:
+        """落一行并返回自增 id（`created_at` 取当前时刻）。"""
+
+    @abstractmethod
+    def latest_active(self, email: str, purpose: str) -> dict | None:
+        """最近一条**未消费且未过期**的码行（`ORDER BY id DESC`）；无 → `None`。"""
+
+    @abstractmethod
+    def latest_created_at(self, email: str, purpose: str) -> datetime | None:
+        """该 `email+purpose` 最近一次发码时刻（**不看是否消费**），用于 60 秒重发冷却。"""
+
+    @abstractmethod
+    def incr_attempts(self, code_id: int) -> int:
+        """失败次数 +1 并返回新值；达到上限（5）时**同时写 `consumed_at`** —— 整行作废，
+        此后连正确码也不再接受。"""
+
+    @abstractmethod
+    def consume(self, code_id: int) -> bool:
+        """**条件 UPDATE 抢占**：`consumed_at IS NULL AND expires_at > NOW()`。
+
+        `True` = 这次抢到了（保证单次有效）；双击 / 重放时只有一个请求能拿到 `True`。
+        用条件 UPDATE 而不是「先查后写」，就是为了不做「查询-判断-写入」的时间窗。
+        """
+
+    @abstractmethod
+    def invalidate_active(self, email: str, purpose: str) -> int:
+        """作废同 `email+purpose` 的所有未消费码，返回影响行数（发新码时顶掉旧码、重置成功后清尾）。"""
+
+    @abstractmethod
+    def count_recent(self, email: str | None = None, ip: str | None = None, *, since: datetime) -> int:
+        """小时配额计数：`created_at >= since` 的行数，**按 `email` 或按 `req_ip` 二选一**。
+
+        `since` 刻意是**必填 keyword-only**：给它默认值会让「忘了传」变成配额恒为 0，
+        即频控静默失效（比直接报错危险得多）。
+        """
+
+    @abstractmethod
+    def delete_code(self, code_id: int) -> None:
+        """删掉刚插入的码行 —— 发信失败时回滚，用户可立即重试、不被自己的失败请求锁 60 秒。"""
+
+    @abstractmethod
+    def purge_expired(self, before: datetime) -> int:
+        """删 `created_at < before` 的历史行（每次发码前清 24h 前的垃圾），返回删除行数。"""

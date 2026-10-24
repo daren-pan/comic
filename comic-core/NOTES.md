@@ -70,3 +70,39 @@
   若将来要移除，受影响面：`comic_store._sync_tags` 的调用、`taxonomy.py` + `data/tag_synonyms.json`
   的打包声明、`crawler-service/tests/test_taxonomy.py`。
 
+---
+
+## 三、用户表的邮箱与「唯一索引 + NULL」（2026-10-24）
+
+> 背景：需求 `TASK-20261024-01`（找回密码 → 邮箱验证码）给 `user` 加了 `email`（+`uk_email`）与
+> `password_changed_at`。两列都允许 `NULL`，这两条坑都跟"`NULL` 与唯一索引怎么相处"有关。
+
+### 3.1 ⚠️ 未绑定必须存 `NULL`，不能存 `''`
+
+- **日期**：2026-10-24
+- **背景 / 现象**：`user.email` 加了唯一索引 `uk_email` 之后，"老用户 / 没绑定的人"该写什么值。
+- **根因**：MySQL（以及 SQL 标准）的唯一索引**不比较 `NULL`** —— 任意多行 `NULL` 都合法；
+  而 `''` 是**普通值**，两行 `''` 直接撞 `uk_email` 报 `1062 Duplicate entry`。
+  若定义成 `NOT NULL DEFAULT ''`，上线瞬间第二个未绑定用户（注册 / 任何写回）就会 500，**把所有人都挡在门外**。
+- **结论**：列定义 `VARCHAR(128) NULL DEFAULT NULL`；**代码里空串一律显式转 `NULL`**
+  （`MySQLUserStore.set_user_email()` 的 `(email or "").strip().lower() or None`）。
+  现网 4 个老用户 `email IS NULL` 并存，实测注册 / 绑定均正常。
+- **位置**：`sql/mysql_schema.sql`（`user`）、`tools/migrations/0010_add_user_email_and_email_code.sql`、
+  `src/comic_core/storage/mysql/user_store.py`。
+
+### 3.2 ⚠️ `UPDATE ... SET email=?` 在新值 == 旧值时 `rowcount` 返回 0
+
+- **日期**：2026-10-24
+- **背景 / 现象**：`set_user_email()` 用 `cur.rowcount > 0` 表示成功，接口在 `False` 时返 409
+  「该邮箱已被其他账号绑定」。实测「同一账号重复绑定自己**已绑的**邮箱」被误报 409 ——
+  用户明明绑的就是自己的邮箱；更隐蔽的是 `set_user_email(15, '')` 在 `email` 本来就是 `NULL` 时也返回 `False`。
+- **根因**：MySQL 的 `UPDATE` 默认返回**实际变更的行数**，`新值 == 旧值` 时是 **0 行**（不是 1 行）。
+  于是「值没变」与「行不存在」在 `rowcount` 上无法区分。
+- **结论**：`rowcount == 0` 时**补一次按主键的存在性查询**再判 —— 查到 → 成功（值没变而已），
+  查不到 → 确实失败。同时保留唯一键冲突的兜底（捕获 `pymysql.err.IntegrityError` → `False`），
+  那条是并发绑定同一邮箱时的最终裁决。
+- **实测**：`set_user_email(15, 't_a@test.com')`（被 A 占用）→ `False`；`set_user_email(15, '')`（本就 NULL）→ `True`；
+  `set_user_email('999999', …)`（用户不存在）→ `False`；接口侧「重复绑同一邮箱」由 409 修正为 200。
+- **位置**：`src/comic_core/storage/mysql/user_store.py`（`set_user_email`）。
+
+
