@@ -69,6 +69,8 @@ export const router = createRouter({
     { path: '/profile', name: 'profile', component: () => import('./views/ProfileView.vue') },
     { path: '/messages', name: 'messages', component: () => import('./views/MessagesView.vue') },
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue') },
+    // 忘记密码（邮箱验证码重置，2026-10-24）：**不加 any 守卫** —— 忘记密码的人正是未登录状态
+    { path: '/reset', name: 'reset', component: () => import('./views/ResetPasswordView.vue') },
     // 管理台：超级管理员 + 普通管理员
     { path: '/admin', name: 'admin', component: () => import('./views/AdminView.vue'), beforeEnter: requireRole(false) },
     { path: '/admin/comics', name: 'adminComics', component: () => import('./views/AdminComicsView.vue'), beforeEnter: requireRole(false) },
