@@ -7,6 +7,7 @@
 .agent-shared/
 ├── README.md                    # 本文件（说明 + 用法）
 ├── agents/                      # ⭐ AI 协作协议 + 5 张角色卡（lead / design / dev / test / ops）
+│   └── dev-delivery-team/       # ⭐ 「通用研发交付团队」专家团整包备份（plugin 格式，6 张卡）
 ├── script/
 │   └── qwen-image.py            # ⭐ 直连脚本：T2I 文生图 + I2I 图生图（不走 MCP）
 ├── mcp/
@@ -36,6 +37,28 @@
 **恢复方式**：把 `agents/*.md` 拷回 `.workbuddy/agents/` 即可。
 
 > ⚠️ 与 `skills/` 一样，**源在 `.workbuddy/agents/`**，这里是副本，改完要手动同步。
+
+### 「通用研发交付团队」专家团（`agents/dev-delivery-team/`）
+
+2026-10-28 从插件目录**整包**备份（`diff -r` 逐字节一致）。**别和上面那 5 张卡混用** ——
+上面是 `.workbuddy/agents/` 时期的**手写角色卡**；这个子目录是 **plugin 格式的专家团**（带 `plugin.json` 清单、走专家中心加载）。
+
+| 文件 | 内容 |
+|---|---|
+| `.codebuddy-plugin/plugin.json` | 插件清单 v1.0.0：团队成员、agent 文件映射、头像、快捷提示词 |
+| `README.md` | 团队说明 |
+| `agents/dev-delivery-team-lead.md` | 齐活林 · 交付总监：唯一对外接口，编排 P0~P7、核门禁、管权限 |
+| `agents/product-manager.md` | 许清楚 · 产品经理：目标 / 范围 / 可判定验收 / 待拍板 |
+| `agents/architect.md` | 高见远 · 架构与评审：画像 / 分层 / 接口契约 / 文件级白名单；**P2 与 P5 两次出场** |
+| `agents/dev.md` | 谷可全 · 全栈工程师：界面规格 → 后端 → 前端 → 联调 → 自测 |
+| `agents/qa-verifier.md` | 严过关 · 质量工程师：独立重跑、真浏览器 / 真接口取证，结论二选一 |
+| `agents/release-ops.md` | 邵可稳 · 发布与文档：上线步骤 / 回滚 / 观测点 / 文档沉淀 |
+
+**恢复方式**：整个目录拷回 `~/.workbuddy/plugins/marketplaces/my-experts/plugins/dev-delivery-team/`，
+再在 WorkBuddy 专家中心重新加载该专家团。
+
+> ⚠️ 同样是**单向副本**：源在 `~/.workbuddy/plugins/marketplaces/my-experts/`，改完源要重新同步这里。
+> ℹ️ `avatars/` 原本只有 `.gitkeep`，`plugin.json` 引用的 6 张头像 PNG **在源目录里就不存在** —— 备份保持原样，未补图。
 
 ### qwen-image —— 直连脚本，**不用装 MCP**
 

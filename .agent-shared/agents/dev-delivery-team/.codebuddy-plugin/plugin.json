@@ -1,0 +1,156 @@
+{
+  "name": "dev-delivery-team",
+  "version": "1.0.0",
+  "description": "General-purpose software delivery team covering product requirement, architecture layering, UI design, frontend and backend development, independent QA, tech review, documentation and release.",
+  "author": {
+    "name": "caimf",
+    "email": "caimf@local"
+  },
+  "agents": [
+    "./agents/dev-delivery-team-lead.md",
+    "./agents/product-manager.md",
+    "./agents/architect.md",
+    "./agents/dev.md",
+    "./agents/qa-verifier.md",
+    "./agents/release-ops.md"
+  ],
+  "expertType": "team",
+  "agentName": "dev-delivery-team-lead",
+  "teamInfo": {
+    "leadAgent": "dev-delivery-team-lead",
+    "memberAgents": [
+      "product-manager",
+      "architect",
+      "dev",
+      "qa-verifier",
+      "release-ops"
+    ]
+  },
+  "displayName": {
+    "en": "General Delivery Team",
+    "zh": "通用研发交付团队"
+  },
+  "profession": {
+    "en": "General Delivery Team",
+    "zh": "通用研发交付团队"
+  },
+  "displayDescription": {
+    "en": "A general software team covering product requirement, architecture layering, UI design, frontend and backend development, independent QA, review and release, with strictly scoped permissions per role.",
+    "zh": "覆盖产品需求、架构分层、UI 设计、前后端开发、测试与发布的通用研发团队，每个角色权限严格受限。"
+  },
+  "avatar": "avatars/team.png",
+  "categoryId": "02-Engineering",
+  "defaultInitPrompt": {
+    "zh": "先读一遍这个项目，出项目画像和分层归属表",
+    "en": "Read this project first and produce a project profile plus layer ownership table"
+  },
+  "plugin": "dev-delivery-team",
+  "tags": [
+    {
+      "en": "Requirement Delivery",
+      "zh": "需求交付"
+    },
+    {
+      "en": "Architecture Layering",
+      "zh": "架构分层"
+    },
+    {
+      "en": "Role Permission Isolation",
+      "zh": "权限隔离"
+    }
+  ],
+  "quickPrompts": [
+    {
+      "en": "Read this project first and produce a project profile plus layer ownership table",
+      "zh": "先读一遍这个项目，出项目画像和分层归属表"
+    },
+    {
+      "en": "Take this requirement through product, architecture, frontend and backend to delivery",
+      "zh": "这个需求从产品、架构到前后端开发，走完整流程"
+    },
+    {
+      "en": "Backend only, skip UI design and review",
+      "zh": "只做后端改动，跳过 UI 设计"
+    }
+  ],
+  "members": [
+    {
+      "id": "dev-delivery-team-lead",
+      "displayName": {
+        "en": "Qi",
+        "zh": "齐活林"
+      },
+      "profession": {
+        "en": "Delivery Director",
+        "zh": "交付总监"
+      },
+      "avatar": "avatars/dev-delivery-team-lead.png",
+      "role": "lead"
+    },
+    {
+      "id": "product-manager",
+      "displayName": {
+        "en": "Xu",
+        "zh": "许清楚"
+      },
+      "profession": {
+        "en": "Product Manager",
+        "zh": "产品经理"
+      },
+      "avatar": "avatars/product-manager.png",
+      "role": "member"
+    },
+    {
+      "id": "architect",
+      "displayName": {
+        "en": "Gao",
+        "zh": "高见远"
+      },
+      "profession": {
+        "en": "Architect & Reviewer",
+        "zh": "架构与评审"
+      },
+      "avatar": "avatars/architect.png",
+      "role": "member"
+    },
+    {
+      "id": "dev",
+      "displayName": {
+        "en": "Gu",
+        "zh": "谷可全"
+      },
+      "profession": {
+        "en": "Full-stack Engineer",
+        "zh": "全栈工程师"
+      },
+      "avatar": "avatars/dev.png",
+      "role": "member"
+    },
+    {
+      "id": "qa-verifier",
+      "displayName": {
+        "en": "Yan",
+        "zh": "严过关"
+      },
+      "profession": {
+        "en": "QA Engineer",
+        "zh": "质量工程师"
+      },
+      "avatar": "avatars/qa-verifier.png",
+      "role": "member"
+    },
+    {
+      "id": "release-ops",
+      "displayName": {
+        "en": "Shao",
+        "zh": "邵可稳"
+      },
+      "profession": {
+        "en": "Release & Docs",
+        "zh": "发布与文档"
+      },
+      "avatar": "avatars/release-ops.png",
+      "role": "member"
+    }
+  ]
+}
