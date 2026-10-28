@@ -20,6 +20,7 @@ import { useTheme } from '../utils/theme'
 import { useLayoutMode } from '../utils/layout'
 import { getSeasonLogo } from '../utils/season'
 import UserAvatar from './UserAvatar.vue'
+import ChatWidget from './ChatWidget.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -199,6 +200,12 @@ watch(() => route.path, () => {
           <template v-if="isWebMode">
             <button class="icon-btn u-button" @click="toggleTheme()" :title="isDark ? '切换到明亮主题' : '切换到夜间主题'">{{ isDark ? '☀️' : '🌙' }}</button>
           </template>
+
+          <!-- 在线客服：右侧悬浮球 + 对话抽屉（组件内部 Teleport 到 body，所以放这儿只是挂载点，
+               渲染位置与顶栏无关）。
+               ⚠️ **暂时只给管理员看** —— 后端 `/api/chat/ask` 也是 `require_admin`，
+               普通用户点了只会拿到 403。开放时两处一起改。 -->
+          <ChatWidget v-if="isAdmin" />
 
           <!-- 消息中心：**面向所有登录用户**的通知（任务消息、维护公告、定向通知…）。
                两种形态都是「跳独立消息页」。
