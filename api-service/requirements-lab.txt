@@ -1,0 +1,29 @@
+# RAG 实验室依赖 —— **生产镜像不装这个文件**（见文件末尾的说明）。
+#
+# 安装（项目根目录）：
+#   crawler-service/.venv/Scripts/python.exe -m pip install -r api-service/requirements-lab.txt
+#
+# 装完重新建一次索引即可：
+#   crawler-service/.venv/Scripts/python.exe tools/rag_lab.py index
+langchain>=1.0
+langchain-core>=1.0
+langchain-openai>=1.0
+langchain-chroma>=1.0
+langchain-text-splitters>=1.0
+chromadb>=1.0
+# 本地语义模型（离线、免 key）：让实验室在没有 API key 的情况下也能演示真实语义检索。
+# 只依赖 ONNX Runtime（chromadb 已经带了），净增依赖很小；模型约 90MB，首次运行时自动下载。
+fastembed>=0.4
+
+# ---------------------------------------------------------------------------
+# 为什么不写进 api-service/requirements.txt：
+#   上面这一套会拉进 80+ 个传递依赖（kubernetes、grpcio、onnxruntime、opentelemetry-sdk、
+#   tokenizers…），生产镜像体积会翻倍，而生产根本不需要它们。
+#
+# 隔离是双向的：
+#   · 依赖层 —— 本文件独立，deploy/api/Dockerfile 只装 requirements.txt；
+#   · 代码层 —— routers/chat.py 里所有 langchain 相关 import 都在函数内部，
+#     没装依赖时 api 正常启动，只有请求 `/api/chat/lab/*` 才返回 503；
+#   · 开关层 —— COMIC_CHAT_LAB=0 时路由根本不挂载（404）。
+#
+# 也就是说：**忘了一件事也不会炸线上**。这是刻意的。

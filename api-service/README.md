@@ -29,7 +29,9 @@ api-service/
 │   ├── sources.py     #   数据源开关状态（source_state.json）与元信息
 │   ├── ondemand.py    #   源站搜索 / 按需导入 / 读时登记页清单 / 穿透取图
 │   ├── logs.py        #   运行日志查询（log_record）
-│   └── accounts.py    #   授权页：用户列表 + 设置角色
+│   ├── accounts.py    #   授权页：用户列表 + 设置角色
+│   └── chat/          #   对话/客服域（**当前只有 lab/**，主链路未实现）
+│       └── lab/       #     RAG 实验室：LangChain + Chroma 学习沙盒（详见其 README / NOTES）
 └── routers/           # HTTP 入口（只做 入参解析 → 调用 → 包封响应）
     ├── public.py      #   健康 / 分类 / 作品 / 章节 / 封面 / 正文图（免登录）
     ├── auth.py        #   注册 / 登录 / 当前用户
@@ -38,6 +40,7 @@ api-service/
     ├── admin.py       #   采集管理台 + 日志查询（`require_admin`）
     ├── admin_comics.py #  作品管理：上下架 / 评论开关 / 删评论（`require_admin`）
     ├── messages.py    #   消息中心读写（**登录即可读**，内容按账号过滤；写 `require_admin_or_service`）
+    ├── chat.py        #   RAG 实验室接口（`require_admin` + `COMIC_CHAT_LAB` 开关；**依赖不进生产镜像**）
     └── admin_users.py #   授权页（`require_superadmin`，仅超管）
 ```
 
@@ -72,6 +75,7 @@ api-service/
 | `GET /api/messages/unread` | 我的未读数（只给角标用） |
 | `POST /api/messages` | **发一条消息**（其他模块的写入入口）：body `{kind, level, title, body, params?, taskId?, source?, userId?, username?, toUserId?, minRole?}`；**管理员 JWT 或 `X-Service-Token`**。`params` = **入参快照**（`since`/`until`/`mode`/`limit`…），列表据此显示"这条消息对应哪段时间范围" |
 | `POST /api/messages/{id}/read` · `/read-all` | 标记一条 / 全部已读（**按账号各一份**：`message_read` 表） |
+| `GET/POST /api/chat/lab/{status,index,search,ask}` | **RAG 实验室**（学习用，`require_admin`）：配置自检 / 重建索引 / 只检索（带分数）/ 完整问答。⚠️ 依赖 `requirements-lab.txt`，**不进生产镜像**；`COMIC_CHAT_LAB=0` 时路由不挂载。见 `services/chat/lab/README.md` |
 | `GET /api/admin/logs` | 运行日志查询（`log_record`）：级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / 时间窗 + 分页 |
 | `GET /api/admin/logs/{id}` · `/options` · `POST /logs/purge?days=` | 单条日志（含堆栈全文）· 筛选候选值 · 删除 N 天前的日志 |
 | `GET /api/admin/users` · `POST /api/admin/users/{id}/role` | 授权页：用户列表（关键字 + 分页）· 设置角色（`admin` / `user`；**改自己会被拒**） |

@@ -88,3 +88,6 @@ Thumbs.db
 docs/requirements/req-*.xlsx
 !docs/requirements/req-template.xlsx
 docs/tasks/TASK-*/
+
+# RAG 实验室的本地 key（AI 协作时填，不提交）
+api-service/services/chat/lab/.env

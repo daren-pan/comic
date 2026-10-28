@@ -252,3 +252,34 @@ class CommentSwitchBody(BaseModel):
     """评论开关入参（**单作品**开关与**全站总开关**共用这个形状）。"""
 
     enabled: bool
+
+
+# ---- RAG 实验室（`/api/chat/lab/*`）----
+# 学习用沙盒，不是生产客服接口。形状边界按「够用 + 防滥用」定：
+# 问题长度上限 500（一次问答的输入不该比这更长），topK 上限 20（再多只会稀释 prompt）。
+
+
+class ChatLabBody(BaseModel):
+    """检索 / 问答共用的入参。
+
+    `kind` 用来演示 metadata 过滤：只查 FAQ（`faq`）或只查作品（`comic`）。
+    `minScore` 只在检索时有意义；问答固定用后端默认阈值（见 `lab/chain.py`）。
+    """
+
+    question: str = Field(min_length=1, max_length=500)
+    topK: int | None = Field(default=None, ge=1, le=20)
+    kind: Literal["faq", "comic"] | None = None
+    #: 问答时是否把「实际发给模型的参考资料」一并返回 —— 学习时最该看这一段
+    withContext: bool = True
+    #: 检索阈值；不传 = 用后端默认值，传 0 = 不过滤（想看全部候选时用）
+    minScore: float | None = Field(default=None, ge=-1.0, le=1.0)
+
+
+class ChatAskBody(BaseModel):
+    """**面向普通用户**的客服提问入参（`POST /api/chat/ask`）。
+
+    刻意只收一个问题：`topK` / `kind` / `minScore` 那些是实验室的调参开关，
+    不该暴露给前台 —— 否则用户可以拿它绕过阈值去看无关内容。
+    """
+
+    question: str = Field(min_length=1, max_length=200)
