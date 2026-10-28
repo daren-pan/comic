@@ -9,6 +9,9 @@
 # 在项目根目录
 PY=crawler-service/.venv/Scripts/python.exe
 
+# 0. 复制配置模板，填 COMIC_LLM_API_KEY（只 ask 需要，index / search 不用）
+cp api-service/services/chat/lab/.env.example api-service/services/chat/lab/.env
+
 $PY tools/rag_lab.py doctor                    # 1. 看配置：用哪个向量后端
 $PY tools/rag_lab.py index                     # 2. 建索引（64 个文档 → 64 条向量）
 $PY tools/rag_lab.py search "图裂了怎么办"       # 3. 只看检索命中（不花钱）
@@ -16,6 +19,19 @@ $PY tools/rag_lab.py ask "图裂了怎么办"          # 4. 完整问答（需�
 ```
 
 `search` 和 `ask` 的差别就是「检索」和「生成」两段。**调试时永远先用 `search`。**
+
+### 在服务器上跑（非 Docker）
+
+直接 `python` 跑的话，和本地一样，只是要注意两点：
+
+1. **依赖要装齐**：`pip install -r api-service/requirements-lab.txt`
+2. **模型下载走镜像**：模板里的 `HF_ENDPOINT=https://hf-mirror.com` 别删，
+   否则首次建索引会报 `Could not load model ... from any source`（国内直连 HuggingFace 基本不通）
+
+**Docker 部署跑不了这一套**：`deploy/api/Dockerfile` 只装 `comic-api` 的 wheel 依赖，
+不含 langchain / chromadb / fastembed，容器里请求客服会直接返回 503。
+要在容器里跑，得改 Dockerfile 装 `requirements-lab.txt` 并在构建时预热模型 ——
+镜像会涨 400MB 以上，所以**默认不这么做**。
 
 ## 七步链路 → 对应代码
 
