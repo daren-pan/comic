@@ -48,6 +48,10 @@ source_state.json
 schedule.json
 schedule_state.json
 schedule_run_now.json
+# 运行时数据根（comic_core.paths.DATA_ROOT）：图库、封面、头像、Chroma 向量索引、
+# 源开关状态全在这里 —— 纯本地产物，体积大且不可复现，不进仓库。
+# 代码会自动 mkdir，删掉不影响启动（只是图库/索引要重新生成）。
+crawler-service/data/
 
 # ---- 数据库备份（含业务数据，仅供本地回滚，不随仓库分发） ----
 backup/
