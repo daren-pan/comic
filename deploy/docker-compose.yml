@@ -131,7 +131,11 @@ services:
     # 变量插值，`x-app-env` 里的 `${...:?}` 守卫保证缺了就报错、不会静默用上演示默认值。
     # 用 env_file 的副作用是把 .env 里的**所有**键塞进容器 —— 包括本容器根本不需要的
     # `MYSQL_ROOT_PASSWORD` / `MYSQL_HOST_PORT` / `FRONT_PORT`（多一份口令副本，语义含糊）。
-    environment: *app-env
+    environment:
+      <<: *app-env
+      # RAG 客服是**独立容器**（comic-chat），本容器只做鉴权 + 转发，不装 langchain。
+      # 走编排内网的服务名解析，不经宿主端口。
+      COMIC_CHAT_SERVICE_URL: http://comic-chat:8001
     volumes:
       # 整个 /data bind 到宿主的**运行时数据目录**（默认 ../crawler-service/data，与本地直跑
       # 的默认值就是同一个目录）。服务器请在 .env 里把 COMIC_DATA_HOST 指到仓库外的独立盘
@@ -211,6 +215,53 @@ services:
       comic-mysql:
         condition: service_healthy
     networks: [backend]
+
+  # ---------------------------------------------------------------
+  # RAG 客服服务（LangChain + Chroma）—— 独立进程，**只有管理员在用**
+  #
+  # 为什么不并进 comic-app 镜像：这套依赖会拉进 80+ 个包、镜像涨 400MB，而 bge 模型
+  # 常驻要 300~500MB 内存 —— 塞进去会和主站抢内存，被 OOM 杀掉时全站不可用。
+  #
+  # ⚠️ **刻意不写 `ports:`**：本服务没有任何鉴权，鉴权在 comic-app 那层
+  #    （`/api/chat/*` → 这里）。映射到宿主 = 公网任何人可无限调模型、烧光额度。
+  #    只有同一 `backend` 网络里的容器能访问 `http://comic-chat:8001`。
+  #
+  # 启用：bash deploy/up.sh（会一并起）；只想起它：docker compose up -d comic-chat
+  # 建索引：容器启动时自动检查（空则建一次）；也可手动
+  #        docker compose exec comic-chat python -m comic_chat.cli index
+  # ---------------------------------------------------------------
+  comic-chat:
+    image: comic-chat:1.0.0
+    container_name: comic-chat
+    build:
+      context: ./chat
+      # 只挂 core：本服务不碰采集层（cron / 适配器 / 穿透取图它一样都用不到）
+      additional_contexts:
+        core: ./core
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      # 索引落进 bind 的 /data（宿主同一目录，本地直跑与容器读写同一份）
+      COMIC_CHAT_INDEX_DIR: /data/rag_lab
+      COMIC_CHAT_PORT: "8001"
+      # ---- 对话模型：key **只能从 deploy/.env 来**（镜像里不烘密钥）----
+      # 不配 key 服务照样能起，问答返回 503「对话模型没有配置」；检索/建索引不受影响。
+      COMIC_LLM_API_KEY: ${COMIC_LLM_API_KEY:-}
+      COMIC_LLM_BASE_URL: ${COMIC_LLM_BASE_URL:-https://opencode.ai/zen/go/v1}
+      COMIC_LLM_MODEL: ${COMIC_LLM_MODEL:-deepseek-v4.1-flash}
+    volumes:
+      - ${COMIC_DATA_HOST:-../crawler-service/data}:/data
+    depends_on:
+      comic-mysql:
+        condition: service_healthy
+    networks: [backend]
+    # 镜像里没有 curl，用 python 自带 urllib 探活（不额外装包）
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8001/health',timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
 
 volumes:
   mysql_data:    # 本项目独占的数据库

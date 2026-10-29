@@ -1,21 +1,30 @@
-"""RAG 实验室 HTTP 接口（`/api/chat/lab/*`）—— **学习用沙盒，不是生产客服**。
+"""客服与 RAG 实验室的 HTTP 接口 —— **本层只做鉴权/限流/转发**，不跑模型。
+
+## 为什么这里是网关而不是实现
+
+RAG 全套依赖（langchain / chromadb / fastembed，80+ 个传递依赖）和 bge 模型常驻内存
+都在独立容器 `comic-chat` 里 —— 塞进 api 镜像会让主站涨 400MB 并跟主站抢内存。
+所以本模块的每个接口最终都只是一次内网 HTTP 调用（`_forward`）。
+
+**鉴权为什么留在这一层**：`core/security.py` 是 api-service 的模块，搬不到别的服务；
+chat-service 也不该知道「谁在问」。分工是：**api 认人，chat 认问题**。
+
+## 五种错误分开报（排查时一眼定位）
+
+| 情况 | 返回 | 含义 |
+|---|---|---|
+| chat-service 没起 / 网络不通 | 503 客服服务未启动 | 容器挂了或地址配错 |
+| 超时（默认 40s） | 504 客服响应超时 | 模型卡住 / 上游慢 |
+| 上游 5xx / 协议异常 | 502 客服服务异常 | 服务内部崩了 |
+| 上游 4xx（如模型没配 key） | 原样透传 + 中文原因 | 配置问题，不是程序错 |
+| 本层限流 | 429 | 问太快 |
 
 ## 谁能调
 
-`require_admin`（超管或普通管理员）。之所以不给匿名用：这几个接口会真的花钱（调 embedding /
-对话模型），挂在公网就是白嫖入口。
-
-## 开关
-
-默认**开启**（本地学习场景开箱即用）；`COMIC_CHAT_LAB=0` 显式关闭时，`main.py` 不挂载本
-路由 —— 请求会直接 404，而不是 403。生产部署应当设成 0，并**不安装**
-`requirements-lab.txt`（那样即使误开也会在 import 处报 503，不会真的跑起来）。
-
-## 为什么所有业务 import 都写在函数里
-
-`services.chat.lab` 会连带加载 langchain / chromadb（80 多个依赖）。这些依赖**不进生产镜像**，
-所以本模块在顶层只 import fastapi 与项目内的轻量模块 —— 没装依赖时 `main.py` 照常启动，
-只有真的请求这几个接口才会拿到 503 + 一句「请先装 requirements-lab.txt」。
+| 接口 | 门槛 |
+|---|---|
+| `POST /api/chat/ask` | `require_admin`（暂定，见该函数注释） |
+| `GET /api/chat/lab/*` · `POST /api/chat/lab/*` | `require_admin` |
 """
 from __future__ import annotations
 
@@ -23,26 +32,78 @@ import logging
 import os
 import time
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from core.responses import ok
 from core.security import require_admin
 from schemas import ChatAskBody, ChatLabBody
 
-router = APIRouter(tags=["chat-lab"])
-_log = logging.getLogger("comic.chat.lab")
+router = APIRouter(tags=["chat"])
+_log = logging.getLogger("comic.chat")
 
-#: 默认开。要关就 `COMIC_CHAT_LAB=0`（生产部署建议关掉）。
+#: 默认开。要关就 `COMIC_CHAT_LAB=0`（关闭后这些路由根本不挂载，请求 404）。
 _DISABLED_VALUES = {"0", "false", "no", "off"}
 
+#: chat-service 地址。容器里是 `http://comic-chat:8001`（compose 服务名），
+#: 本地直跑默认 `http://127.0.0.1:8001`。
+CHAT_SERVICE_URL = os.environ.get(
+    "COMIC_CHAT_SERVICE_URL", "http://127.0.0.1:8001"
+).rstrip("/")
+
+#: 转发超时。要比模型自身的 `timeout=30` 大一点，否则模型还没超时我们先断了。
+CHAT_TIMEOUT = float(os.environ.get("COMIC_CHAT_TIMEOUT", "40"))
+
 # ---- 公开客服接口的限流（内存滑动窗口，进程内）----
-# 为什么放在进程内而不是库表：现在只有一个 api 进程，重启清零完全可接受；
-# 换成 Redis/表会多一个部署依赖，等真有多副本再说。
+# 为什么放在 api 而不是 chat-service：chat 不认用户，拿不到账号/IP 的语义。
 # ⚠️ 多副本部署时这条限流会失效（每个进程各算一份），届时必须换共享存储。
 _RATE: dict[str, list[float]] = {}
-_RATE_WINDOW = 3600          # 窗口：1 小时
-_RATE_LIMIT_USER = 60        # 登录用户：60 条/小时
-_RATE_LIMIT_ANON = 15        # 未登录：15 条/小时/IP
+_RATE_WINDOW = 3600
+_RATE_LIMIT_USER = 60
+_RATE_LIMIT_ANON = 15
+
+
+def enabled() -> bool:
+    """路由是否挂载（`main.py` 装配时问一次）。"""
+    return os.environ.get("COMIC_CHAT_LAB", "1").strip().lower() not in _DISABLED_VALUES
+
+
+def _forward(method: str, path: str, payload: dict | None = None) -> dict:
+    """把请求转给 chat-service，并把各类失败映射成能看懂的中文。"""
+    url = f"{CHAT_SERVICE_URL}{path}"
+    try:
+        resp = httpx.request(method, url, json=payload, timeout=CHAT_TIMEOUT)
+    except httpx.TimeoutException as exc:
+        # ⚠️ 必须排在 TransportError 之前：TimeoutException 是它的子类，
+        # 顺序反了超时会被当成「连不上」，报错文案就误导人。
+        raise HTTPException(status_code=504, detail="客服响应超时，请稍后再试") from exc
+    except httpx.TransportError as exc:
+        # 连接失败 / 连接被重置 / 协议中断，统一按「服务不可用」处理。
+        # ⚠️ 只捕 ConnectError 是不够的：实测 Windows 上对一个**已关闭的端口**发请求，
+        # 常常是先建连再被 RST，抛的是 `ReadError`（WinError 10054）而不是 ConnectError ——
+        # 那样会掉进下面的 502 分支，提示变成「通信失败」，让人以为是服务崩了而不是没起。
+        _log.warning("客服服务不可达：%s（%s）", url, type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="客服服务未启动或地址不通（comic-chat）",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"客服服务通信失败：{exc}") from exc
+
+    if resp.status_code >= 400:
+        # 上游把中文原因放在 detail 里（例如「对话模型没有配置…」），原样透传
+        detail = ""
+        try:
+            detail = str(resp.json().get("detail") or "")
+        except Exception:   # noqa: BLE001 —— 上游返回的不是 JSON
+            detail = resp.text[:200]
+        status = resp.status_code if resp.status_code < 500 else 502
+        raise HTTPException(status_code=status, detail=detail or "客服服务异常")
+
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="客服服务返回了非 JSON 内容") from exc
 
 
 def _rate_allow(key: str, limit: int) -> bool:
@@ -55,7 +116,6 @@ def _rate_allow(key: str, limit: int) -> bool:
     stamps.append(now)
     _RATE[key] = stamps
 
-    # 防止字典随访问者无限膨胀：超过 5000 个 key 时清掉整个窗口内没动静的
     if len(_RATE) > 5000:
         for k in [k for k, v in _RATE.items() if not v or now - v[-1] > _RATE_WINDOW]:
             del _RATE[k]
@@ -66,8 +126,7 @@ def _client_key(request: Request, user: dict | None) -> str:
     """限流用的身份键：登录用户按账号，匿名按真实 IP。
 
     ⚠️ 必须优先读 `X-Forwarded-For`：容器里请求经过 nginx 反代，`request.client.host`
-    拿到的是**nginx 的地址**（所有用户同一个）—— 直接用它，全站会共用一个额度，
-    一个人问 15 次所有人就被挡住。
+    拿到的是**nginx 的地址**（所有用户同一个）—— 直接用它，全站会共用一个额度。
     """
     if user:
         return f"u:{user.get('id')}"
@@ -77,76 +136,35 @@ def _client_key(request: Request, user: dict | None) -> str:
         ip = request.client.host
     return f"ip:{ip or 'unknown'}"
 
-_MISSING_DEPS_HINT = (
-    "RAG 实验室依赖未安装：请在项目根目录执行 "
-    "`crawler-service/.venv/Scripts/python.exe -m pip install -r api-service/requirements-lab.txt`"
-)
 
-
-def enabled() -> bool:
-    """路由是否挂载（`main.py` 在装配时问一次）。"""
-    return os.environ.get("COMIC_CHAT_LAB", "1").strip().lower() not in _DISABLED_VALUES
-
-
-def _lab_chain():
-    """取 `lab.chain` 模块；依赖没装时转成 503 而不是 500。"""
-    try:
-        from services.chat.lab import chain
-    except ImportError as exc:  # pragma: no cover - 只在未装依赖的环境触发
-        _log.warning("RAG 实验室不可用：%s", exc)
-        raise HTTPException(status_code=503, detail=_MISSING_DEPS_HINT) from exc
-    return chain
-
-
-def _lab_index():
-    try:
-        from services.chat.lab import index
-    except ImportError as exc:  # pragma: no cover
-        raise HTTPException(status_code=503, detail=_MISSING_DEPS_HINT) from exc
-    return index
+# ---------------- RAG 实验室（管理员）----------------
 
 
 @router.get("/api/chat/lab/status")
 def lab_status(_admin: dict = Depends(require_admin)):
-    """配置自检：当前用哪个向量后端、有没有 key、索引在哪。**不返回任何密钥内容**。"""
-    from services.chat.lab import settings
-
-    return ok(settings.describe())
+    """配置自检：向量后端、模型、索引位置、向量条数。**不回显任何密钥内容**。"""
+    return ok(_forward("GET", "/lab/status"))
 
 
 @router.post("/api/chat/lab/index")
 def lab_index(_admin: dict = Depends(require_admin)):
-    """全量重建索引（改过 faq.md 或采集了新作品之后要跑一次）。
-
-    同步阻塞几百毫秒到几秒（本地模型）/ 几秒到几十秒（云端模型，视条数而定）。
-    数据量还小，不做成后台任务 —— 做成任务反而看不出「重建到底多慢」。
-    """
-    stats = _lab_index().build_index()
-    _log.info("RAG 索引重建完成：%s 条向量", stats.get("vectors"))
-    return ok(stats)
+    """全量重建索引（改过 faq.md 或采集了新作品之后跑）。"""
+    return ok(_forward("POST", "/lab/index"))
 
 
 @router.post("/api/chat/lab/search")
 def lab_search(body: ChatLabBody, _admin: dict = Depends(require_admin)):
-    """只检索、不调生成模型 —— 调试 RAG 时**先用这个**。"""
-    chain = _lab_chain()
-    # minScore 不传时用后端默认阈值；传 0 表示不过滤（想看全部候选）
-    min_score = body.minScore if body.minScore is not None else -1.0
-    return ok(chain.search(body.question, k=body.topK, kind=body.kind, min_score=min_score))
+    """只检索、不调生成模型 —— 调试 RAG 时先用这个。"""
+    return ok(_forward("POST", "/lab/search", body.model_dump()))
 
 
 @router.post("/api/chat/lab/ask")
 def lab_ask(body: ChatLabBody, _admin: dict = Depends(require_admin)):
-    """完整问答。没有配置对话模型 key 时返回 503（错误信息里说明该配哪个变量）。"""
-    chain = _lab_chain()
-    try:
-        result = chain.ask(
-            body.question, k=body.topK, kind=body.kind, with_context=body.withContext
-        )
-    except RuntimeError as exc:
-        # 「没配 key」是配置问题不是程序错误，用 503 而不是 500
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return ok(result)
+    """完整问答，带实际发给模型的参考资料（`context`）。"""
+    return ok(_forward("POST", "/lab/ask", body.model_dump()))
+
+
+# ---------------- 客服问答（前台）----------------
 
 
 @router.post("/api/chat/ask")
@@ -158,37 +176,18 @@ def chat_ask(
     """**客服提问**（网站右侧悬浮球调的接口）。
 
     ⚠️ **当前只对管理员开放**（2026-10-28 暂定）：功能还在试，先让管理员自己用。
-    要对外开放时，把依赖换成 `get_optional_user` 并把下面 `limit` 改成按登录态分档即可
-    —— 匿名限流的分支（`_RATE_LIMIT_ANON` + 按 IP 计数）已经写好了，只是现在走不到。
-
-    和 `/api/chat/lab/ask` 的区别：
-
-    | | lab/ask | ask |
-    |---|---|---|
-    | 能调参 | 是（topK / kind / 阈值） | 否，只有问题 |
-    | 返回 | 含调试用的 context | 只有答案 + 命中的标题 |
-
-    实现上共用同一份 `chain.ask()` —— 实验室调的什么，用户拿到的就是什么，
-    不会出现"实验室效果好、上线效果差"的两套逻辑。
+    要对外开放时，把依赖换成 `get_optional_user` 并把 `limit` 改成按登录态分档即可
+    —— 匿名限流的分支（`_RATE_LIMIT_ANON` + 按 IP 计数）已经写好，只是现在走不到。
     """
-    chain = _lab_chain()   # 同一个模块，不是两套实现
-
     key = _client_key(request, user)
     limit = _RATE_LIMIT_USER if user else _RATE_LIMIT_ANON
     if not _rate_allow(key, limit):
         raise HTTPException(status_code=429, detail="问得有点快，请稍后再试")
 
-    try:
-        # with_context=False：调试用的「实际发给模型的资料」不给前台，只在 lab 接口返回
-        result = chain.ask(body.question, with_context=False)
-    except RuntimeError as exc:
-        # 模型没配 key / 调用失败：503 + 中文原因，前端据此提示「客服暂不可用」
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    _log.info("客服问答：len=%d 命中=%d", len(body.question), len(result["hits"]))
+    data = _forward("POST", "/ask", {"question": body.question})
+    _log.info("客服问答：len=%d 命中=%d", len(body.question), len(data.get("hits") or []))
     return ok({
-        "answer": result["answer"],
-        # 命中的标题给前端做「参考资料」小字展示（可选渲染），不暴露正文和分数
-        "hits": [{"title": h["title"], "kind": h["kind"]} for h in result["hits"]],
-        "model": result["model"],
+        "answer": data.get("answer", ""),
+        "hits": data.get("hits") or [],
+        "model": data.get("model", ""),
     })

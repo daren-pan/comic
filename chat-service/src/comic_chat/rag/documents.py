@@ -27,9 +27,16 @@ from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 from zhconv import convert as zh_convert
 
-from core.db import db
+from comic_core.storage.mysql import MySQLStorage
 
 from . import settings
+
+#: 存储句柄（进程级单例）。
+#: ⚠️ 这里直接建 `MySQLStorage()` 而**不是** `from core.db import db` —— `core/` 是
+#: api-service 的模块，跨服务引用不了。连接参数本来就全走 `COMIC_MYSQL_*` 环境变量
+#: （见 `comic_core/storage/mysql/_util.py` 的 `_DSN`），compose 已经注入，所以本服务
+#: 独立连接完全等价。构造时不建连接（懒连），环境变量缺失也不会在导入期炸。
+db = MySQLStorage()
 
 #: 一次取多少部作品。现在只有 54 部，一次拿完；数据涨到上万时应改成分页循环 +
 #: 增量更新（只对 `sync_time` 变化的作品重新向量化），否则每次重建都是全量调用 embedding API。

@@ -3,6 +3,10 @@ uvicorn>=0.30
 bcrypt>=4.0
 PyJWT>=2.8
 python-multipart>=0.0.9
+# 客服接口要转发到独立的 comic-chat 服务（`routers/chat.py` 里的 `_forward`）。
+# ⚠️ 以前是"隐式依赖"（靠 comic-crawler 传递安装），现在本包直接 import 它，必须显式声明：
+# 哪天采集层换了 HTTP 库，这里的 import 就会在**运行时**炸（而不是构建时）。
+httpx>=0.27
 
 # ⚠️ 这里**只列第三方依赖**。`comic_core` / `comic_crawler` 都是仓库内的本地包
 #    （PyPI 上不存在，实测 404），不能写进 requirements.txt，

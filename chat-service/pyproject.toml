@@ -1,0 +1,53 @@
+# RAG 客服服务打包描述（相当于 Java 那边的 pom.xml）
+#
+# 产物：python -m pip wheel --no-deps -w dist .
+#       → dist/comic_chat-<版本>-py3-none-any.whl
+# 镜像里 `pip install` 这个 whl 即可（见 deploy/chat/Dockerfile）。
+#
+# ⚠️ 依赖方向**单向**：chat → core。本包**不依赖 api-service**，也不依赖采集层的
+#    cron / 适配器（只借 comic-core 的模型、路径、存储）。两个进程之间只通过 HTTP 通信：
+#    api 是网关（鉴权/限流），本包只管「问题 → 答案」。
+#
+# ⚠️ 这套依赖比项目其它模块重得多（80+ 个传递依赖，含 onnxruntime / tokenizers），
+#    **所以它才被单独拆成一个镜像** —— 塞进 comic-api 会让主站镜像涨 400MB 并跟主站抢内存。
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comic-chat"
+version = "1.0.0"
+description = "漫画聚合平台 · RAG 客服服务（独立进程：LangChain + Chroma）"
+requires-python = ">=3.10"
+dependencies = [
+    # 公共内核：路径常量、存储契约与 MySQL 实现（pymysql / zhconv 由它传递）
+    "comic-core>=1.0.0",
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    # RAG 全套。**只在这个模块里装**，api 镜像不装。
+    "langchain>=1.0",
+    "langchain-core>=1.0",
+    "langchain-openai>=1.0",
+    "langchain-chroma>=1.0",
+    "langchain-text-splitters>=1.0",
+    "chromadb>=1.0",
+    # 本地向量模型（离线免 key，走 ONNX Runtime；chromadb 已带 onnxruntime）
+    "fastembed>=0.4",
+    # 读 rag/.env（本地填 key 用）；缺了也能跑，纯环境变量即可
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+# 容器与命令行两条入口等价：`comic-chat` 与 `python -m comic_chat`
+comic-chat = "comic_chat.__main__:main"
+comic-chat-cli = "comic_chat.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["comic_chat*"]
+
+# ⚠️ **必须声明**：`knowledge/faq.md` 是运行时数据，不是 .py。
+# 不写这一段，装成 wheel 后 `FAQ_FILE` 指向的路径不存在，建索引直接抛 FileNotFoundError
+# —— 而且本地 editable 安装时不会暴露这个问题（源码目录里文件确实在）。
+[tool.setuptools.package-data]
+comic_chat = ["rag/knowledge/*.md"]

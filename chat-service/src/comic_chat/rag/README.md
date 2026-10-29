@@ -1,7 +1,9 @@
-# RAG 实验室（`services/chat/lab`）
+# RAG 内核（`comic_chat/rag`）
 
 用**站内真实数据**跑通 LangChain + RAG 的完整链路，每一步的中间结果都能看到。
-**这不是生产客服**，是学习沙盒。
+
+这套代码既是**生产客服的内核**（`comic-chat` 容器里跑的就是它），也能脱离服务单独用命令行
+研究和调参 —— 两边调的是同一个 `chain.ask()`，所以不会出现「实验室效果好、上线效果差」。
 
 ## 三十秒上手
 
@@ -10,28 +12,35 @@
 PY=crawler-service/.venv/Scripts/python.exe
 
 # 0. 复制配置模板，填 COMIC_LLM_API_KEY（只 ask 需要，index / search 不用）
-cp api-service/services/chat/lab/.env.example api-service/services/chat/lab/.env
+cp chat-service/src/comic_chat/rag/.env.example chat-service/src/comic_chat/rag/.env
 
-$PY tools/rag_lab.py doctor                    # 1. 看配置：用哪个向量后端
-$PY tools/rag_lab.py index                     # 2. 建索引（64 个文档 → 64 条向量）
-$PY tools/rag_lab.py search "图裂了怎么办"       # 3. 只看检索命中（不花钱）
-$PY tools/rag_lab.py ask "图裂了怎么办"          # 4. 完整问答（需要对话模型 key）
+$PY -m comic_chat.cli doctor                    # 1. 看配置：用哪个向量后端
+$PY -m comic_chat.cli index                     # 2. 建索引（64 个文档 → 64 条向量）
+$PY -m comic_chat.cli search "图裂了怎么办"       # 3. 只看检索命中（不花钱）
+$PY -m comic_chat.cli ask "图裂了怎么办"          # 4. 完整问答（需要对话模型 key）
 ```
 
 `search` 和 `ask` 的差别就是「检索」和「生成」两段。**调试时永远先用 `search`。**
 
-### 在服务器上跑（非 Docker）
+### 两种跑法
 
-直接 `python` 跑的话，和本地一样，只是要注意两点：
+```bash
+# 本地（两个进程：客服 + api 转发）
+bash scripts/dev.sh up chat     # :8001
+bash scripts/dev.sh up api      # :8000
 
-1. **依赖要装齐**：`pip install -r api-service/requirements-lab.txt`
-2. **模型下载走镜像**：模板里的 `HF_ENDPOINT=https://hf-mirror.com` 别删，
-   否则首次建索引会报 `Could not load model ... from any source`（国内直连 HuggingFace 基本不通）
+# 容器（索引由容器启动时自动检查，空则建一次）
+bash deploy/up.sh
+```
 
-**Docker 部署跑不了这一套**：`deploy/api/Dockerfile` 只装 `comic-api` 的 wheel 依赖，
-不含 langchain / chromadb / fastembed，容器里请求客服会直接返回 503。
-要在容器里跑，得改 Dockerfile 装 `requirements-lab.txt` 并在构建时预热模型 ——
-镜像会涨 400MB 以上，所以**默认不这么做**。
+手动装依赖时注意两点：
+
+1. `pip install -r chat-service/requirements.txt`（**别再装到 api 的环境里**）
+2. `HF_ENDPOINT=https://hf-mirror.com` 别删，否则首次建索引报
+   `Could not load model ... from any source`（国内直连 HuggingFace 基本不通）
+
+容器里这两件事都由 `deploy/chat/Dockerfile` 处理：装 wheel + **构建期预热模型**
+（不预热的话第一次提问要现下 90MB，卡 30 秒，而健康检查还是通的）。
 
 ## 七步链路 → 对应代码
 
@@ -40,7 +49,7 @@ $PY tools/rag_lab.py ask "图裂了怎么办"          # 4. 完整问答（需�
 | ① | 加载 | MySQL 的 54 部作品 + FAQ 的 10 节 → `Document` | `documents.py` |
 | ② | 切分 | FAQ 按 `##` 切开；作品不切 | `documents.py` |
 | ③ | 向量化 | 文本 → 512/1024 个浮点数 | `embeddings.py` |
-| ④ | 存储 | 写进 Chroma，落盘到 `DATA_ROOT/rag_lab/` | `index.py` |
+| ④ | 存储 | 写进 Chroma，落盘到 `COMIC_CHAT_INDEX_DIR`（默认 `DATA_ROOT/rag_lab/`） | `index.py` |
 | ⑤ | 检索 | 问题转向量 → 找最近的 4 条 | `chain.py` |
 | ⑥ | 增强 | 4 条原文拼进 system prompt | `chain.py` |
 | ⑦ | 生成 | 模型读 prompt → 输出答案 | `chain.py` |
@@ -85,22 +94,23 @@ FAQ 有 10 个小节，按 `##` 切；作品简介平均 102 字，**不切**。
 ```bash
 # 切到云端 embedding（通义百炼，DeepSeek 没有 embedding 接口）
 export COMIC_EMBED_API_KEY=sk-xxx
-$PY tools/rag_lab.py index     # 集合名会自动变，旧索引保留
+$PY -m comic_chat.cli index     # 集合名会自动变，旧索引保留
 ```
 
-## 和生产的边界
+## 依赖与权限边界
 
-| 关注点 | 这里的做法 |
+| 关注点 | 做法 |
 |---|---|
-| 依赖 | 独立 `api-service/requirements-lab.txt`，**生产镜像不装** |
-| 代码 | `routers/chat.py` 里 langchain 的 import 全在函数内，没装依赖也能启动 |
-| 路由 | `COMIC_CHAT_LAB=0` 时不挂载（404） |
-| 鉴权 | 全部 `require_admin` —— 这些接口会真花钱 |
+| 依赖 | 全部收在 `chat-service/` 这个镜像里，**api 镜像不装**（只多一个 httpx） |
+| 进程 | 独立容器，崩了只影响客服 —— 主站 `/api/health`、`/api/comics` 照常 200 |
+| 鉴权 | 在 api 那层（`/api/chat/*`），本服务不认人、也不该认 |
+| 网络 | 不映射宿主端口，只有同一 compose 网络的 api 能访问 |
+| 开关 | `COMIC_CHAT_LAB=0` 时 api 不挂载这些路由（请求 404） |
 
 ## 目录
 
 ```
-lab/
+rag/
 ├── settings.py        配置（环境变量 → 常量）
 ├── embeddings.py      三种向量后端
 ├── documents.py       加载 + 切分

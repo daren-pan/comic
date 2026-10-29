@@ -30,25 +30,33 @@ from pathlib import Path
 
 from comic_core.paths import DATA_ROOT
 
-#: 本模块所在目录（`api-service/services/chat/lab/`）
-LAB_DIR = Path(__file__).resolve().parent
+#: 本包目录（`chat-service/src/comic_chat/rag/`）
+PKG_DIR = Path(__file__).resolve().parent
 
-# 本地配置文件：`lab/.env`（已在 .gitignore 里，不会提交）。用它填 key，免得每次 export。
+# 本地配置文件：`rag/.env`（已在 .gitignore 里，不会提交）。用它填 key，免得每次 export。
 # `override=False` —— 已有的环境变量优先，部署时仍走真正的环境变量，这里只做本地补位。
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(LAB_DIR / ".env", override=False)
+    load_dotenv(PKG_DIR / ".env", override=False)
 except ImportError:  # python-dotenv 没装时静默跳过，纯环境变量也能跑
     pass
 
 #: 非结构化知识源（按 `##` 切分，见 `index.py`）
-FAQ_FILE = LAB_DIR / "knowledge" / "faq.md"
+FAQ_FILE = PKG_DIR / "knowledge" / "faq.md"
 
 #: 向量库落盘目录。
-#: ⚠️ 必须落在 `DATA_ROOT` 下 —— 它正是容器里 bind 到宿主的那块目录（`/data`），
-#: 否则容器一重启索引就没了（Chroma 不落盘 = 纯内存，进程结束数据消失）。
-CHROMA_DIR = DATA_ROOT / "rag_lab"
+#:
+#: ⚠️ **必须能显式指定，不能只靠 `DATA_ROOT`**：`DATA_ROOT` 是从包位置推出来的
+#: （见 `comic_core/paths.py`），打包进 site-packages 后会算到一个不存在、也不可写的
+#: 位置。容器里必须由 `COMIC_CHAT_INDEX_DIR` 指到 `/data/rag_lab`（bind 到宿主同一目录），
+#: 否则索引写不进去 —— 而且**不报错**，只是每次重启索引都归零。
+#:
+#: 只接受**绝对路径**，相对路径视为误配并回落默认（与 `COMIC_IMAGE_ROOT` 同一原则）。
+_INDEX_ENV = os.environ.get("COMIC_CHAT_INDEX_DIR", "").strip()
+CHROMA_DIR = (
+    Path(_INDEX_ENV) if os.path.isabs(_INDEX_ENV) else (DATA_ROOT / "rag_lab")
+)
 
 #: Chroma 集合名。**换 embedding 模型必须换集合名或重建** —— 不同模型的向量不在同一个
 #: 空间里，混着查会得到毫无意义的结果（维度甚至可能对不上，直接报错）。

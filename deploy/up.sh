@@ -100,6 +100,9 @@ TARGETS=()
 [ "$WANT_WEB" = "1" ]   && TARGETS+=(comic-web)
 [ "$WANT_FRONT" = "1" ] && TARGETS+=(comic-front)
 TARGETS+=(comic-scheduler)
+# RAG 客服（独立容器，只有管理员在用）。没配 COMIC_LLM_API_KEY 也能起 ——
+# 建索引/检索照常，只是问答返回 503「对话模型没有配置」。
+TARGETS+=(comic-chat)
 
 # ---------- 0. 更新代码 ----------
 # 「改了代码没生效」的头号原因就是漏了这一步（2026-09-18 排查）。放在最前面，

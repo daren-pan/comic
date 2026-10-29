@@ -165,6 +165,7 @@ ensure_env() {
 port_of() {
   case "$1" in
     api) echo 8000 ;;
+    chat) echo 8001 ;;    # RAG 客服（独立进程；api 通过 COMIC_CHAT_SERVICE_URL 调它）
     web) echo 5173 ;;
     front) echo 5174 ;;
     *) echo "" ;;
@@ -275,7 +276,7 @@ cmd_status() {
   else
     echo "  $(printf '%-7s' python) ⛔ crawler-service/.venv 不存在（up api 时自动创建）"
   fi
-  for t in api web front; do
+  for t in api chat web front; do
     port="$(port_of "$t")"
     pid="$(port_pid "$port")"
     if [ -n "$pid" ]; then
@@ -289,14 +290,14 @@ cmd_status() {
       echo "  $(printf '%-7s' "$t") :$port  ⛔ 未启动"
     fi
   done
-  echo "  日志    logs/api.log · logs/vite.log（web）· logs/vite-front.log（front）"
+  echo "  日志    logs/api.log · logs/chat.log（chat）· logs/vite.log（web）· logs/vite-front.log（front）"
   echo "─────────────────────────────────────────────"
 }
 
 cmd_up() {
   local t="$1" port pid
   if [ -z "$(port_of "$t")" ]; then
-    echo "用法：bash scripts/dev.sh up api|web|front（前台运行，agent 请加 run_in_background=true）"
+    echo "用法：bash scripts/dev.sh up api|chat|web|front（前台运行，agent 请加 run_in_background=true）"
     exit 2
   fi
   port="$(port_of "$t")"
@@ -321,6 +322,23 @@ cmd_up() {
       echo "[api] 解释器：$PY（crawler-service/.venv）"
       cd "$ROOT/api-service" || exit 1
       exec "$PY" -m uvicorn main:app --host 127.0.0.1 --port 8000 >> "$ROOT/logs/api.log" 2>&1
+      ;;
+    chat)
+      # RAG 客服是**独立进程**：它要装 langchain/chromadb/fastembed（80+ 个包），
+      # 塞进 api 进程既拖慢启动也跟主站抢内存 —— 见 chat-service/README.md。
+      echo "[chat] 启动 comic-chat → http://127.0.0.1:8001  （日志：logs/chat.log）"
+      cd "$ROOT/chat-service" || exit 1
+      PY="$VENV/Scripts/python.exe"; [ -x "$PY" ] || PY="$VENV/bin/python"
+      # 两个本地包都要进 path：本模块 src + 公共内核 comic-core/src。
+      # ⚠️ 分隔符按平台给：Windows 是分号，Linux/macOS 是冒号 —— 用错了 Python 会把整串
+      #    当成一个路径，import comic_core 直接失败。
+      case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) export PYTHONPATH="src;../comic-core/src" ;;
+        *)                    export PYTHONPATH="src:../comic-core/src" ;;
+      esac
+      # 本地只监听回环，不暴露到局域网（容器里才需要 0.0.0.0）
+      export COMIC_CHAT_HOST=127.0.0.1 COMIC_CHAT_PORT=8001
+      exec "$PY" -m comic_chat >> "$ROOT/logs/chat.log" 2>&1
       ;;
     web)
       check_front web || exit 1

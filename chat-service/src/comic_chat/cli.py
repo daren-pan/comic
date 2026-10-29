@@ -1,19 +1,13 @@
-#!/usr/bin/env python
-"""RAG 实验室命令行 —— 不启动服务就能把整条链路跑一遍。
+"""RAG 命令行 —— 不启动服务就能把整条链路跑一遍（容器里也能用）。
 
-用法（在仓库根目录）：
+用法：
 
-    python tools/rag_lab.py doctor              # 配置自检（当前用真模型还是占位向量）
-    python tools/rag_lab.py index               # 重建索引（不需要 key）
-    python tools/rag_lab.py search "问题"        # 只检索，看命中与分数（不需要 key）
-    python tools/rag_lab.py ask "问题"           # 完整问答（需要 COMIC_LLM_API_KEY）
+    python -m comic_chat.cli doctor              # 配置自检
+    python -m comic_chat.cli index               # 重建索引（不需要 key）
+    python -m comic_chat.cli search "问题"        # 只检索，看命中与分数（不需要 key）
+    python -m comic_chat.cli ask "问题"           # 完整问答（需要 COMIC_LLM_API_KEY）
 
-常用参数：
-
-    --topk 6            检索取几条（默认 4）
-    --kind faq          只检索 FAQ（或 comic 只检索作品）
-    --json              输出原始 JSON（方便接 jq / 存文件对比）
-    --no-context        ask 时不打印拼好的上下文
+常用参数：`--topk 6` / `--kind faq|comic` / `--json` / `--no-context`
 
 ## 为什么 search 是最该常用的命令
 
@@ -23,18 +17,18 @@
 - 命中对了但答歪了 → 问题在 prompt 或生成模型
 
 这个二分法能省掉大量「换个模型试试」的无效尝试。
+
+## 为什么这个文件不在 tools/
+
+`tools/` 在项目约定里放**一次性迁移脚本**；这是随服务长期演进的工具，和 `rag/` 同一套
+逻辑，放一起改动时才不会改一处忘一处。装成 wheel 后容器内可直接
+`python -m comic_chat.cli search "问题"` 排查线上问题，不需要登宿主机找脚本。
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-# 项目约定：api-service 是「应用目录」不是可导入包（见其 pyproject.toml 注释），
-# 所以这里手动把目录塞进 sys.path，之后才能 `import services...`。
-sys.path.insert(0, str(REPO_ROOT / "api-service"))
 
 # Windows 控制台默认可能是 GBK，画分数条用的方块字符不在 GBK 里 —— 统一切 UTF-8，
 # 编码失败时用占位符而不是直接抛 UnicodeEncodeError 中断整个命令。
@@ -74,13 +68,13 @@ def _print_hits(result: dict) -> None:
         print()
 
 
-def cmd_doctor(args: argparse.Namespace) -> int:
-    from services.chat.lab import settings
+def cmd_doctor(_args: argparse.Namespace) -> int:
+    from .rag import settings
 
     info = settings.describe()
-    print("RAG 实验室 · 配置自检\n")
     embed = info["embedding"]
     llm = info["llm"]
+    print("comic-chat · 配置自检\n")
     print(f"  向量后端   {embed['backend']}  ({embed['model']}, {embed['dim']} 维)")
     print(f"  向量 key   {'已配置' if embed['hasKey'] else '未配置'}")
     print(f"  对话模型   {llm['model']}  ({llm['baseUrl']})")
@@ -92,19 +86,18 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     if embed["backend"] == "local":
         print(
             "\n  当前用本地语义模型 bge-small-zh（离线、免费）。效果够看「语义检索强在哪」，\n"
-            "     但不如云端 text-embedding-v4；正式上线时配 COMIC_EMBED_API_KEY 再重建索引即可。"
+            "     但不如云端 text-embedding-v4；配 COMIC_EMBED_API_KEY 后重建索引即可切换。"
         )
     elif embed["backend"] == "hash":
         print(
             "\n  ⚠️ 只有 hash 占位后端可用（未装 fastembed 且没有 embedding key），\n"
-            "     检索结果只反映字面重合度，不能代表真实效果。\n"
-            "     装 fastembed（pip install fastembed）或配 COMIC_EMBED_API_KEY 后重新 index 即可。"
+            "     检索结果只反映字面重合度，不能代表真实效果。"
         )
     return 0
 
 
 def cmd_index(args: argparse.Namespace) -> int:
-    from services.chat.lab.index import build_index
+    from .rag.index import build_index
 
     print("开始重建索引…")
     stats = build_index()
@@ -122,7 +115,7 @@ def cmd_index(args: argparse.Namespace) -> int:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
-    from services.chat.lab.chain import search
+    from .rag.chain import search
 
     result = search(args.question, k=args.topk, kind=args.kind)
     if args.json:
@@ -133,7 +126,7 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
-    from services.chat.lab.chain import ask
+    from .rag.chain import ask
 
     try:
         result = ask(args.question, k=args.topk, kind=args.kind)
@@ -145,8 +138,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
-    _print_hits({"question": args.question, **{k: result[k] for k in ("backend", "hits")},
-                 "elapsedMs": result["elapsedMs"]["retrieve"]})
+    _print_hits({
+        "question": args.question,
+        **{k: result[k] for k in ("backend", "hits")},
+        "elapsedMs": result["elapsedMs"]["retrieve"],
+    })
     print("─" * 60)
     print(f"回答（{result['model']}）：\n")
     print(result["answer"])
@@ -154,7 +150,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         f"\n耗时：检索 {result['elapsedMs']['retrieve']}ms / "
         f"生成 {result['elapsedMs']['llm']}ms / 合计 {result['elapsedMs']['total']}ms"
     )
-    if args.no_context is False and "context" in result:
+    if not args.no_context and "context" in result:
         print("\n" + "─" * 60)
         print("实际发给模型的参考资料（context）：\n")
         print(result["context"])
@@ -163,12 +159,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="rag_lab", description="RAG 实验室：索引 / 检索 / 问答 / 自检"
+        prog="comic_chat.cli", description="RAG 客服命令行：索引 / 检索 / 问答 / 自检"
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("doctor", help="配置自检")
-    p.set_defaults(func=cmd_doctor)
+    sub.add_parser("doctor", help="配置自检").set_defaults(func=cmd_doctor)
 
     p = sub.add_parser("index", help="重建索引")
     p.add_argument("--json", action="store_true", help="输出 JSON")

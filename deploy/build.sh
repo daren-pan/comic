@@ -144,6 +144,7 @@ build_wheel comic-core      core
 build_wheel crawler-service crawler
 build_wheel api-service     api
 build_wheel comic-scheduler scheduler
+build_wheel chat-service    chat
 
 echo "   comic-core/sql/mysql_schema.sql  --复制-->  deploy/mysql/sql/"
 mkdir -p "$DEPLOY/mysql/sql"
@@ -172,7 +173,7 @@ fi
 # ---------- 产物检查 ----------
 echo
 echo "-> 产物检查"
-for m in core crawler api scheduler; do
+for m in core crawler api scheduler chat; do
   n=$(ls -1 "$DEPLOY/$m/dist"/*.whl 2>/dev/null | wc -l | tr -d ' ')
   if [ "$n" -eq 0 ]; then
     echo "   !! deploy/$m/dist/ 下没有 whl —— 构建失败了？"
