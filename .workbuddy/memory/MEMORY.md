@@ -12,6 +12,7 @@ comic/
 ├── comic-core/        # 共用内核：领域模型 · 路径 · 存储契约+MySQL 实现 · 图库（被下面两层共同依赖）
 ├── crawler-service/   # 采集 · 存储 · 图床（Python；L0 内核 / L1 契约 / L2 实现）
 ├── comic-scheduler/   # 定时任务执行器（**独立进程**：读管理台 cron → 跑采集 → 写运行态）
+├── chat-service/      # RAG 客服（**独立进程** :8001，LangChain + Chroma；api 只做鉴权 + 转发）
 ├── api-service/       # 对外 REST API（FastAPI :8000）—— Docker 里是**纯 API**（同源托管仅本地直跑时生效）
 ├── comic-web/         # 前端 · 纯 Vue3 + Vite（H5 :5173，移动 / 网页双形态）—— 与 comic-front 功能等价
 ├── comic-front/       # 前端 · uni-app（H5 :5174，移动 / 网页双形态）—— 与 comic-web 功能等价
@@ -27,6 +28,7 @@ comic/
 | `comic-core/` | **共用内核**：领域模型 · 路径常量 · 标签归一 · 日志上下文 · 存储契约+MySQL 实现 · 图库读写 | `comic-core/README.md` |
 | `crawler-service/` | 采集源站 → 判重入库 → 图片懒转存 / 巡检；提供 CLI，并被 api-service **在进程内**调用 | `crawler-service/README.md` ｜ 各源见 `sources/<源名>/README.md` |
 | `comic-scheduler/` | **定时任务执行器**（独立进程）：读管理台配的 cron，到点对选中的数据源跑采集，运行态写回文件供页面展示 | `comic-scheduler/README.md` |
+| `chat-service/` | **RAG 客服**（独立进程 :8001）：FAQ + 作品简介向量检索 → 拼 prompt → 模型回答；不认人，只认问题 | `chat-service/README.md` ｜ 内核见 `src/comic_chat/rag/README.md` |
 | `api-service/` | 对外 REST API + 管理台后台任务；图片读取与占位图 | `api-service/README.md` |
 | `comic-web/` | 纯 Vue3 + Vite 版（与 comic-front 功能等价，2026-10-14 由后者迁移） | `comic-web/README.md` |
 | `comic-front/` | uni-app 版（与 comic-web 功能等价）；靠 `src/utils/*` 兼容层保持平台无关 | `comic-front/README.md` |
@@ -42,6 +44,7 @@ comic/
 - **源站接入**：`sources/{name}/` 自包含；新增源见 `新增爬虫源` 技能。已接入 zaimanhua（主源）/ mangadex / weebcentral / copymanga。
 - **管理台 / 按需导入**：逻辑在 `api-service/services/ondemand.py`；接口 `/api/admin/*`，前端 `/#/admin`（角色三档 + 两道门 `require_admin` / `require_superadmin`）。
 - **定时任务的进程边界**：管理台「定时任务」的配置与展示在 `api-service/services/scheduler.py`，**采集由独立进程 `comic-scheduler` 执行**（不随 api 生死）。两者只通过运行时数据目录里三个文件交换：`schedule.json`（api 写 / 执行器读）、`schedule_state.json`（执行器写 / api 读）、`schedule_run_now.json`（api 写 / 执行器**读到即删**）—— **一文件一写者**是硬约束。依赖方向 `scheduler → crawler → core`（**不依赖 api-service**）。见 `comic-scheduler/README.md`。任务的**记录**不在那三个文件里：手动触发与定时轮次都落 MySQL 的 `admin_task` 表（**重启不丢、与触发账号绑定**，定时轮次记「系统（定时）」；api 启动时把上一进程残留的 `running` 标成中断）。
+- **RAG 客服的进程边界**：`chat-service` 是**独立容器**（LangChain + Chroma，80+ 传递依赖、bge 模型常驻 300~500MB）。`api-service` 的 `/api/chat/*` 只做**鉴权 + 限流 + HTTP 转发**（`COMIC_CHAT_SERVICE_URL`），本层不装 langchain —— 塞进去会让主站镜像涨 400MB 并与主站抢内存。**鉴权留在 api**（`core/security.py` 搬不过去），chat 不认人；**不映射宿主端口**（它没有鉴权）。依赖方向 `chat → core`，不依赖 api-service / crawler。索引靠 `COMIC_CHAT_INDEX_DIR` 显式指到 `/data/rag_lab`（`DATA_ROOT` 在 wheel 态算不对）。见 `chat-service/README.md`。
 - **消息中心（面向所有登录用户的平台级通知）**：`message` 表 + 已读记账 `message_read` + `/api/messages` —— 顶栏铃铛与消息页读的都是它。**内容以库为准**（前端不保存消息，换机器看到同一份）；**可见范围由数据决定**（`to_user_id` 定向某人 + `min_role` 最低角色要求，任务消息是 `admin`），**已读按账号各一份**。任务收尾、独立进程 `comic-scheduler`、外部系统都往里发；**写入只有一个入口** `POST /api/messages`（api 自己进程内直调 `services.messages.publish_task()`，别的进程走 HTTP 带 `X-Service-Token`：HMAC，密钥复用 `COMIC_JWT_SECRET`，见 `comic_core/notify.py`）。见 `api-service/README.md`。
 - **前端上线形态**：Docker 下**两个前端镜像**（功能等价、各自带 nginx 反代 `/api/*` 到 `comic-app:8000`）—— `comic-web:1.0.0`（网页端，宿主 85）与 `comic-front:1.0.0`（移动端，宿主 86）；移动 / 网页两套布局由产物按 UA 自动切换。`comic-api` 是纯 API。见 `deploy/README.md`。
 
@@ -56,7 +59,8 @@ comic/
 - **后端**：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 >> ../logs/api.log 2>&1`
 - **前端 · comic-web**：`cd comic-web && npm run dev`（:5173）；构建 `build`（详见其 README）
 - **前端 · comic-front**：`cd comic-front && npm run dev:h5`（:5174）；构建 `build:h5`（详见其 README）
-- **定时任务执行器**：`cd comic-scheduler && ~/.workbuddy/binaries/python/envs/comic/Scripts/python.exe -m comic_scheduler`（即上面那个共享解释器；依赖两个本地包，需 `PYTHONPATH=../crawler-service/src;../comic-core/src`；容器里是 `comic-scheduler` 服务，配置页 `/#/admin/schedule`）
+- **定时任务执行器**：`cd comic-scheduler && ../crawler-service/.venv/Scripts/python.exe -m comic_scheduler`（即上面那个统一环境；依赖两个本地包，需 `PYTHONPATH=../crawler-service/src;../comic-core/src`；容器里是 `comic-scheduler` 服务，配置页 `/#/admin/schedule`）
+- **RAG 客服**：`bash scripts/dev.sh up chat`（:8001，**独立进程**；容器里是 `comic-chat` 服务，**不映射宿主端口**）。命令行：`cd chat-service && PYTHONPATH="src;../comic-core/src" ../crawler-service/.venv/Scripts/python.exe -m comic_chat.cli {doctor,index,search,ask}`。⚠️ 本地开发要**同时起 api 和 chat**，否则客服接口 503
 - **上线一键**：`bash deploy/up.sh`（**不带参数 = 两个入口都起**，网页端 85 + 移动端 86）/ `--web`（只起网页端）/ `--front`（只起移动端）。只重建某一层：`bash deploy/build.sh --web|--front`。
 - **停止**：**按 PID 停**（起停细节见 `docs/deploy.md` §6）；**禁用 `taskkill /IM python.exe`**（会误伤同机其它 Python 服务）。
 

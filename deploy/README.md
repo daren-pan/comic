@@ -9,11 +9,12 @@ deploy/
 ├── core/      dist/comic_core-*.whl                          → **无镜像**（纯库，只作命名构建上下文 `core`）
 ├── crawler/   Dockerfile + dist/comic_crawler-*.whl          → comic-crawler:1.0.0  采集层（可单独当 CLI 镜像）
 ├── scheduler/ Dockerfile + dist/comic_scheduler-*.whl        → comic-scheduler:1.0.0 定时任务执行器（独立进程）
+├── chat/      Dockerfile + dist/comic_chat-*.whl             → comic-chat:1.0.0 RAG 客服（独立进程，仅内网）
 ├── api/       Dockerfile + dist/comic_api-*.whl              → comic-api:1.0.0      接口层（依赖 core + crawler 的 wheel，**纯 API**）
 ├── mysql/     Dockerfile + sql/（建库脚本产物）              → comic-mysql:1.0.0    本项目独占的库
 ├── build.sh / build.bat                                      生成产物 + 按序构建这些镜像
 ├── up.sh                                                     **一键**：前端 build + 上面这些 + up -d + 自检
-├── docker-compose.yml                                        编排：comic-mysql + comic-app + comic-scheduler + comic-web + comic-front
+├── docker-compose.yml                                        编排：comic-mysql + comic-app + comic-scheduler + comic-chat + comic-web + comic-front
 └── .env.example                                              配置模板（`deploy/.env` 已 gitignore）
 ```
 
@@ -153,7 +154,7 @@ mysql 容器执行，不依赖 Python / 不需要挂载；跑完自动体检）�
   命名卷首次创建会继承镜像中该路径的属主，否则以 uid 10001 运行的进程写不进去；
 - **app 单进程**（不加 `--workers`）—— 数据源开关状态仍在进程内缓存，多 worker 会导致"开关不同步"；
   （后台任务表已落库 `admin_task`，2026-10-06 起不再是阻塞项，详见 `docs/deploy.md` §8）；
-- **容器名固定**：`comic-mysql` / `comic-app` / `comic-web` / `comic-front`（+ `comic-scheduler`）——
+- **容器名固定**：`comic-mysql` / `comic-app` / `comic-web` / `comic-front`（+ `comic-scheduler` / `comic-chat`）——
   由 compose 的 `container_name` 指定，不用 compose 自动生成的 `xxx-1` 形式，运维时好叫；
 - **宿主端口可配**：`.env` 的 `WEB_PORT`（默认 85）/ `FRONT_PORT`（默认 86）。端口被占用就改这里，容器内仍是 80；
 - **数据分两处**：`mysql_data` 卷 → 数据库（`down` 不删卷）；**图库与源开关状态在宿主目录**
