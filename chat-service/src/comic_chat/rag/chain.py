@@ -35,11 +35,12 @@ from __future__ import annotations
 
 import time
 import uuid
+from functools import lru_cache
 from datetime import datetime
 
 from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from . import settings
 from .index import get_store
@@ -60,6 +61,22 @@ _SYSTEM_TEMPLATE = """你是「聚漫画」网站的客服助手「小聚」。�
 
 【参考资料】
 {context}"""
+
+
+#: 多轮改写提示词。**不枚举句式** —— 只描述目标，模型自己判断「那取消呢」该改成什么。
+#: 实测覆盖（2026-10-30）：
+#:   那取消呢          → 如何取消收藏漫画？
+#:   那封面呢          → 封面加载不出来怎么办
+#:   没绑定邮箱呢      → 忘记密码且没有绑定邮箱时怎么找回密码
+#:   手机上也行吗      → 怎么在手机上收藏漫画？
+#:   怎么收藏漫画（无历史）→ 原样返回
+_REWRITE_TEMPLATE = """根据对话历史，把用户最后一句改写成一个独立、完整、可检索的问题。
+只输出改写后的问题，不要任何解释或引号。如果最后一句本身已经完整，原样返回。
+
+历史：
+{history}
+
+最后一句：{question}"""
 
 
 def _format_context(docs: list[tuple[Document, float]]) -> str:
@@ -182,20 +199,133 @@ def search(
     }
 
 
-def ask(question: str, k: int | None = None, kind: str | None = None, with_context: bool = True) -> dict:
-    """完整问答：检索 → 拼 prompt → 调模型 → 解析。
+@lru_cache(maxsize=4)
+def _build_llm(
+    temperature: float = settings.LLM_TEMPERATURE, disable_thinking: bool = False
+):
+    """建对话模型客户端（生成与改写共用，温度和思考模式不同）。
 
-    链路用 **LCEL**（LangChain Expression Language）写：
+    ⚠️ **必须缓存**，不能每次提问都新建：新建一个 ChatOpenAI 就是一套新的 httpx 客户端，
+    要重新做 TCP + TLS 握手。
 
-    ```python
-    chain = prompt | llm | StrOutputParser()
-    answer = chain.invoke({"context": ..., "question": ...})
+    ⚠️ **改写要关掉 thinking**：DeepSeek V4 默认开思考模式，对「把追问改写成独立问题」
+    这种纯格式转换是纯浪费。实测（2026-10-30）：
+
+    | thinking | 改写耗时 |
+    |---|---|
+    | 开（默认） | **4729ms** |
+    | 关 | **1680ms** |
+
+    生成侧保持默认（要质量），只有改写这一个调用关掉。
+
+    ⚠️ `default_headers` 不是可选项：OpenCode Go 网关缺 `x-opencode-session` 会直接
+    400 `MissingSessionID`，用通用 SDK 的 UA 会被判为可疑流量。换别的厂商时这两个头
+    会被忽略，不影响。
+    """
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(
+        model=settings.LLM_MODEL,
+        base_url=settings.LLM_BASE_URL,
+        api_key=settings.LLM_API_KEY,
+        temperature=temperature,
+        timeout=30,
+        max_retries=1,
+        # 关掉"思考"：传 Body 里那个 thinking 字段（OpenAI 兼容层不认这个参数，得走 extra_body）
+        extra_body={"thinking": {"type": "disabled"}} if disable_thinking else None,
+        default_headers={
+            settings.LLM_SESSION_HEADER: str(uuid.uuid4()),
+            "User-Agent": settings.LLM_USER_AGENT,
+        },
+    )
+
+
+def _history_pairs(history) -> list[tuple[str, str]]:
+    """把前端传来的历史统一成 `[(role, content)]`。
+
+    同时接受 `{"role": ..., "content": ...}` 字典列表（HTTP 来的）和
+    `(role, content)` 元组列表（内部调用更方便）。顺手丢掉空内容 —— 空消息会让
+    模型把上下文理解成"用户发了一条空白消息"。
+    """
+    out: list[tuple[str, str]] = []
+    for turn in history or []:
+        if isinstance(turn, dict):
+            role, text = turn.get("role", "user"), turn.get("content", "")
+        else:
+            role, text = turn[0], turn[1]
+        text = str(text or "").strip()
+        if text:
+            out.append(("user" if str(role) == "user" else "bot", text))
+    return out
+
+
+def _history_as_text(history: list[tuple[str, str]]) -> str:
+    """历史压成「用户：… / 客服：…」纯文本（改写提示词用）。"""
+    return "\n".join(f"{'用户' if r == 'user' else '客服'}：{t}" for r, t in history)
+
+
+def _history_as_messages(history: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """历史转成 LangChain 消息元组 —— `MessagesPlaceholder` 吃这个格式。"""
+    return [("human" if r == "user" else "ai", t) for r, t in history]
+
+
+def _rewrite(llm, question: str, history: list[tuple[str, str]]) -> str:
+    """把追问改写成独立问题。
+
+    失败时**返回原问题**，不抛错：改写只是"锦上添花"，它挂了不该让整轮问答失败
+    （退化成单轮行为，用户会收到「站内暂无」，比一个 500 好）。
+    """
+    try:
+        raw = llm.invoke(
+            _REWRITE_TEMPLATE.format(
+                history=_history_as_text(history), question=question
+            )
+        ).content
+        text = str(raw).strip().strip('"').strip("“”").splitlines()
+        cleaned = text[0].strip() if text else ""
+        return cleaned or question
+    except Exception:   # noqa: BLE001
+        return question
+
+
+def ask(
+    question: str,
+    k: int | None = None,
+    kind: str | None = None,
+    with_context: bool = True,
+    history=None,
+) -> dict:
+    """完整问答：检索 →（查不到才改写重查）→ 拼 prompt → 调模型 → 解析。
+
+    ## 多轮怎么工作
+
+    传了 `history` **不等于每次都改写**。改写只在「检索查不到」时触发：
+
+    ```
+    ① 先用原问题检索
+         ├─ 命中  → 直接生成                     （1 次模型调用）
+         └─ 0 条 + 有历史 → 改写 → 重查 → 生成    （2 次模型调用）
     ```
 
-    `|` 不是语法糖，是真的把三段「可运行对象」串成一条管道：前一段的输出自动成为后一段
-    的输入。想加多轮对话时，只在 `from_messages` 里插一个
-    `MessagesPlaceholder("history")`，再 `invoke({"history": [...], ...})` 即可 ——
-    管道本身一行都不用改。这是 LCEL 相对旧版 `LLMChain` 最实用的地方。
+    为什么用「查没查到」而不是「像不像追问」来判断（2026-10-30 实测）：
+
+    | 提问 | 原问题直接检索 | 结论 |
+    |---|---|---|
+    | 那取消呢 | 0 条 | 需要改写 |
+    | 我们之前讨论过的那个会员要多少钱 | **0 条** | 显式指代也会失败（多余的字稀释语义） |
+    | 刚才说的那个收藏怎么取消 | 4 条 | 句里有足够关键词，**不用改写** |
+
+    也就是说：**能不能查到取决于句子里有没有关键词，跟句式无关。** 所以不猜句式，
+    只问事实 —— 词表判断法在这种句子面前必然漏判。
+
+    ## 两个"问题"各司其职
+
+    - `q_for_search`（可能是改写结果）→ 只用于检索，要求「准确」
+    - `question`（原句）→ 用于生成，要求「自然」：用户问「那取消呢」，回答就该像在接话，
+      而不是一份《如何取消收藏》的标准说明书
+
+    链路用 **LCEL** 写：`prompt | llm | StrOutputParser()`。加多轮只是在
+    `from_messages` 里插一个 `MessagesPlaceholder("history")`，管道本身一行不用改。
     """
     if not settings.llm_ready():
         raise RuntimeError(
@@ -203,45 +333,61 @@ def ask(question: str, k: int | None = None, kind: str | None = None, with_conte
             "再重试。只想看检索效果的话用 search 子命令，它不需要 key。"
         )
 
+    turns = _history_pairs(history)
     started = time.perf_counter()
+
+    # ① 先用原问题检索（5ms 量级，不花钱，所以"先查一次看看"几乎零成本）
     retrieve_started = time.perf_counter()
     pairs = _retrieve(question, k, kind, _default_min_score())
     retrieve_ms = int((time.perf_counter() - retrieve_started) * 1000)
+
+    llm = _build_llm()
+    rewritten: str | None = None
+    rewrite_ms = 0
+
+    # ② 查不到 + 有上文 → 改写后重查。改写用 temperature=0（要确定性，不要发挥）
+    if not pairs and turns:
+        rewrite_started = time.perf_counter()
+        candidate = _rewrite(_build_llm(0.0, True), question, turns)
+        rewrite_ms = int((time.perf_counter() - rewrite_started) * 1000)
+        if candidate and candidate != question:
+            rewritten = candidate
+            retrieve_started = time.perf_counter()
+            pairs = _retrieve(candidate, k, kind, _default_min_score())
+            retrieve_ms += int((time.perf_counter() - retrieve_started) * 1000)
+
     context = _format_context(pairs)
 
-    from langchain_openai import ChatOpenAI
-
-    llm = ChatOpenAI(
-        model=settings.LLM_MODEL,
-        base_url=settings.LLM_BASE_URL,
-        api_key=settings.LLM_API_KEY,
-        temperature=settings.LLM_TEMPERATURE,
-        timeout=30,
-        max_retries=1,
-        # OpenCode Go 网关**强制**要这两个头：缺 session 头直接 400 `MissingSessionID`，
-        # 用通用 SDK 的 UA 会被判为可疑流量。换别的厂商时这两个头会被忽略，不碍事。
-        # 一次 ask 生成一个 session id（一次提问算一次会话）。
-        default_headers={
-            settings.LLM_SESSION_HEADER: str(uuid.uuid4()),
-            "User-Agent": settings.LLM_USER_AGENT,
-        },
-    )
-    prompt = ChatPromptTemplate.from_messages(
-        [("system", _SYSTEM_TEMPLATE), ("human", "{question}")]
-    )
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", _SYSTEM_TEMPLATE),
+        # 空列表也合法（单轮时就是空），所以不用为"有没有历史"写两个分支
+        MessagesPlaceholder("history"),
+        ("human", "{question}"),
+    ])
     chain = prompt | llm | StrOutputParser()
 
     llm_started = time.perf_counter()
-    answer = chain.invoke({"context": context, "question": question}).strip()
+    answer = chain.invoke({
+        "context": context,
+        "question": question,
+        "history": _history_as_messages(turns),
+    }).strip()
     llm_ms = int((time.perf_counter() - llm_started) * 1000)
 
     total_ms = int((time.perf_counter() - started) * 1000)
     result = {
         "answer": answer,
         "hits": [_hit(d, s) for d, s in pairs],
+        # 改写结果回传：没有它你根本不知道多轮有没有生效（排查/调参全靠这个字段）
+        "rewritten": rewritten,
         "backend": settings.embedding_backend(),
         "model": settings.LLM_MODEL,
-        "elapsedMs": {"retrieve": retrieve_ms, "llm": llm_ms, "total": total_ms},
+        "elapsedMs": {
+            "retrieve": retrieve_ms,
+            "rewrite": rewrite_ms,
+            "llm": llm_ms,
+            "total": total_ms,
+        },
         "warning": (
             "当前用的是 hash 占位向量（不是语义模型），检索结果只反映字面重合度，答案质量不能代表真实效果"
             if settings.embedding_backend() == "hash"

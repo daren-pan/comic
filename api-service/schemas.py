@@ -275,11 +275,22 @@ class ChatLabBody(BaseModel):
     minScore: float | None = Field(default=None, ge=-1.0, le=1.0)
 
 
-class ChatAskBody(BaseModel):
-    """**面向普通用户**的客服提问入参（`POST /api/chat/ask`）。
+class ChatTurn(BaseModel):
+    """一轮对话（客服接口的 `history` 元素）。"""
 
-    刻意只收一个问题：`topK` / `kind` / `minScore` 那些是实验室的调参开关，
+    role: Literal["user", "bot"]
+    content: str = Field(max_length=500)
+
+
+class ChatAskBody(BaseModel):
+    """**客服提问**入参（`POST /api/chat/ask`）。
+
+    刻意只收一个问题 + 历史：`topK` / `kind` / `minScore` 那些是实验室的调参开关，
     不该暴露给前台 —— 否则用户可以拿它绕过阈值去看无关内容。
+
+    `history` 上限 **12 条（6 轮）**、每条 500 字。这里是**第二道闸**：前端已经截过一次，
+    但前端可以被绕过，而且历史越长 prompt 越贵、越容易挤掉参考资料。
     """
 
     question: str = Field(min_length=1, max_length=200)
+    history: list[ChatTurn] = Field(default_factory=list, max_length=12)

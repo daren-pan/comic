@@ -184,10 +184,19 @@ def chat_ask(
     if not _rate_allow(key, limit):
         raise HTTPException(status_code=429, detail="问得有点快，请稍后再试")
 
-    data = _forward("POST", "/ask", {"question": body.question})
-    _log.info("客服问答：len=%d 命中=%d", len(body.question), len(data.get("hits") or []))
+    data = _forward("POST", "/ask", {
+        "question": body.question,
+        # 历史原样透传（上限已在 ChatAskBody 里卡过）；chat-service 据此决定要不要改写
+        "history": [t.model_dump() for t in body.history],
+    })
+    _log.info(
+        "客服问答：len=%d 历史=%d 改写=%s",
+        len(body.question), len(body.history), bool(data.get("rewritten")),
+    )
     return ok({
         "answer": data.get("answer", ""),
         "hits": data.get("hits") or [],
+        # 改写结果回传前端：可以显示「理解为：xxx」，也是排查多轮是否生效的唯一线索
+        "rewritten": data.get("rewritten"),
         "model": data.get("model", ""),
     })

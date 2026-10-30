@@ -93,18 +93,32 @@ def health() -> dict:
 
 @app.post("/ask")
 def ask(body: AskBody) -> dict:
-    """客服问答。`with_context=False` —— 调试用的完整上下文只在 `/lab` 返回。"""
+    """客服问答。`with_context=False` —— 调试用的完整上下文只在 `/lab` 返回。
+
+    `history` 由前端带上来（本服务不存会话）：查不到资料且有上文时，会先把追问改写成
+    独立问题再重查一次（逻辑见 `rag/chain.py` 的 `ask()`）。
+    """
     try:
-        result = chain.ask(body.question, with_context=False)
+        result = chain.ask(
+            body.question,
+            with_context=False,
+            history=[t.model_dump() for t in body.history],
+        )
     except RuntimeError as exc:
         # 没配 key / 调用失败：503 + 中文原因，api 会原样转给前端
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    _log.info("问答：len=%d 命中=%d", len(body.question), len(result["hits"]))
+    _log.info(
+        "问答：len=%d 历史=%d 改写=%s 命中=%d",
+        len(body.question), len(body.history), bool(result.get("rewritten")),
+        len(result["hits"]),
+    )
     return {
         "answer": result["answer"],
         # 只给标题：正文和分数属于调试信息
         "hits": [{"title": h["title"], "kind": h["kind"]} for h in result["hits"]],
+        # 改写结果回传：前端可以据此显示「理解为：xxx」，也是排查多轮是否生效的唯一线索
+        "rewritten": result.get("rewritten"),
         "model": result["model"],
         "elapsedMs": result["elapsedMs"],
     }

@@ -15,12 +15,14 @@
 -->
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
-import { askChat, type ChatHit } from '../api/chat'
+import { askChat, type ChatHit, type ChatTurn } from '../api/chat'
 
 interface Msg {
   role: 'user' | 'bot'
   text: string
   hits?: ChatHit[]
+  /** 后端把追问改写成的独立问题（没改写为 null） */
+  rewritten?: string | null
 }
 
 const open = ref(false)
@@ -51,9 +53,27 @@ function scrollToBottom() {
   })
 }
 
+/**
+ * 取要带给后端的对话历史。
+ *
+ * - **跳过第 1 条**：那是开机欢迎语（「你好，我是小聚…」），没有信息量，只会白占额度；
+ * - **只带最近 12 条**（6 轮）：再往上对回答帮助很小，却会成倍抬高 prompt 成本；
+ * - 后端还会用 `max_length=12` 再卡一次 —— 前端这道只是"省流量"，不是安全边界。
+ */
+function buildHistory(): ChatTurn[] {
+  return messages.value
+    .slice(1)
+    .filter((m) => m.text.trim())
+    .slice(-12)
+    .map((m) => ({ role: m.role, content: m.text }))
+}
+
 async function send(text?: string) {
   const q = (text ?? draft.value).trim()
   if (!q || loading.value) return
+
+  // ⚠️ 必须在 push 当前问题**之前**取历史，否则这句会被重复带两次
+  const history = buildHistory()
 
   draft.value = ''
   messages.value.push({ role: 'user', text: q })
@@ -61,8 +81,13 @@ async function send(text?: string) {
 
   loading.value = true
   try {
-    const res = await askChat(q)
-    messages.value.push({ role: 'bot', text: res.answer, hits: res.hits })
+    const res = await askChat(q, history)
+    messages.value.push({
+      role: 'bot',
+      text: res.answer,
+      hits: res.hits,
+      rewritten: res.rewritten,
+    })
   } catch (e) {
     // request.ts 已经把后端的中文提示取出来了（429 限流 / 503 客服未配置…）
     messages.value.push({
@@ -111,6 +136,8 @@ async function send(text?: string) {
           <div v-if="m.role === 'bot'" class="chat-avatar">🧭</div>
           <div class="chat-col">
             <div class="chat-bubble">{{ m.text }}</div>
+            <!-- 追问被改写时标出来：一是让用户知道系统理解成了什么，二是排查多轮有没有生效 -->
+            <div v-if="m.rewritten" class="chat-rewritten">理解为：{{ m.rewritten }}</div>
             <div v-if="m.hits && m.hits.length" class="chat-refs">
               <span class="chat-refs-label">参考</span>
               <span v-for="(h, j) in m.hits" :key="j" class="chat-ref">{{ h.title }}</span>
@@ -362,6 +389,14 @@ async function send(text?: string) {
   padding: 0 2px;
   font-size: 11px;
   color: var(--text-2);
+}
+
+/* 「理解为：xxx」—— 比参考资料更淡，它是解释性信息，不是答案的一部分 */
+.chat-rewritten {
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--text-2);
+  opacity: 0.8;
 }
 .chat-refs-label {
   opacity: 0.7;

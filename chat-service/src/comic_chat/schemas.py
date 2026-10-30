@@ -13,10 +13,26 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class Turn(BaseModel):
+    """一轮对话（`/ask` 的 `history` 元素）。
+
+    `role` 只有两种：`user` = 用户说的，`bot` = 客服答的。
+    """
+
+    role: Literal["user", "bot"]
+    content: str = Field(max_length=500)
+
+
 class AskBody(BaseModel):
-    """客服提问（`POST /ask`）。"""
+    """客服提问（`POST /ask`）。
+
+    `history` 由前端带上来（后端不存会话）：最多 **12 条**（6 轮），每条 500 字。
+    ⚠️ 上限在这里卡死是有意的 —— 前端可以篡改，不设限的话一次请求就能把几十轮历史
+    塞进 prompt（既贵又会挤掉参考资料）。超了直接 422，不静默截断。
+    """
 
     question: str = Field(min_length=1, max_length=200)
+    history: list[Turn] = Field(default_factory=list, max_length=12)
 
 
 class SearchBody(BaseModel):
