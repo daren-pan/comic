@@ -42,7 +42,8 @@ from langchain_core.documents import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from . import settings
+from . import settings, structured
+from .documents import fact_to_document
 from .index import get_store
 
 #: 系统提示词。三条硬约束缺一不可 ——
@@ -86,7 +87,12 @@ def _format_context(docs: list[tuple[Document, float]]) -> str:
     ① 模型能分辨「这是通用说明」还是「这是某部作品的数据」，回答时不会混在一起；
     ② 调试时能一眼看出模型引用的是哪条 —— 答错了马上定位到是检索的问题还是生成的问题。
 
-    这里**只放正文**，不放 `metadata` 里的其它字段（尤其不能放采集来源，见 `documents.py`）。
+    ⚠️ **优先取 `metadata["display"]`**（完整原文），而不是 `page_content`：
+    后者已经是「标题 + 首句」的检索专用短文本（见 `documents.py`），拿它回答会把
+    后半段结论丢掉（比如「没绑定邮箱的账号需要找管理员重置」就在第二句）。
+    `or doc.page_content` 是兜底 —— 旧格式的索引、或别处传进来的 Document 没有 display。
+
+    这里**只放正文**，不放 `metadata` 里的其它字段（尤其不能放采集来源）。
     """
     if not docs:
         return "（没有检索到任何相关资料）"
@@ -100,7 +106,8 @@ def _format_context(docs: list[tuple[Document, float]]) -> str:
             label = f"[漫画#{doc.metadata.get('comic_id')}]"
         else:
             label = "[资料]"
-        blocks.append(f"{label}\n{doc.page_content.strip()}")
+        body = (doc.metadata.get("display") or doc.page_content).strip()
+        blocks.append(f"{label}\n{body}")
     return "\n\n".join(blocks)
 
 
@@ -109,8 +116,11 @@ def _hit(doc: Document, score: float) -> dict:
 
     `preview` 只截前 80 字：完整正文可能有几百字，界面上看的是「命中了哪一条」，
     不是「这条的全文」（要看全文去点开）。截断也能避免接口响应过大。
+
+    ⚠️ 同样要取 `metadata["display"]`：`page_content` 现在只有「标题 + 首句」约 40 字，
+    拿它做预览的话，界面上的「参考」摘要会凭空缩水一半。
     """
-    text = doc.page_content.strip().replace("\n", " ")
+    text = (doc.metadata.get("display") or doc.page_content).strip().replace("\n", " ")
     return {
         "kind": doc.metadata.get("kind", ""),
         "title": doc.metadata.get("title", ""),
@@ -149,22 +159,58 @@ def _default_min_score() -> float | None:
 def _retrieve(
     question: str, k: int | None, kind: str | None, min_score: float | None
 ) -> list[tuple[Document, float]]:
-    """向量检索 + 阈值过滤（`search()` 和 `ask()` 共用，避免两处各查一遍库）。
+    """**双路召回** + 阈值过滤（`search()` 和 `ask()` 共用）。
 
-    要过滤时先多取几倍候选（`k * 3`）再筛：Chroma 的 metadata 过滤和我们的分数过滤都发生在
+    | 路 | 做法 | 擅长 |
+    |---|---|---|
+    | ① 结构化（`structured.match`） | 书名/作者/标签做反向包含 | 「有没有科幻的」这类**集合筛选**、用户报确切书名/作者名 |
+    | ② 向量（Chroma） | 语义最近邻 | 「图裂了」「登不上去」这类**口语和错字** |
+
+    两路是互补而非替代：结构化对 FAQ 完全无能（用户问法千变万化），向量对「查字段」
+    完全无能（「科幻」是抽象标签，相似度算不出来）。缺哪条都会有一类问题答不好。
+
+    合并规则：
+    - **结构化优先**：用户报了确切书名时不该被向量打个 0.79 排在别的作品后面，
+      所以按分数直接混排（结构化的 1.00/0.95/0.85 天然高于向量常态区间）。
+    - **按 comic_id 去重**：同一部作品两路都命中时只留分数高的那条。
+    - **结构化不过阈值**：它的分数是固定档位、没有「不够像」的中间态，命中即可信。
+      阈值只作用在向量结果上。
+
+    `kind="faq"` 时跳过结构化 —— 那一路只产出漫画，没有意义。
+
+    要过滤时先多取几倍候选（`k * 3`）再筛：Chroma 的 metadata 过滤和分数过滤都发生在
     「取回 k 条之后」，只查 `k` 条会被筛到只剩一两条，达不到「给模型 4 段参考」的目的。
     """
+    top_k = k or settings.TOP_K
+
+    structured_pairs: list[tuple[Document, float]] = []
+    if kind != "faq":
+        structured_pairs = [
+            (fact_to_document(fact), score)
+            for fact, score, _reason in structured.match(question)
+        ]
+
     store = get_store()
     where = {"kind": kind} if kind else None
-    top_k = k or settings.TOP_K
     fetch_k = top_k * 3 if min_score is not None else top_k
-
-    pairs = store.similarity_search_with_relevance_scores(
+    vector_pairs = store.similarity_search_with_relevance_scores(
         question, k=fetch_k, filter=where
     )
     if min_score is not None:
-        pairs = [(d, s) for d, s in pairs if s >= min_score]
-    return pairs[:top_k]
+        vector_pairs = [(d, s) for d, s in vector_pairs if s >= min_score]
+
+    # 合并去重：结构化的条目先占位，向量结果只补它没覆盖到的作品。
+    merged: list[tuple[Document, float]] = []
+    seen: set[object] = set()
+    for doc, score in structured_pairs + vector_pairs:
+        key = doc.metadata.get("comic_id") or doc.metadata.get("title")
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append((doc, score))
+        if len(merged) >= top_k:
+            break
+    return merged
 
 
 def search(

@@ -62,6 +62,23 @@ CHROMA_DIR = (
 #: 空间里，混着查会得到毫无意义的结果（维度甚至可能对不上，直接报错）。
 COLLECTION = "comic_kb"
 
+#: 检索文本的构造版本。**改了 `documents.py` 里 `page_content` 的拼法就要 +1。**
+#:
+#: 它会被算进集合名指纹（见 `collection_name()`），作用是把「换模型必须重建索引」那条
+#: 规则推广到「换文本构造方式」：改了拼法而没重建，向量库里的旧向量对应的是旧文字，
+#: 而查询用的是新代码 —— 症状是「代码明明改了，效果一点没变」，而且**不报错**。
+#: 加上版本号后，改动自动落到新集合，`app._ensure_index()` 发现集合为空会就地重建，
+#: 全程不需要人工干预。想回滚就把数字改回去，旧集合仍在磁盘上。
+#:
+#: 版本历史：
+#:   1（隐式）—— page_content = 完整正文，展示文本与检索文本合一
+#:   2        —— 文档分离：FAQ = 标题+首句，漫画 = 书名+作者+标签+简介，
+#:                完整原文移入 metadata["display"]
+#:   3        —— 漫画检索文本去掉「题材」行：`comic.category` 已废弃，
+#:                标签的唯一来源是 comic_tag 关联的 tag 表
+#: 见 `README.md` 的「检索设计」一节。
+DOC_FORMAT_VERSION = 3
+
 # ---- 对话模型（生成答案）----
 # ⚠️ `base_url` **不要带 `/chat/completions`**：OpenAI 兼容客户端会自己拼这一段。
 # 写成完整端点会变成 `.../v1/chat/completions/chat/completions` → 404。
@@ -162,11 +179,14 @@ def collection_name() -> str:
     集合里写，维度不同的直接报错；维度碰巧相同的更糟 —— 查询向量和库里向量不在同一个
     语义空间，**检索结果是噪声，而且不报错**。
 
-    所以名字由 `后端 + 模型 + 维度` 算一个短哈希。改任何一项，自动落到新集合，旧索引
-    原样保留（想清理就删目录）。这是「换模型必须重建索引」这条规则的工程化兜底：
-    **与其写文档提醒人别忘，不如让忘了也不出错。**
+    所以名字由 `后端 + 模型 + 维度 + 文本构造版本` 算一个短哈希。改任何一项，自动落到
+    新集合，旧索引原样保留（想清理就删目录）。这是「换模型必须重建索引」这条规则的
+    工程化兜底：**与其写文档提醒人别忘，不如让忘了也不出错。**
     """
-    fingerprint = f"{embedding_backend()}:{embedding_model_name()}:{embedding_dim()}"
+    fingerprint = (
+        f"{embedding_backend()}:{embedding_model_name()}:{embedding_dim()}"
+        f":doc{DOC_FORMAT_VERSION}"
+    )
     suffix = hashlib.md5(fingerprint.encode("utf-8")).hexdigest()[:6]
     return f"{COLLECTION}_{suffix}"
 

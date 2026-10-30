@@ -32,7 +32,7 @@ from datetime import datetime
 from langchain_chroma import Chroma
 
 from . import settings
-from .documents import load_all
+from .documents import comic_facts, load_all
 from .embeddings import get_embeddings
 
 #: 集合名由配置算出（`settings.collection_name()`）—— 本模块只做别名，方便调用处少写一层。
@@ -79,6 +79,9 @@ def build_index() -> dict:
     返回统计信息（CLI 和 HTTP 接口都直接展示它）。
     """
     started = datetime.now()
+    # 强制重读 DB：结构化事实的缓存与这份索引同生命周期，重建索引时必须一起刷新，
+    # 否则会出现「索引里 54 部、结构化却还是旧的 53 部」这种错位。
+    comic_facts(refresh=True)
     docs = load_all()
     if not docs:
         raise RuntimeError("没有可索引的文档：FAQ 为空且漫画表没有数据")

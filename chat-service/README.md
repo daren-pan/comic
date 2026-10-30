@@ -40,9 +40,13 @@ chat-service/
     ├── cli.py                命令行：doctor / index / search / ask
     └── rag/                  RAG 内核（七步链路，见其 README）
         ├── settings.py · embeddings.py · documents.py
+        ├── structured.py     结构化召回（双路召回的第二路）
         ├── index.py · chain.py
         └── knowledge/faq.md  知识源（改完要重建索引）
 ```
+
+> **改检索逻辑前先读 `rag/README.md` 的「检索设计」一节** —— 那里记了双路召回、
+> 文档分离的完整依据，以及 7 个被实测否掉的方案（避免重复试错）。实测数据在 `rag/NOTES.md`。
 
 ## 怎么跑
 
