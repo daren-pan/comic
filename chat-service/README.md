@@ -89,13 +89,31 @@ docker compose exec comic-chat python -m comic_chat.cli search "图裂了"
 | 端点 | 谁调 | 说明 |
 |---|---|---|
 | `GET /health` | api / 健康检查 | 后端类型、集合名、向量条数、索引目录 |
-| `POST /ask` | api 转发 | `{question}` → `{answer, hits, model, elapsedMs}` |
+| `POST /ask` | api 转发 | `{question, history?}` → `{answer, hits, rewritten, model, elapsedMs}`。**查不到资料且有上文时才改写**，见下方「多轮」 |
 | `POST /lab/index` | api 转发（管理员） | 重建索引 |
 | `POST /lab/search` | api 转发（管理员） | 只检索，带分数 |
 | `POST /lab/ask` | api 转发（管理员） | 完整问答，带 `context` 调试信息 |
 | `GET /lab/status` | api 转发（管理员） | 配置自检 |
 
 **这些接口本身不做鉴权**，全部由 api 的 `/api/chat/*` 把门。
+
+## 多轮对话
+
+`history` 由前端带上来（**后端不存会话**，最多 12 条 / 6 轮，两端都会卡）。
+
+关键设计：**改写只在「检索查不到」时触发**，不是每次都改写。
+
+```
+① 用原问题检索
+     ├─ 命中  → 直接生成                    （1 次模型调用）
+     └─ 0 条 + 有上文 → 改写 → 重查 → 生成   （2 次模型调用）
+```
+
+不用「像不像追问」来判断，因为实测发现**句式跟能不能检索到无关**：
+「我们之前讨论过的那个会员要多少钱」照样 0 命中，而「刚才说的那个收藏怎么取消」能命中。
+详见 `src/comic_chat/rag/NOTES.md` 的「多轮对话」一节。
+
+改写结果会通过 `rewritten` 字段回传，前端显示成「理解为：xxx」—— 这是排查多轮有没有生效的唯一线索。
 
 ## 依赖方向
 
