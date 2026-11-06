@@ -1,0 +1,17 @@
+# 本服务的第三方依赖（本地开发用）。
+#
+# ⚠️ 只列第三方：`comic-core` / `comic-chat` 是仓库内本地包，PyPI 上不存在；
+#    开发态靠 PYTHONPATH（见 README），打包态由 pyproject.toml 从本地 wheel 目录解析。
+#
+# 其余 RAG 依赖（langchain / chromadb / fastembed）已由 chat-service 装进同一个 venv，
+# 这里不重复声明，避免版本范围漂移。
+mcp>=1.2,<2
+
+# 外部文档解析（阶段一：Word / Excel；Markdown 走标准库，不需要依赖）。
+# python-docx 会带 lxml、openpyxl 会带 et_xmlfile —— 两者其实已由别的依赖装进 venv。
+python-docx>=1.1
+openpyxl>=3.1
+
+# 中文词典分词（顶部词项层，见 `tokenizer.py`）。
+# 装了就用 jieba，没装自动退回零依赖的两字滑窗（`COMIC_KB_TOKENIZER=auto`）。
+jieba>=0.42
