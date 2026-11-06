@@ -41,6 +41,7 @@ from routers import (
     auth,
     chat,
     comments,
+    knowledge,
     messages,
     public,
     users,
@@ -85,6 +86,7 @@ app.include_router(admin.router)
 app.include_router(admin_comics.router)
 app.include_router(admin_users.router)
 app.include_router(messages.router)
+app.include_router(knowledge.router)
 
 # RAG 实验室（学习用沙盒，`/api/chat/lab/*`）：默认挂载，`COMIC_CHAT_LAB=0` 关闭。
 # 关闭时路由不存在（404 而非 403）；生产部署应当关掉，并且不安装 requirements-lab.txt。

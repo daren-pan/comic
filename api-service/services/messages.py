@@ -185,6 +185,50 @@ def unread_count(user: dict) -> int:
     return _store().unread_count(user)
 
 
+def knowledge_feed(cursor: int = 0, limit: int = 200) -> dict:
+    """内部知识接口：按 id 升序返回全量 message 行，供 MCP indexer 增量拉取。
+
+    与面向用户的 `feed()` 不同：
+
+    - **不按账号过滤**（indexer 用服务令牌，不是某个人）；
+    - **不并入“正在跑的任务”**（那是活状态，不是 message 表数据）；
+    - 游标是 `id > cursor`（message 表是追加式，没有 updated_at）；
+    - 返回 `hasMore`，indexer 用 `nextCursor` 继续拉。
+
+    ⚠️ 这里会返回定向/管理员消息，所以路由只允许服务令牌，不能暴露给浏览器。
+    """
+    size = max(1, min(int(limit or 200), 200))
+    rows = _store().list_all(after_id=int(cursor or 0), limit=size + 1)
+    has_more = len(rows) > size
+    rows = rows[:size]
+    items = []
+    for row in rows:
+        created = _iso(row.get("created_at"))
+        items.append({
+            "id": row.get("id"),
+            "kind": row.get("kind") or "system",
+            "level": row.get("level") or "info",
+            "title": row.get("title") or "",
+            "body": row.get("body") or "",
+            "params": _params_of(row),
+            "taskId": row.get("task_id") or "",
+            "source": row.get("source") or "",
+            "userId": row.get("user_id"),
+            "username": row.get("username") or "",
+            "toUserId": row.get("to_user_id"),
+            "minRole": row.get("min_role") or "",
+            "createdAt": created,
+            "updatedAt": created,
+            "deleted": False,
+        })
+    return {
+        "items": items,
+        "nextCursor": rows[-1]["id"] if rows else int(cursor or 0),
+        "hasMore": has_more,
+        "schemaVersion": 1,
+    }
+
+
 def publish(payload: dict) -> dict:
     """发一条消息（**写入口唯一**）。
 

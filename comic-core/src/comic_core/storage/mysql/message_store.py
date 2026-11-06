@@ -267,6 +267,24 @@ class MySQLMessageStore:
                 )
                 return list(cur.fetchall())
 
+    def list_all(self, *, after_id: int = 0, limit: int = 200) -> list[dict]:
+        """内部知识接口：**全量**按 id 升序分页，不做收件范围过滤。
+
+        只给服务令牌的 indexer 用；message 行是**追加式**的（没有 updated_at），
+        所以增量游标就是 `id > after_id`。定向/管理员消息也会返回，索引侧必须
+        自行决定哪些字段进文本、哪些只进 metadata。
+        """
+        size = max(1, min(int(limit or 200), MAX_LIMIT))
+        cols = ", ".join(LIST_COLUMNS)
+        with pooled_conn(self.dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""SELECT {cols} FROM message
+                        WHERE id > %s ORDER BY id ASC LIMIT %s""",
+                    (int(after_id or 0), size),
+                )
+                return list(cur.fetchall())
+
     def unread_count(self, user: dict | None) -> int:
         """**这个账号**的未读数（顶栏角标）：可见消息里没有本人已读记账的那些。"""
         vis, params = _visibility_clause(user)

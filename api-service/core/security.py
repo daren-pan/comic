@@ -167,6 +167,21 @@ def require_superadmin(user: dict = Depends(get_current_user)) -> dict:
 SERVICE_TOKEN_HEADER = "X-Service-Token"
 
 
+def require_service(
+    service_token: str | None = Header(default=None, alias=SERVICE_TOKEN_HEADER),
+) -> dict:
+    """**只允许进程间服务令牌**，不接受用户 JWT。
+
+    用于内部知识接口：message 表可能包含定向消息 / 管理员消息，不能因为
+    “某个管理员登录了”就把全量消息暴露给浏览器；MCP indexer 用服务令牌拉取。
+    """
+    from comic_core.notify import verify_service_token
+
+    if not service_token or not verify_service_token(service_token, _JWT_SECRET):
+        raise HTTPException(status_code=403, detail="需要有效的服务令牌")
+    return {"id": None, "username": "service", "role": "service", "auth": "service"}
+
+
 def require_admin_or_service(
     cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
     service_token: str | None = Header(default=None, alias=SERVICE_TOKEN_HEADER),

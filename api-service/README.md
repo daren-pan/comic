@@ -38,6 +38,7 @@ api-service/
     ├── admin.py       #   采集管理台 + 日志查询（`require_admin`）
     ├── admin_comics.py #  作品管理：上下架 / 评论开关 / 删评论（`require_admin`）
     ├── messages.py    #   消息中心读写（**登录即可读**，内容按账号过滤；写 `require_admin_or_service`）
+    ├── knowledge.py   #   内部知识接口：全量 message 行，**只允许服务令牌**（MCP indexer 用）
     ├── chat.py        #   客服 / RAG 实验室接口：**鉴权 + 限流 + 转发到 comic-chat**，本层不跑模型
     └── admin_users.py #   授权页（`require_superadmin`，仅超管）
 ```
@@ -73,6 +74,7 @@ api-service/
 | `GET /api/messages/unread` | 我的未读数（只给角标用） |
 | `POST /api/messages` | **发一条消息**（其他模块的写入入口）：body `{kind, level, title, body, params?, taskId?, source?, userId?, username?, toUserId?, minRole?}`；**管理员 JWT 或 `X-Service-Token`**。`params` = **入参快照**（`since`/`until`/`mode`/`limit`…），列表据此显示"这条消息对应哪段时间范围" |
 | `POST /api/messages/{id}/read` · `/read-all` | 标记一条 / 全部已读（**按账号各一份**：`message_read` 表） |
+| `GET /api/internal/knowledge/messages?cursor=&limit=` | **内部知识接口**：按 id 升序返回全量 message 行（不做收件范围过滤），**只允许 `X-Service-Token`**；MCP indexer 用来增量建索引 |
 | `POST /api/chat/ask` | **客服问答**（右侧悬浮球调）：body `{question}`，返回答案 + 引用标题。**当前 `require_admin`**；60 条/小时。⚠️ 实现是转发到独立容器 `comic-chat`，本层只做鉴权/限流 |
 | `GET/POST /api/chat/lab/{status,index,search,ask}` | **RAG 实验室**（管理员）：配置自检 / 重建索引 / 只检索（带分数）/ 完整问答（含 context）。同样是转发；`COMIC_CHAT_LAB=0` 时不挂载。见 `chat-service/README.md` |
 | `GET /api/admin/logs` | 运行日志查询（`log_record`）：级别 / 源站 / 事件 / 任务 / 作品 / 关键字 / 时间窗 + 分页 |
@@ -138,6 +140,9 @@ cd api-service
     这样 `kind`/`level`/`minRole` 的合法值与长度上限只在一处收敛，不会有进程绕过接口写脏消息。
   - 列表还会把"**正在跑的任务**"临时并进来（活状态，不落消息行，**仅管理员及以上**）——
     跑完由任务侧发那条正式消息，同一件事不会在任务表与消息表里各存一份状态。
+  - **内部知识接口** `GET /api/internal/knowledge/messages` 是例外：它按 id 升序返回
+    **全量** message 行，不做账号过滤，只允许 `X-Service-Token`；MCP indexer 用它增量建
+    `project_kb_message_*`，MCP 运行时只读本地向量库，不直连 MySQL。
 - **测试纯逻辑**：不连库、不起 HTTP；需要存储时把 `core.db` 换成假存储。
   ⚠️ **假存储只有一份**（`tests/_stub_db.py`），用它的测试文件必须在**导入应用模块之前**调 `install_stub()`
   —— 所有测试跑在同一进程里，两份桩会互相污染。
