@@ -1,0 +1,1750 @@
+{
+  "rows": [
+    {
+      "mode": "direct",
+      "qid": "S1",
+      "kind": "simple",
+      "question": "本地开发时 MySQL 的宿主端口是多少？",
+      "answer": "资料里没有。",
+      "score": 0.0,
+      "total_ms": 27593,
+      "llm_ms": 27593,
+      "planner_ms": 0,
+      "retrieve_ms": 0,
+      "files_read": 0,
+      "context_chars": 0,
+      "prompt_tokens": 58,
+      "completion_tokens": 5,
+      "hit_top": "",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 5,
+        "prompt_tokens": 58,
+        "total_tokens": 63,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 2.34e-05,
+          "allowance": 1.404e-05,
+          "tokens": {
+            "input": 58,
+            "output": 5,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "direct",
+      "qid": "S2",
+      "kind": "simple",
+      "question": "chat-service 监听哪个端口？",
+      "answer": "资料里没有。",
+      "score": 0.0,
+      "total_ms": 633,
+      "llm_ms": 633,
+      "planner_ms": 0,
+      "retrieve_ms": 0,
+      "files_read": 0,
+      "context_chars": 0,
+      "prompt_tokens": 55,
+      "completion_tokens": 5,
+      "hit_top": "",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 5,
+        "prompt_tokens": 55,
+        "total_tokens": 60,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 2.25e-05,
+          "allowance": 1.35e-05,
+          "tokens": {
+            "input": 55,
+            "output": 5,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "direct",
+      "qid": "S3",
+      "kind": "simple",
+      "question": "api-service 的健康检查路径是什么？",
+      "answer": "资料里没有 api-service 健康检查路径的信息。",
+      "score": 0.0,
+      "total_ms": 1403,
+      "llm_ms": 1403,
+      "planner_ms": 0,
+      "retrieve_ms": 0,
+      "files_read": 0,
+      "context_chars": 0,
+      "prompt_tokens": 56,
+      "completion_tokens": 12,
+      "hit_top": "",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 12,
+        "prompt_tokens": 56,
+        "total_tokens": 68,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 3.12e-05,
+          "allowance": 1.872e-05,
+          "tokens": {
+            "input": 56,
+            "output": 12,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "direct",
+      "qid": "S4",
+      "kind": "simple",
+      "question": "scheduler 的运行态写进哪个文件？",
+      "answer": "资料里没有。",
+      "score": 0.0,
+      "total_ms": 806,
+      "llm_ms": 806,
+      "planner_ms": 0,
+      "retrieve_ms": 0,
+      "files_read": 0,
+      "context_chars": 0,
+      "prompt_tokens": 58,
+      "completion_tokens": 5,
+      "hit_top": "",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 5,
+        "prompt_tokens": 58,
+        "total_tokens": 63,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 2.34e-05,
+          "allowance": 1.404e-05,
+          "tokens": {
+            "input": 58,
+            "output": 5,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "direct",
+      "qid": "C1",
+      "kind": "complex",
+      "question": "scheduler 为什么独立成进程？它和 api 通过哪三个文件交换？分别谁写谁读？",
+      "answer": "资料里没有说明 scheduler 独立成进程的原因；只提到它与 api 通过 `scheduler_request.json`、`scheduler_response.json`、`scheduler_heartbeat.json` 三个文件交换，但未说明各文件由谁写谁读。",
+      "score": 0.25,
+      "total_ms": 789,
+      "llm_ms": 789,
+      "planner_ms": 0,
+      "retrieve_ms": 0,
+      "files_read": 0,
+      "context_chars": 0,
+      "prompt_tokens": 72,
+      "completion_tokens": 56,
+      "hit_top": "",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 56,
+        "prompt_tokens": 72,
+        "total_tokens": 128,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 8.88e-05,
+          "allowance": 5.328e-05,
+          "tokens": {
+            "input": 72,
+            "output": 56,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "direct",
+      "qid": "C2",
+      "kind": "complex",
+      "question": "JWT 角色有哪三档？两道门分别是什么？",
+      "answer": "资料里没有提到 JWT 角色分档和“两道门”的具体内容。",
+      "score": 0.25,
+      "total_ms": 1344,
+      "llm_ms": 1344,
+      "planner_ms": 0,
+      "retrieve_ms": 0,
+      "files_read": 0,
+      "context_chars": 0,
+      "prompt_tokens": 62,
+      "completion_tokens": 19,
+      "hit_top": "",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 19,
+        "prompt_tokens": 62,
+        "total_tokens": 81,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 4.14e-05,
+          "allowance": 2.484e-05,
+          "tokens": {
+            "input": 62,
+            "output": 19,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "direct",
+      "qid": "C3",
+      "kind": "complex",
+      "question": "消息中心的可见范围由哪两个字段决定？已读记录在哪张表？",
+      "answer": "消息中心的可见范围由 `target_type` 和 `target_id` 两个字段决定；已读记录在 `message_read` 表。",
+      "score": 0.0,
+      "total_ms": 1441,
+      "llm_ms": 1441,
+      "planner_ms": 0,
+      "retrieve_ms": 0,
+      "files_read": 0,
+      "context_chars": 0,
+      "prompt_tokens": 65,
+      "completion_tokens": 32,
+      "hit_top": "",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 32,
+        "prompt_tokens": 65,
+        "total_tokens": 97,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 5.79e-05,
+          "allowance": 3.474e-05,
+          "tokens": {
+            "input": 65,
+            "output": 32,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "direct",
+      "qid": "C4",
+      "kind": "complex",
+      "question": "chat-service 的索引目录和集合名前缀是什么？为什么它要单独一个容器？",
+      "answer": "资料中没有 chat-service 的索引目录和集合名前缀信息。关于单独容器的原因，资料也未说明。",
+      "score": 0.0,
+      "total_ms": 709,
+      "llm_ms": 709,
+      "planner_ms": 0,
+      "retrieve_ms": 0,
+      "files_read": 0,
+      "context_chars": 0,
+      "prompt_tokens": 67,
+      "completion_tokens": 25,
+      "hit_top": "",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 25,
+        "prompt_tokens": 67,
+        "total_tokens": 92,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 5.01e-05,
+          "allowance": 3.006e-05,
+          "tokens": {
+            "input": 67,
+            "output": 25,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "file_agent",
+      "qid": "S1",
+      "kind": "simple",
+      "question": "本地开发时 MySQL 的宿主端口是多少？",
+      "answer": "本地开发时 MySQL 的宿主端口是 **3309**（`127.0.0.1:3309`），容器内则走编排内网 `comic-mysql:3306`。",
+      "score": 1.0,
+      "total_ms": 860,
+      "llm_ms": 848,
+      "planner_ms": 0,
+      "retrieve_ms": 11,
+      "files_read": 3,
+      "context_chars": 13558,
+      "prompt_tokens": 6258,
+      "completion_tokens": 45,
+      "hit_top": "docs/deploy.md",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 45,
+        "prompt_tokens": 6258,
+        "total_tokens": 6303,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0019314,
+          "allowance": 0.00115884,
+          "tokens": {
+            "input": 6258,
+            "output": 45,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "file_agent",
+      "qid": "S2",
+      "kind": "simple",
+      "question": "chat-service 监听哪个端口？",
+      "answer": "chat-service 默认监听 8001 端口（`COMIC_CHAT_PORT` 默认 8001），容器内 host 为 `0.0.0.0`。",
+      "score": 1.0,
+      "total_ms": 1082,
+      "llm_ms": 1077,
+      "planner_ms": 0,
+      "retrieve_ms": 5,
+      "files_read": 3,
+      "context_chars": 12635,
+      "prompt_tokens": 6102,
+      "completion_tokens": 40,
+      "hit_top": "chat-service/NOTES.md",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 40,
+        "prompt_tokens": 6102,
+        "total_tokens": 6142,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0018786,
+          "allowance": 0.00112716,
+          "tokens": {
+            "input": 6102,
+            "output": 40,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "file_agent",
+      "qid": "S3",
+      "kind": "simple",
+      "question": "api-service 的健康检查路径是什么？",
+      "answer": "资料里没有 api-service 的健康检查路径。",
+      "score": 0.0,
+      "total_ms": 1557,
+      "llm_ms": 1541,
+      "planner_ms": 0,
+      "retrieve_ms": 16,
+      "files_read": 3,
+      "context_chars": 13598,
+      "prompt_tokens": 5808,
+      "completion_tokens": 11,
+      "hit_top": "api-service/openapi.json",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 11,
+        "prompt_tokens": 5808,
+        "total_tokens": 5819,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0017556,
+          "allowance": 0.00105336,
+          "tokens": {
+            "input": 5808,
+            "output": 11,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "file_agent",
+      "qid": "S4",
+      "kind": "simple",
+      "question": "scheduler 的运行态写进哪个文件？",
+      "answer": "运行态写进运行时数据目录 `<data>/` 下的 `schedule_state.json`，由 comic-scheduler 进程写、api 读取用于页面展示。",
+      "score": 1.0,
+      "total_ms": 898,
+      "llm_ms": 891,
+      "planner_ms": 0,
+      "retrieve_ms": 7,
+      "files_read": 3,
+      "context_chars": 13061,
+      "prompt_tokens": 6334,
+      "completion_tokens": 36,
+      "hit_top": "comic-scheduler/README.md",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 36,
+        "prompt_tokens": 6334,
+        "total_tokens": 6370,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0019434,
+          "allowance": 0.00116604,
+          "tokens": {
+            "input": 6334,
+            "output": 36,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "file_agent",
+      "qid": "C1",
+      "kind": "complex",
+      "question": "scheduler 为什么独立成进程？它和 api 通过哪三个文件交换？分别谁写谁读？",
+      "answer": "scheduler 独立成进程是为了让采集与接口生命周期解耦，可单独重启、扩缩和看日志，不再随 api 生死。它和 api 只通过 `<data>/` 下三个文件交换：`schedule.json`（api 写、scheduler 读）、`schedule_state.json`（scheduler 写、api 读）、`schedule_run_now.json`（api 写、scheduler 读到即删）。",
+      "score": 1.0,
+      "total_ms": 1319,
+      "llm_ms": 1306,
+      "planner_ms": 0,
+      "retrieve_ms": 12,
+      "files_read": 3,
+      "context_chars": 12184,
+      "prompt_tokens": 5620,
+      "completion_tokens": 98,
+      "hit_top": "knowledge-mcp/NOTES.md",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 98,
+        "prompt_tokens": 5620,
+        "total_tokens": 5718,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0018036,
+          "allowance": 0.00108216,
+          "tokens": {
+            "input": 5620,
+            "output": 98,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "file_agent",
+      "qid": "C2",
+      "kind": "complex",
+      "question": "JWT 角色有哪三档？两道门分别是什么？",
+      "answer": "角色三档：`superadmin`（超管，全库唯一）、`admin`（普通管理员）、`user`（普通用户，默认）。两道门是 `require_admin`（管理台与日志，超管+普通管理员）和 `require_superadmin`（授权页，仅超管）。角色不写进 token，每请求查库，改完立刻生效。",
+      "score": 1.0,
+      "total_ms": 1093,
+      "llm_ms": 1086,
+      "planner_ms": 0,
+      "retrieve_ms": 7,
+      "files_read": 3,
+      "context_chars": 13583,
+      "prompt_tokens": 5841,
+      "completion_tokens": 83,
+      "hit_top": "docs/auth.md",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 83,
+        "prompt_tokens": 5841,
+        "total_tokens": 5924,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0018519,
+          "allowance": 0.00111114,
+          "tokens": {
+            "input": 5841,
+            "output": 83,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "file_agent",
+      "qid": "C3",
+      "kind": "complex",
+      "question": "消息中心的可见范围由哪两个字段决定？已读记录在哪张表？",
+      "answer": "可见范围由 `message` 表的 `to_user_id`（定向收件人，NULL 表示不限人）和 `min_role`（最低可见角色，空表示所有登录用户）两个字段共同决定，两者同时成立才可见。已读记录存在 `message_read` 表，一行表示某账号读过某条消息，按账号各一份。",
+      "score": 1.0,
+      "total_ms": 1322,
+      "llm_ms": 1302,
+      "planner_ms": 0,
+      "retrieve_ms": 19,
+      "files_read": 3,
+      "context_chars": 13594,
+      "prompt_tokens": 5368,
+      "completion_tokens": 78,
+      "hit_top": "comic-core/sql/mysql_schema.sql",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 78,
+        "prompt_tokens": 5368,
+        "total_tokens": 5446,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.001704,
+          "allowance": 0.0010224,
+          "tokens": {
+            "input": 5368,
+            "output": 78,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "file_agent",
+      "qid": "C4",
+      "kind": "complex",
+      "question": "chat-service 的索引目录和集合名前缀是什么？为什么它要单独一个容器？",
+      "answer": "索引目录由 `COMIC_CHAT_INDEX_DIR` 指定（默认 `DATA_ROOT/rag_lab`，容器里必须设成 `/data/rag_lab`）；集合名是 `comic_kb_ae18b7`，资料里没提「集合名前缀」这个说法。单独拆容器是因为 langchain/chromadb/fastembed 会拉进 80+ 依赖、镜像涨 400MB 以上，bge 模型常驻 300~500MB 且被 OOM 会拖垮整站，拆开还能故障隔离。",
+      "score": 0.5,
+      "total_ms": 1453,
+      "llm_ms": 1437,
+      "planner_ms": 0,
+      "retrieve_ms": 15,
+      "files_read": 3,
+      "context_chars": 12635,
+      "prompt_tokens": 6114,
+      "completion_tokens": 125,
+      "hit_top": "chat-service/src/comic_chat/rag/README.md",
+      "hit_heading": "",
+      "usage": {
+        "completion_tokens": 125,
+        "prompt_tokens": 6114,
+        "total_tokens": 6239,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0019842,
+          "allowance": 0.00119052,
+          "tokens": {
+            "input": 6114,
+            "output": 125,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_single",
+      "qid": "S1",
+      "kind": "simple",
+      "question": "本地开发时 MySQL 的宿主端口是多少？",
+      "answer": "本地开发时 MySQL 的宿主端口默认是 **3309**（`MYSQL_HOST_PORT` / `COMIC_MYSQL_PORT` 默认值），容器内仍走编排内网 `comic-mysql:3306`。",
+      "score": 1.0,
+      "total_ms": 1926,
+      "llm_ms": 1877,
+      "planner_ms": 0,
+      "retrieve_ms": 47,
+      "files_read": 3,
+      "context_chars": 8480,
+      "prompt_tokens": 4105,
+      "completion_tokens": 53,
+      "hit_top": "deploy/README.md",
+      "hit_heading": "几个不显然的点",
+      "usage": {
+        "completion_tokens": 53,
+        "prompt_tokens": 4105,
+        "total_tokens": 4158,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0012951,
+          "allowance": 0.00077706,
+          "tokens": {
+            "input": 4105,
+            "output": 53,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_single",
+      "qid": "S2",
+      "kind": "simple",
+      "question": "chat-service 监听哪个端口？",
+      "answer": "chat-service 监听 8001 端口，同一 `backend` 网络内的容器可通过 `http://comic-chat:8001` 访问。它不映射宿主端口，因为该服务本身没有任何鉴权。",
+      "score": 1.0,
+      "total_ms": 3743,
+      "llm_ms": 3701,
+      "planner_ms": 0,
+      "retrieve_ms": 39,
+      "files_read": 3,
+      "context_chars": 2244,
+      "prompt_tokens": 999,
+      "completion_tokens": 48,
+      "hit_top": "chat-service/README.md",
+      "hit_heading": "架构位置",
+      "usage": {
+        "completion_tokens": 48,
+        "prompt_tokens": 999,
+        "total_tokens": 1047,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0003573,
+          "allowance": 0.00021438,
+          "tokens": {
+            "input": 999,
+            "output": 48,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_single",
+      "qid": "S3",
+      "kind": "simple",
+      "question": "api-service 的健康检查路径是什么？",
+      "answer": "资料里没有 api-service 自身的健康检查路径；只提到 chat-service 有 `GET /health`，以及 api-service 的 `routers/public.py` 包含「健康」接口，但未给出具体路径。",
+      "score": 0.0,
+      "total_ms": 968,
+      "llm_ms": 919,
+      "planner_ms": 0,
+      "retrieve_ms": 46,
+      "files_read": 3,
+      "context_chars": 5585,
+      "prompt_tokens": 2648,
+      "completion_tokens": 49,
+      "hit_top": "chat-service/README.md",
+      "hit_heading": "接口",
+      "usage": {
+        "completion_tokens": 49,
+        "prompt_tokens": 2648,
+        "total_tokens": 2697,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0008532,
+          "allowance": 0.00051192,
+          "tokens": {
+            "input": 2648,
+            "output": 49,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_single",
+      "qid": "S4",
+      "kind": "simple",
+      "question": "scheduler 的运行态写进哪个文件？",
+      "answer": "运行态写进 `<data>/schedule_state.json`，由 scheduler 进程写、api 读取，内容含 running、上次结果、本轮源、心跳和 cron 错误。",
+      "score": 1.0,
+      "total_ms": 1200,
+      "llm_ms": 1155,
+      "planner_ms": 0,
+      "retrieve_ms": 43,
+      "files_read": 3,
+      "context_chars": 2180,
+      "prompt_tokens": 1040,
+      "completion_tokens": 40,
+      "hit_top": "comic-scheduler/README.md",
+      "hit_heading": "与 api 的分工：只通过三个文件交换",
+      "usage": {
+        "completion_tokens": 40,
+        "prompt_tokens": 1040,
+        "total_tokens": 1080,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.00036,
+          "allowance": 0.000216,
+          "tokens": {
+            "input": 1040,
+            "output": 40,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_single",
+      "qid": "C1",
+      "kind": "complex",
+      "question": "scheduler 为什么独立成进程？它和 api 通过哪三个文件交换？分别谁写谁读？",
+      "answer": "scheduler 独立成进程是为了让采集与 api 生命周期解耦：此前它是 api 内的后台线程，api 重启会中断定时采集，且采集负载与请求处理抢同一进程；独立后可单独重启、扩缩、看日志。它和 api 只通过 `<data>/` 下三个文件交换：`schedule.json`（api 写、scheduler 读）、`schedule_state.json`（scheduler 写、api 读）、`schedule_run_now.json`（api 写、scheduler 读到即删）。核心约定是一个文件一个写者，避免两进程同时写同一 JSON 互相截断。",
+      "score": 1.0,
+      "total_ms": 2011,
+      "llm_ms": 1963,
+      "planner_ms": 0,
+      "retrieve_ms": 46,
+      "files_read": 3,
+      "context_chars": 1842,
+      "prompt_tokens": 960,
+      "completion_tokens": 140,
+      "hit_top": "comic-scheduler/README.md",
+      "hit_heading": "与 api 的分工：只通过三个文件交换",
+      "usage": {
+        "completion_tokens": 140,
+        "prompt_tokens": 960,
+        "total_tokens": 1100,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 256,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.00038074,
+          "allowance": 0.00022844,
+          "tokens": {
+            "input": 704,
+            "output": 140,
+            "reasoning": 0,
+            "cache_read": 256,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_single",
+      "qid": "C2",
+      "kind": "complex",
+      "question": "JWT 角色有哪三档？两道门分别是什么？",
+      "answer": "三档角色是 `superadmin`（超管，全库唯一）、`admin`（普通管理员）和 `user`（默认普通用户）。两道门指后端 `require_admin`（管理台/日志，超管+管理员）和 `require_superadmin`（授权页，仅超管）。",
+      "score": 1.0,
+      "total_ms": 1000,
+      "llm_ms": 953,
+      "planner_ms": 0,
+      "retrieve_ms": 44,
+      "files_read": 3,
+      "context_chars": 2771,
+      "prompt_tokens": 1557,
+      "completion_tokens": 67,
+      "hit_top": "docs/auth.md",
+      "hit_heading": "8.1 三档角色",
+      "usage": {
+        "completion_tokens": 67,
+        "prompt_tokens": 1557,
+        "total_tokens": 1624,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0005475,
+          "allowance": 0.0003285,
+          "tokens": {
+            "input": 1557,
+            "output": 67,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_single",
+      "qid": "C3",
+      "kind": "complex",
+      "question": "消息中心的可见范围由哪两个字段决定？已读记录在哪张表？",
+      "answer": "可见范围由 `message` 表的 `to_user_id`（定向收件人，NULL 为不限人）和 `min_role`（最低可见角色，空为所有登录用户）两个字段共同决定。已读记录在 `message_read` 表，按 `(message_id, user_id)` 唯一，一行表示某账号读过某条消息。",
+      "score": 1.0,
+      "total_ms": 1327,
+      "llm_ms": 1280,
+      "planner_ms": 0,
+      "retrieve_ms": 44,
+      "files_read": 3,
+      "context_chars": 2920,
+      "prompt_tokens": 1145,
+      "completion_tokens": 79,
+      "hit_top": "comic-core/sql/mysql_schema.sql",
+      "hit_heading": "message_read",
+      "usage": {
+        "completion_tokens": 79,
+        "prompt_tokens": 1145,
+        "total_tokens": 1224,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0004383,
+          "allowance": 0.00026298,
+          "tokens": {
+            "input": 1145,
+            "output": 79,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_single",
+      "qid": "C4",
+      "kind": "complex",
+      "question": "chat-service 的索引目录和集合名前缀是什么？为什么它要单独一个容器？",
+      "answer": "索引目录由 `COMIC_CHAT_INDEX_DIR` 指定，容器里必须设成 `/data/rag_lab`，否则会写到不可写位置且不报错。集合名前缀资料里没有。单独拆容器是因为 langchain/chromadb/fastembed 会拉进 80+ 传递依赖、镜像涨 400MB 以上，bge 模型常驻 300~500MB 且被 OOM 会拖垮整站，拆开可做故障隔离。",
+      "score": 0.0,
+      "total_ms": 1284,
+      "llm_ms": 1241,
+      "planner_ms": 0,
+      "retrieve_ms": 42,
+      "files_read": 3,
+      "context_chars": 1729,
+      "prompt_tokens": 911,
+      "completion_tokens": 108,
+      "hit_top": "chat-service/NOTES.md",
+      "hit_heading": "2. `DATA_ROOT` 在容器里会算到不可写的位置",
+      "usage": {
+        "completion_tokens": 108,
+        "prompt_tokens": 911,
+        "total_tokens": 1019,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0004029,
+          "allowance": 0.00024174,
+          "tokens": {
+            "input": 911,
+            "output": 108,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_agent",
+      "qid": "S1",
+      "kind": "simple",
+      "question": "本地开发时 MySQL 的宿主端口是多少？",
+      "answer": "本地开发直连宿主 `127.0.0.1:3309`（comic-mysql 的宿主端口，避开 3307 上其它系统）。",
+      "score": 1.0,
+      "total_ms": 2519,
+      "llm_ms": 1528,
+      "planner_ms": 945,
+      "retrieve_ms": 43,
+      "files_read": 3,
+      "context_chars": 9148,
+      "prompt_tokens": 4232,
+      "completion_tokens": 37,
+      "hit_top": "deploy/README.md",
+      "hit_heading": "几个不显然的点",
+      "usage": {
+        "completion_tokens": 37,
+        "prompt_tokens": 4232,
+        "total_tokens": 4269,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 3200,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0003732,
+          "allowance": 0.00022392,
+          "tokens": {
+            "input": 1032,
+            "output": 37,
+            "reasoning": 0,
+            "cache_read": 3200,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_agent",
+      "qid": "S2",
+      "kind": "simple",
+      "question": "chat-service 监听哪个端口？",
+      "answer": "chat-service 监听 8001 端口，同一 `backend` 网络内的容器可通过 `http://comic-chat:8001` 访问。它不映射宿主端口，因为该服务没有任何鉴权。",
+      "score": 1.0,
+      "total_ms": 1369,
+      "llm_ms": 824,
+      "planner_ms": 499,
+      "retrieve_ms": 43,
+      "files_read": 3,
+      "context_chars": 2701,
+      "prompt_tokens": 1123,
+      "completion_tokens": 47,
+      "hit_top": "chat-service/README.md",
+      "hit_heading": "架构位置",
+      "usage": {
+        "completion_tokens": 47,
+        "prompt_tokens": 1123,
+        "total_tokens": 1170,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 256,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.00031804,
+          "allowance": 0.00019082,
+          "tokens": {
+            "input": 867,
+            "output": 47,
+            "reasoning": 0,
+            "cache_read": 256,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_agent",
+      "qid": "S3",
+      "kind": "simple",
+      "question": "api-service 的健康检查路径是什么？",
+      "answer": "资料里没有 api-service 健康检查的具体路径；只提到 `routers/public.py` 含「健康」接口（免登录），以及 chat-service 有 `GET /health`。",
+      "score": 0.0,
+      "total_ms": 2503,
+      "llm_ms": 751,
+      "planner_ms": 1708,
+      "retrieve_ms": 41,
+      "files_read": 3,
+      "context_chars": 3246,
+      "prompt_tokens": 1444,
+      "completion_tokens": 42,
+      "hit_top": "api-service/README.md",
+      "hit_heading": "模块架构",
+      "usage": {
+        "completion_tokens": 42,
+        "prompt_tokens": 1444,
+        "total_tokens": 1486,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0004836,
+          "allowance": 0.00029016,
+          "tokens": {
+            "input": 1444,
+            "output": 42,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_agent",
+      "qid": "S4",
+      "kind": "simple",
+      "question": "scheduler 的运行态写进哪个文件？",
+      "answer": "运行态写进 `<data>/schedule_state.json`，由 scheduler 进程写、api 读取用于页面展示。",
+      "score": 1.0,
+      "total_ms": 1862,
+      "llm_ms": 1287,
+      "planner_ms": 530,
+      "retrieve_ms": 41,
+      "files_read": 3,
+      "context_chars": 2180,
+      "prompt_tokens": 1040,
+      "completion_tokens": 27,
+      "hit_top": "comic-scheduler/README.md",
+      "hit_heading": "与 api 的分工：只通过三个文件交换",
+      "usage": {
+        "completion_tokens": 27,
+        "prompt_tokens": 1040,
+        "total_tokens": 1067,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 1024,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 4.334e-05,
+          "allowance": 2.601e-05,
+          "tokens": {
+            "input": 16,
+            "output": 27,
+            "reasoning": 0,
+            "cache_read": 1024,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_agent",
+      "qid": "C1",
+      "kind": "complex",
+      "question": "scheduler 为什么独立成进程？它和 api 通过哪三个文件交换？分别谁写谁读？",
+      "answer": "独立成进程是为了让采集与接口生命周期解耦：此前执行器是 api 里的后台线程，api 重启会中断定时采集，且采集负载与请求处理抢同一进程。三个文件都在 `<data>/` 下：`schedule.json` 由 api 写、scheduler 读；`schedule_state.json` 由 scheduler 写、api 读；`schedule_run_now.json` 由 api 写、scheduler 读到即删。",
+      "score": 1.0,
+      "total_ms": 2048,
+      "llm_ms": 1226,
+      "planner_ms": 776,
+      "retrieve_ms": 44,
+      "files_read": 3,
+      "context_chars": 1842,
+      "prompt_tokens": 960,
+      "completion_tokens": 103,
+      "hit_top": "comic-scheduler/README.md",
+      "hit_heading": "与 api 的分工：只通过三个文件交换",
+      "usage": {
+        "completion_tokens": 103,
+        "prompt_tokens": 960,
+        "total_tokens": 1063,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 896,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.00014818,
+          "allowance": 8.891e-05,
+          "tokens": {
+            "input": 64,
+            "output": 103,
+            "reasoning": 0,
+            "cache_read": 896,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_agent",
+      "qid": "C2",
+      "kind": "complex",
+      "question": "JWT 角色有哪三档？两道门分别是什么？",
+      "answer": "三档角色是 `superadmin`（超管，唯一）、`admin`（普通管理员）和 `user`（默认普通用户）。两道门指后端 `require_admin`（管理台/日志，超管+管理员）和 `require_superadmin`（授权页，仅超管）。",
+      "score": 1.0,
+      "total_ms": 1542,
+      "llm_ms": 960,
+      "planner_ms": 535,
+      "retrieve_ms": 44,
+      "files_read": 3,
+      "context_chars": 2087,
+      "prompt_tokens": 1137,
+      "completion_tokens": 65,
+      "hit_top": "docs/auth.md",
+      "hit_heading": "8.3 鉴权怎么落（两道门 + 三条硬规则）",
+      "usage": {
+        "completion_tokens": 65,
+        "prompt_tokens": 1137,
+        "total_tokens": 1202,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 0,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.0004191,
+          "allowance": 0.00025146,
+          "tokens": {
+            "input": 1137,
+            "output": 65,
+            "reasoning": 0,
+            "cache_read": 0,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_agent",
+      "qid": "C3",
+      "kind": "complex",
+      "question": "消息中心的可见范围由哪两个字段决定？已读记录在哪张表？",
+      "answer": "可见范围由 `message.to_user_id`（定向收件人，NULL 为不限人）和 `message.min_role`（最低可见角色，空为所有登录用户）两个字段决定。已读记录在 `message_read` 表，按 `(message_id, user_id)` 唯一，一行表示某账号读过某条消息。",
+      "score": 1.0,
+      "total_ms": 1971,
+      "llm_ms": 952,
+      "planner_ms": 972,
+      "retrieve_ms": 45,
+      "files_read": 3,
+      "context_chars": 2920,
+      "prompt_tokens": 1145,
+      "completion_tokens": 75,
+      "hit_top": "comic-core/sql/mysql_schema.sql",
+      "hit_heading": "message_read",
+      "usage": {
+        "completion_tokens": 75,
+        "prompt_tokens": 1145,
+        "total_tokens": 1220,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 1024,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.00013244,
+          "allowance": 7.947e-05,
+          "tokens": {
+            "input": 121,
+            "output": 75,
+            "reasoning": 0,
+            "cache_read": 1024,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    },
+    {
+      "mode": "mcp_agent",
+      "qid": "C4",
+      "kind": "complex",
+      "question": "chat-service 的索引目录和集合名前缀是什么？为什么它要单独一个容器？",
+      "answer": "索引目录由 `COMIC_CHAT_INDEX_DIR` 指定，默认 `DATA_ROOT/rag_lab`，容器里必须设成 `/data/rag_lab`；集合名前缀资料里没有。至于为什么单独一个容器，资料里没有说明。",
+      "score": 0.0,
+      "total_ms": 2247,
+      "llm_ms": 1226,
+      "planner_ms": 971,
+      "retrieve_ms": 47,
+      "files_read": 3,
+      "context_chars": 2362,
+      "prompt_tokens": 1103,
+      "completion_tokens": 57,
+      "hit_top": "chat-service/NOTES.md",
+      "hit_heading": "2. `DATA_ROOT` 在容器里会算到不可写的位置",
+      "usage": {
+        "completion_tokens": 57,
+        "prompt_tokens": 1103,
+        "total_tokens": 1160,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": null,
+          "audio_tokens": null,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": null,
+          "text_tokens": null
+        },
+        "prompt_tokens_details": {
+          "audio_tokens": null,
+          "cache_write_tokens": null,
+          "cached_tokens": 640,
+          "image_tokens": null,
+          "text_tokens": null
+        },
+        "cost": 0,
+        "opencode": {
+          "billing_source": "go",
+          "list_cost": 0.00021114,
+          "allowance": 0.00012668,
+          "tokens": {
+            "input": 463,
+            "output": 57,
+            "reasoning": 0,
+            "cache_read": 640,
+            "cache_write_5m": 0,
+            "cache_write_1h": 0
+          }
+        }
+      }
+    }
+  ],
+  "aggregate": [
+    {
+      "mode": "direct",
+      "kind": "complex",
+      "n": 4,
+      "avg_total_ms": 1071,
+      "p50_total_ms": 1066,
+      "avg_llm_ms": 1071,
+      "avg_retrieve_ms": 0,
+      "avg_files": 0,
+      "avg_context_chars": 0,
+      "avg_prompt_tokens": 66,
+      "avg_completion_tokens": 33,
+      "avg_score": 0.12
+    },
+    {
+      "mode": "direct",
+      "kind": "simple",
+      "n": 4,
+      "avg_total_ms": 7609,
+      "p50_total_ms": 1104,
+      "avg_llm_ms": 7609,
+      "avg_retrieve_ms": 0,
+      "avg_files": 0,
+      "avg_context_chars": 0,
+      "avg_prompt_tokens": 57,
+      "avg_completion_tokens": 7,
+      "avg_score": 0.0
+    },
+    {
+      "mode": "file_agent",
+      "kind": "complex",
+      "n": 4,
+      "avg_total_ms": 1297,
+      "p50_total_ms": 1320,
+      "avg_llm_ms": 1283,
+      "avg_retrieve_ms": 13,
+      "avg_files": 3,
+      "avg_context_chars": 12999,
+      "avg_prompt_tokens": 5736,
+      "avg_completion_tokens": 96,
+      "avg_score": 0.88
+    },
+    {
+      "mode": "file_agent",
+      "kind": "simple",
+      "n": 4,
+      "avg_total_ms": 1099,
+      "p50_total_ms": 990,
+      "avg_llm_ms": 1089,
+      "avg_retrieve_ms": 10,
+      "avg_files": 3,
+      "avg_context_chars": 13213,
+      "avg_prompt_tokens": 6126,
+      "avg_completion_tokens": 33,
+      "avg_score": 0.75
+    },
+    {
+      "mode": "mcp_agent",
+      "kind": "complex",
+      "n": 4,
+      "avg_total_ms": 1952,
+      "p50_total_ms": 2010,
+      "avg_llm_ms": 1091,
+      "avg_retrieve_ms": 45,
+      "avg_files": 3,
+      "avg_context_chars": 2303,
+      "avg_prompt_tokens": 1086,
+      "avg_completion_tokens": 75,
+      "avg_score": 0.75
+    },
+    {
+      "mode": "mcp_agent",
+      "kind": "simple",
+      "n": 4,
+      "avg_total_ms": 2063,
+      "p50_total_ms": 2182,
+      "avg_llm_ms": 1098,
+      "avg_retrieve_ms": 42,
+      "avg_files": 3,
+      "avg_context_chars": 4319,
+      "avg_prompt_tokens": 1960,
+      "avg_completion_tokens": 38,
+      "avg_score": 0.75
+    },
+    {
+      "mode": "mcp_single",
+      "kind": "complex",
+      "n": 4,
+      "avg_total_ms": 1406,
+      "p50_total_ms": 1306,
+      "avg_llm_ms": 1359,
+      "avg_retrieve_ms": 44,
+      "avg_files": 3,
+      "avg_context_chars": 2316,
+      "avg_prompt_tokens": 1143,
+      "avg_completion_tokens": 98,
+      "avg_score": 0.75
+    },
+    {
+      "mode": "mcp_single",
+      "kind": "simple",
+      "n": 4,
+      "avg_total_ms": 1959,
+      "p50_total_ms": 1563,
+      "avg_llm_ms": 1913,
+      "avg_retrieve_ms": 44,
+      "avg_files": 3,
+      "avg_context_chars": 4622,
+      "avg_prompt_tokens": 2198,
+      "avg_completion_tokens": 48,
+      "avg_score": 0.75
+    }
+  ]
+}

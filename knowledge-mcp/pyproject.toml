@@ -1,0 +1,28 @@
+# 项目知识库 MCP 服务（stdio）
+#
+# 产物：pip wheel --no-deps -w dist .
+# 本地开发不安装本包：靠 PYTHONPATH 指到 src，见 README。
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comic-knowledge-mcp"
+version = "0.1.0"
+description = "聚漫画项目知识库 RAG · MCP stdio 服务"
+requires-python = ">=3.13"
+dependencies = [
+    # 仓库内本地包：开发态用 PYTHONPATH，打包时从本地 wheel 目录解析。
+    "comic-core>=1.0.0",
+    "comic-chat>=1.0.0",
+    # 官方 MCP Python SDK（FastMCP）。
+    "mcp>=1.2,<2",
+]
+
+[project.scripts]
+comic-knowledge-mcp = "comic_rag_mcp.__main__:main"
+comic-knowledge-cli = "comic_rag_mcp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["comic_rag_mcp*"]
