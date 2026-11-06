@@ -13,6 +13,7 @@ comic/
 ├── crawler-service/   # 采集 · 存储 · 图床（Python；L0 内核 / L1 契约 / L2 实现）
 ├── comic-scheduler/   # 定时任务执行器（**独立进程**：读管理台 cron → 跑采集 → 写运行态）
 ├── chat-service/      # RAG 客服（**独立进程** :8001，LangChain + Chroma；api 只做鉴权 + 转发）
+├── knowledge-mcp/     # 项目知识库 RAG（MCP stdio；只读检索，不对外）
 ├── api-service/       # 对外 REST API（FastAPI :8000）—— Docker 里是**纯 API**（同源托管仅本地直跑时生效）
 ├── comic-web/         # 前端 · 纯 Vue3 + Vite（H5 :5173，移动 / 网页双形态）—— 与 comic-front 功能等价
 ├── comic-front/       # 前端 · uni-app（H5 :5174，移动 / 网页双形态）—— 与 comic-web 功能等价
@@ -29,6 +30,7 @@ comic/
 | `crawler-service/` | 采集源站 → 判重入库 → 图片懒转存 / 巡检；提供 CLI，并被 api-service **在进程内**调用 | `crawler-service/README.md` ｜ 各源见 `sources/<源名>/README.md` |
 | `comic-scheduler/` | **定时任务执行器**（独立进程）：读管理台配的 cron，到点对选中的数据源跑采集，运行态写回文件供页面展示 | `comic-scheduler/README.md` |
 | `chat-service/` | **RAG 客服**（独立进程 :8001）：FAQ + 作品简介向量检索 → 拼 prompt → 模型回答；不认人，只认问题 | `chat-service/README.md` ｜ 内核见 `src/comic_chat/rag/README.md` |
+| `knowledge-mcp/` | 项目知识库 RAG（MCP stdio）：README / NOTES / docs / schema / OpenAPI 向量检索 + `message` 表独立索引；只读，供 Agent 调 | `knowledge-mcp/README.md` |
 | `api-service/` | 对外 REST API + 管理台后台任务；图片读取与占位图 | `api-service/README.md` |
 | `comic-web/` | 纯 Vue3 + Vite 版（与 comic-front 功能等价，2026-10-14 由后者迁移） | `comic-web/README.md` |
 | `comic-front/` | uni-app 版（与 comic-web 功能等价）；靠 `src/utils/*` 兼容层保持平台无关 | `comic-front/README.md` |
@@ -61,6 +63,7 @@ comic/
 - **前端 · comic-front**：`cd comic-front && npm run dev:h5`（:5174）；构建 `build:h5`（详见其 README）
 - **定时任务执行器**：`cd comic-scheduler && ../crawler-service/.venv/Scripts/python.exe -m comic_scheduler`（即上面那个统一环境；依赖两个本地包，需 `PYTHONPATH=../crawler-service/src;../comic-core/src`；容器里是 `comic-scheduler` 服务，配置页 `/#/admin/schedule`）
 - **RAG 客服**：`bash scripts/dev.sh up chat`（:8001，**独立进程**；容器里是 `comic-chat` 服务，**不映射宿主端口**）。命令行：`cd chat-service && PYTHONPATH="src;../comic-core/src" ../crawler-service/.venv/Scripts/python.exe -m comic_chat.cli {doctor,index,search,ask}`。⚠️ 本地开发要**同时起 api 和 chat**，否则客服接口 503
+- **项目知识库 MCP**：`bash scripts/dev.sh bootstrap knowledge` 补 MCP SDK；`bash scripts/dev.sh knowledge-index` 重建文档 `project_rag`，`bash scripts/dev.sh message-index` 增量建 message 索引（`--full` 全量）；DSH 通过 `knowledge-mcp/run_mcp.py` 拉起 stdio，工具 `search_knowledge` / `read_knowledge` / `knowledge_stats` / `search_messages` / `read_message` / `message_stats`（**只读、不对外**，文档与 message 集合分开，均与 chat 的 `comic_kb_*` 分开）
 - **上线一键**：`bash deploy/up.sh`（**不带参数 = 两个入口都起**，网页端 85 + 移动端 86）/ `--web`（只起网页端）/ `--front`（只起移动端）。只重建某一层：`bash deploy/build.sh --web|--front`。
 - **停止**：**按 PID 停**（起停细节见 `docs/deploy.md` §6）；**禁用 `taskkill /IM python.exe`**（会误伤同机其它 Python 服务）。
 

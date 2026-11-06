@@ -3,17 +3,20 @@
 #
 # 用法：
 #   bash scripts/dev.sh status
-#   bash scripts/dev.sh up api|web|front        # 前台运行（agent 用 run_in_background=true）
-#   bash scripts/dev.sh down api|web|front|all
-#   bash scripts/dev.sh bootstrap               # 手动创建 / 补齐 python 环境（一般不用手动跑）
+#   bash scripts/dev.sh up api|chat|web|front   # 前台运行（agent 用 run_in_background=true）
+#   bash scripts/dev.sh down api|chat|web|front|all
+#   bash scripts/dev.sh bootstrap [chat|knowledge]  # 手动创建 / 补齐 python 环境（一般不用手动跑）
+#   bash scripts/dev.sh knowledge-index         # 重建项目知识库（project_rag）
 #
 # 约定：
 #   - 前端优先标准命令 npm run dev / npm run dev:h5；npm 不可用时自动回退 node 直调 bin
 #     （2026-10-22 复查：npm 已由 WorkBuddy 受管 Node 接管，可正常使用；见 NOTES §2.1）
 #   - python 是**两层、都在项目内**（都进 .gitignore，不碰系统 python）：
 #       `.python/`              基础解释器：官方 CPython（版本见 PY_VERSION），缺了自动下载解压
-#       `crawler-service/.venv` 运行环境：由 `.python` 创建，装三份 requirements
-#     两者都不存在或依赖不全时，`up api` 会自动建齐（见 ensure_python / ensure_env）。
+#       `crawler-service/.venv` 运行环境：由 `.python` 创建，装 core/crawler/api 三份 requirements；
+#                              `up chat` 还会补装 chat-service 的 RAG 依赖（80+ 包，首次较慢）；
+#                              `bootstrap knowledge` 再补 MCP SDK（knowledge-mcp 复用同一套 RAG 依赖）
+#     两者都不存在或依赖不全时，`up api` / `up chat` 会自动建齐（见 ensure_python / ensure_env）。
 #     版本锁 3.13 —— 与线上镜像 python:3.13-slim 对齐，不做自动降级。
 #   - 停止按端口找 PID（taskkill //PID），禁用 taskkill /IM（会误伤同机其他服务）
 set -u
@@ -32,6 +35,9 @@ PY="$VENV/Scripts/python.exe"
 
 # 环境完整性判据：这一组能一起 import 就算齐了，缺一个就补装（比 marker 文件可靠）
 ENV_IMPORTS="fastapi,uvicorn,httpx,parsel,pymysql,cryptography,zhconv,bcrypt,jwt,python_multipart"
+# chat 的 RAG 依赖单独判：只跑 api/web 时不该为它白装 80+ 个包
+CHAT_IMPORTS="langchain,langchain_core,langchain_openai,langchain_chroma,langchain_text_splitters,chromadb,fastembed,dotenv"
+MCP_IMPORTS="mcp"
 PIP_DEFAULT_INDEX="https://mirrors.aliyun.com/pypi/simple"
 
 py_minor()   { "$1" -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null; }
@@ -45,6 +51,10 @@ norm_path()  {
   echo "$p" | sed 's:/*$::'
 }
 venv_home()  { sed -n 's/^home *= *//p' "$1/pyvenv.cfg" 2>/dev/null | tr -d '\r'; }
+# Git Bash 的 /d/x 写给 Windows 原生库（SQLite / fastembed）时，环境变量里要是 D:\x
+winpath() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
+}
 
 # 下载并展开官方 CPython 到 .python/（仅 Windows：nuget 上是官方 Windows 构建）
 # 返回 0=装好 1=失败 2=平台不支持
@@ -142,8 +152,9 @@ ensure_env() {
   fi
   if ! "$py" -c "import $ENV_IMPORTS" >/dev/null 2>&1; then
     echo "[env] 安装依赖（comic-core / crawler-service / api-service）…"
-    "$py" -m pip install -q --disable-pip-version-check -U pip >/dev/null 2>&1 || true
-    "$py" -m pip install -q --disable-pip-version-check \
+    # --no-cache-dir：DSH / 受沙箱的 Windows 会话里，pip 默认缓存在 AppData 下不可写
+    "$py" -m pip install -q --no-cache-dir --disable-pip-version-check -U pip >/dev/null 2>&1 || true
+    "$py" -m pip install -q --no-cache-dir --disable-pip-version-check \
       --index-url "${PIP_INDEX:-$PIP_DEFAULT_INDEX}" \
       -r "$ROOT/comic-core/requirements.txt" \
       -r "$ROOT/crawler-service/requirements.txt" \
@@ -160,6 +171,41 @@ ensure_env() {
   # 顺手清理历史遗留（之前中断留下的 .old-*），失败不影响使用
   rm -rf "$dir".old-* 2>/dev/null || true
   return 0
+}
+
+# ensure_chat_env —— 只补 chat-service 的 RAG 依赖；幂等
+# 不放进 ensure_env：只跑 api/web 的人不该为 langchain/chromadb 白等几分钟。
+ensure_chat_env() {
+  [ -x "$PY" ] || {
+    echo "❌ 运行环境不存在：$VENV（先跑 bash scripts/dev.sh bootstrap）" >&2; return 1; }
+  if "$PY" -c "import $CHAT_IMPORTS" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "[chat] 安装 chat-service 依赖（首次较慢，走 ${PIP_INDEX:-$PIP_DEFAULT_INDEX}）…"
+  "$PY" -m pip install -q --no-cache-dir --disable-pip-version-check \
+    --index-url "${PIP_INDEX:-$PIP_DEFAULT_INDEX}" \
+    -r "$ROOT/chat-service/requirements.txt" || {
+    echo "❌ chat 依赖安装失败（网络 / 源问题；可用 PIP_INDEX=<镜像> 重试）" >&2; return 1; }
+  "$PY" -c "import $CHAT_IMPORTS" >/dev/null 2>&1 || {
+    echo "❌ chat 依赖装完仍不完整，请检查 chat-service/requirements.txt" >&2; return 1; }
+  echo "[chat] ✅ RAG 依赖就绪"
+}
+
+# ensure_mcp_env —— 只补 knowledge-mcp 的 MCP SDK；RAG 依赖复用 chat 的那套。
+ensure_mcp_env() {
+  [ -x "$PY" ] || {
+    echo "❌ 运行环境不存在：$VENV（先跑 bash scripts/dev.sh bootstrap）" >&2; return 1; }
+  if "$PY" -c "import $MCP_IMPORTS" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "[knowledge] 安装 MCP SDK（走 ${PIP_INDEX:-$PIP_DEFAULT_INDEX}）…"
+  "$PY" -m pip install -q --no-cache-dir --disable-pip-version-check \
+    --index-url "${PIP_INDEX:-$PIP_DEFAULT_INDEX}" \
+    -r "$ROOT/knowledge-mcp/requirements.txt" || {
+    echo "❌ MCP SDK 安装失败（网络 / 源问题；可用 PIP_INDEX=<镜像> 重试）" >&2; return 1; }
+  "$PY" -c "import $MCP_IMPORTS" >/dev/null 2>&1 || {
+    echo "❌ MCP SDK 装完仍不可用，请检查 knowledge-mcp/requirements.txt" >&2; return 1; }
+  echo "[knowledge] ✅ MCP SDK 就绪"
 }
 
 port_of() {
@@ -326,9 +372,11 @@ cmd_up() {
     chat)
       # RAG 客服是**独立进程**：它要装 langchain/chromadb/fastembed（80+ 个包），
       # 塞进 api 进程既拖慢启动也跟主站抢内存 —— 见 chat-service/README.md。
+      ensure_env "$VENV" || exit 1
+      PY="$VENV/Scripts/python.exe"; [ -x "$PY" ] || PY="$VENV/bin/python"
+      ensure_chat_env || exit 1
       echo "[chat] 启动 comic-chat → http://127.0.0.1:8001  （日志：logs/chat.log）"
       cd "$ROOT/chat-service" || exit 1
-      PY="$VENV/Scripts/python.exe"; [ -x "$PY" ] || PY="$VENV/bin/python"
       # 两个本地包都要进 path：本模块 src + 公共内核 comic-core/src。
       # ⚠️ 分隔符按平台给：Windows 是分号，Linux/macOS 是冒号 —— 用错了 Python 会把整串
       #    当成一个路径，import comic_core 直接失败。
@@ -336,6 +384,19 @@ cmd_up() {
         MINGW*|MSYS*|CYGWIN*) export PYTHONPATH="src;../comic-core/src" ;;
         *)                    export PYTHONPATH="src:../comic-core/src" ;;
       esac
+      # ⚠️ DSH / 受限 Windows 会话：系统临时目录可能在工作区外且不可写，而 Chroma 的
+      #    Rust SQLite / fastembed 不走 Python tempfile 的 cwd 回退，会报 code 14 / WinError 5。
+      #    统一指到 DATA_ROOT（crawler-service/data，已 gitignore）下的 tmp 与 fastembed 缓存。
+      CHAT_TMP_DIR="$ROOT/crawler-service/data/tmp"
+      CHAT_CACHE_DIR="$ROOT/crawler-service/data/fastembed_cache"
+      mkdir -p "$CHAT_TMP_DIR" "$CHAT_CACHE_DIR" || exit 1
+      export TMP="$(winpath "$CHAT_TMP_DIR")"
+      export TEMP="$TMP"
+      export TMPDIR="$TMP"
+      export FASTEMBED_CACHE_PATH="${FASTEMBED_CACHE_PATH:-$(winpath "$CHAT_CACHE_DIR")}"
+      export COMIC_CHAT_INDEX_DIR="${COMIC_CHAT_INDEX_DIR:-$(winpath "$ROOT/crawler-service/data/rag_lab")}"
+      export HF_HUB_DISABLE_TELEMETRY="${HF_HUB_DISABLE_TELEMETRY:-1}"
+      export ANONYMIZED_TELEMETRY="${ANONYMIZED_TELEMETRY:-False}"
       # 本地只监听回环，不暴露到局域网（容器里才需要 0.0.0.0）
       export COMIC_CHAT_HOST=127.0.0.1 COMIC_CHAT_PORT=8001
       exec "$PY" -m comic_chat >> "$ROOT/logs/chat.log" 2>&1
@@ -363,8 +424,72 @@ cmd_up() {
   esac
 }
 
+cmd_knowledge_index() {
+  ensure_env "$VENV" || exit 1
+  PY="$VENV/Scripts/python.exe"; [ -x "$PY" ] || PY="$VENV/bin/python"
+  ensure_chat_env || exit 1
+
+  local tmp="$ROOT/crawler-service/data/tmp"
+  local cache="$ROOT/crawler-service/data/fastembed_cache"
+  local index="$ROOT/crawler-service/data/project_rag"
+  mkdir -p "$tmp" "$cache" "$index" || exit 1
+  export TMP="$(winpath "$tmp")"
+  export TEMP="$TMP"
+  export TMPDIR="$TMP"
+  export FASTEMBED_CACHE_PATH="$(winpath "$cache")"
+  export COMIC_RAG_ROOT="$(winpath "$ROOT")"
+  export COMIC_RAG_INDEX_DIR="$(winpath "$index")"
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) export PYTHONPATH="knowledge-mcp/src;chat-service/src;comic-core/src" ;;
+    *)                    export PYTHONPATH="knowledge-mcp/src:chat-service/src:comic-core/src" ;;
+  esac
+  cd "$ROOT" || exit 1
+  exec "$PY" -m comic_rag_mcp.cli index "$@"
+}
+
+cmd_message_index() {
+  ensure_env "$VENV" || exit 1
+  PY="$VENV/Scripts/python.exe"; [ -x "$PY" ] || PY="$VENV/bin/python"
+  ensure_chat_env || exit 1
+
+  local tmp="$ROOT/crawler-service/data/tmp"
+  local cache="$ROOT/crawler-service/data/fastembed_cache"
+  local index="$ROOT/crawler-service/data/project_rag"
+  mkdir -p "$tmp" "$cache" "$index" || exit 1
+  export TMP="$(winpath "$tmp")"
+  export TEMP="$TMP"
+  export TMPDIR="$TMP"
+  export FASTEMBED_CACHE_PATH="$(winpath "$cache")"
+  export COMIC_RAG_ROOT="$(winpath "$ROOT")"
+  export COMIC_RAG_INDEX_DIR="$(winpath "$index")"
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) export PYTHONPATH="knowledge-mcp/src;chat-service/src;comic-core/src" ;;
+    *)                    export PYTHONPATH="knowledge-mcp/src:chat-service/src:comic-core/src" ;;
+  esac
+  cd "$ROOT" || exit 1
+  exec "$PY" -m comic_rag_mcp.message_indexer "$@"
+}
+
 cmd_bootstrap() {
-  local dir="${1:-$VENV}"
+  local target="${1:-}"
+  if [ "$target" = "knowledge" ]; then
+    ensure_env "$VENV" || exit 1
+    PY="$VENV/Scripts/python.exe"; [ -x "$PY" ] || PY="$VENV/bin/python"
+    ensure_chat_env || exit 1
+    ensure_mcp_env || exit 1
+    echo "[bootstrap] ✅ knowledge-mcp 环境就绪：$VENV"
+    echo "[bootstrap]    建索引：bash scripts/dev.sh knowledge-index"
+    return 0
+  fi
+  if [ "$target" = "chat" ]; then
+    ensure_env "$VENV" || exit 1
+    PY="$VENV/Scripts/python.exe"; [ -x "$PY" ] || PY="$VENV/bin/python"
+    ensure_chat_env || exit 1
+    echo "[bootstrap] ✅ chat 环境就绪：$VENV"
+    echo "[bootstrap]    索引 / 模型缓存在 crawler-service/data 下（rag_lab / fastembed_cache）"
+    return 0
+  fi
+  local dir="${target:-$VENV}"
   ensure_env "$dir" || exit 1
   echo "[bootstrap] ✅ 环境就绪：$dir"
   case "$dir" in
@@ -374,7 +499,7 @@ cmd_bootstrap() {
 
 cmd_down() {
   local targets="$1" t port pid
-  [ "$targets" = "all" ] && targets="api web front"
+  [ "$targets" = "all" ] && targets="api chat web front"
   for t in $targets; do
     port="$(port_of "$t")"
     if [ -z "$port" ]; then echo "[$t] 未知目标，跳过"; continue; fi
@@ -394,8 +519,10 @@ case "${1:-status}" in
   up) cmd_up "${2:-}" ;;
   down) cmd_down "${2:-all}" ;;
   bootstrap) cmd_bootstrap "${2:-}" ;;
+  knowledge-index) cmd_knowledge_index "${@:2}" ;;
+  message-index) cmd_message_index "${@:2}" ;;
   *)
-    echo "用法：bash scripts/dev.sh status | up api|web|front | down api|web|front|all | bootstrap"
+    echo "用法：bash scripts/dev.sh status | up api|chat|web|front | down api|chat|web|front|all | bootstrap [chat|knowledge] | knowledge-index | message-index [--full]"
     exit 2
     ;;
 esac

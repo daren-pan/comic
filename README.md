@@ -18,6 +18,8 @@ comic/
 │   ├── tests/                #   单元测试（含 test_layering.py 分层守卫；样例 HTML 随各源包 fixtures/）
 ├── comic-scheduler/          # 定时任务执行器（独立进程）：读管理台配的 cron → 跑采集 → 写运行态
 │   └── src/comic_scheduler/  #   daemon.py（每 5s 看一次表：cron 判定 + 消费「立即执行」请求）
+├── chat-service/             # RAG 客服（独立进程 :8001）：FAQ + 作品简介向量检索 → 模型回答
+├── knowledge-mcp/            # 项目知识库 RAG（MCP stdio）：文档/schema/OpenAPI + message 表索引（只读）
 ├── api-service/              # FastAPI 业务服务（唯一存储：MySQL，同源托管前端）
 │   ├── main.py               #   装配入口（建 app / 挂路由 / 托管 dist）
 │   ├── core/ services/       #   基础设施（config·db·security·responses）与业务动作（images·tasks·sources）
