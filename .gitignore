@@ -52,6 +52,8 @@ schedule_run_now.json
 # 源开关状态全在这里 —— 纯本地产物，体积大且不可复现，不进仓库。
 # 代码会自动 mkdir，删掉不影响启动（只是图库/索引要重新生成）。
 crawler-service/data/
+# fastembed 在 cwd 兜底生成的模型缓存（正常应走 crawler-service/data/fastembed_cache，不入库）
+fastembed_cache/
 
 # ---- 数据库备份（含业务数据，仅供本地回滚，不随仓库分发） ----
 backup/

@@ -90,3 +90,32 @@ bash scripts/dev.sh up api     # :8000
 
 `dev.sh` 的 `chat` 分支里 `PYTHONPATH` 按平台分号/冒号分开写 —— **Windows 是 `;`，Linux 是 `:`**，
 用错了 Python 会把整串当一个路径，`import comic_core` 直接失败。
+
+### 7. DSH / 受限 Windows：TEMP 不可写会让 Chroma 报 code 14（2026-11-03）
+
+**现象**：服务能起来、`/health` 也有响应，但 `ok=false`、`vectors=0`，日志里是：
+
+```
+chromadb.errors.InternalError: error returned from database:
+  (code: 14) unable to open database file
+```
+
+同时 fastembed 可能报 `PermissionError: [WinError 5]`。
+
+**原因**：Chroma 1.5 的 Rust SQLite 绑定和 fastembed 直接使用系统临时目录；DSH 把
+`TEMP` 指到工作区外的 `...\AppData\Local\Temp\dsh-xxx`，受限进程写不进去。Python 的
+`tempfile` 会回退到 cwd，所以纯 Python 代码看着没事；这两个原生库不走这个回退。
+
+**修法**（两条路径互为兜底）：
+
+- `scripts/dev.sh up chat` 显式把 `TMP`/`TEMP`/`TMPDIR` 指到 `crawler-service/data/tmp`，
+  把 `FASTEMBED_CACHE_PATH` 指到 `crawler-service/data/fastembed_cache`；
+- 直接 `python -m comic_chat` / `comic_chat.cli` 时，`comic_chat.runtime_env.prepare()`
+  会探测临时目录是否可写，不可写就自动回退到 `DATA_ROOT/tmp`，开发态还会把模型缓存
+  固定到 `DATA_ROOT/fastembed_cache`。
+
+⚠️ 容器里 `/tmp` 可写、且 `HF_HOME` 已预热，**不要**把这两个变量硬编码进 Dockerfile；
+`runtime_env` 在 wheel/容器态会跳过开发态的判断。
+
+⚠️ 索引目录仍是 `crawler-service/data/rag_lab`，模型缓存是 `crawler-service/data/fastembed_cache`，
+两者都在 `DATA_ROOT` 下（`crawler-service/data/` 已 gitignore）。

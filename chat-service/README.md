@@ -38,6 +38,7 @@ chat-service/
     ├── app.py                FastAPI：/health、/ask、/lab/*
     ├── schemas.py            请求体（只声明形状）
     ├── cli.py                命令行：doctor / index / search / ask
+    ├── runtime_env.py        运行期兜底：临时目录 / 模型缓存（DSH 受限会话）
     └── rag/                  RAG 内核（七步链路，见其 README）
         ├── settings.py · embeddings.py · documents.py
         ├── structured.py     结构化召回（双路召回的第二路）
@@ -56,6 +57,27 @@ chat-service/
 bash scripts/dev.sh up chat     # :8001
 bash scripts/dev.sh up api      # :8000（转发到 8001）
 ```
+
+### DSH / 受限 Windows：直接跑 `dev.sh up chat`
+
+`up chat` 现在会自动做四件事，不再依赖 WorkBuddy 的 Python 或用户目录：
+
+1. 用项目内 `.python` + `crawler-service/.venv`（Python 3.13.17）；
+2. 首次补装 chat-service 的 RAG 依赖（langchain / chromadb / fastembed，pip 走阿里云镜像）；
+3. 把 `TMP` / `TEMP` / `TMPDIR` 指到 `crawler-service/data/tmp`；
+4. 把 `FASTEMBED_CACHE_PATH` 指到 `crawler-service/data/fastembed_cache`，索引仍写
+   `crawler-service/data/rag_lab`。
+
+原因：Chroma 的 Rust SQLite / fastembed 直接使用系统临时目录，而 DSH 的默认 Temp
+在工作区外且对受限进程不可写，会报 `code: 14 unable to open database file` /
+`WinError 5`。脚本会显式绕开，不需要手工 export。只补依赖不启动：
+
+```bash
+bash scripts/dev.sh bootstrap chat
+```
+
+直接 `python -m comic_chat` 时，`comic_chat.runtime_env` 也会在检测到系统临时目录
+不可写时回退到 `DATA_ROOT/tmp`，并把开发态的 fastembed 缓存固定到 `DATA_ROOT/fastembed_cache`。
 
 命令行（不用起服务）：
 
@@ -84,6 +106,8 @@ docker compose exec comic-chat python -m comic_chat.cli search "图裂了"
 | `COMIC_CHAT_INDEX_DIR` | `DATA_ROOT/rag_lab` | **容器里必须设成 `/data/rag_lab`**，否则索引写到不可写位置 |
 | `COMIC_CHAT_PORT` | `8001` | |
 | `COMIC_CHAT_HOST` | `0.0.0.0` | 容器内必须 0.0.0.0；本地可设 127.0.0.1 |
+| `FASTEMBED_CACHE_PATH` | 开发态 `DATA_ROOT/fastembed_cache` | 本地 bge 模型缓存；`up chat` 自动设置，容器里保持 `HF_HOME` 预热缓存 |
+| `TMP` / `TEMP` / `TMPDIR` | 开发态 `DATA_ROOT/tmp`（受限会话） | Chroma / fastembed 的临时目录；`up chat` 自动设置 |
 | `HF_ENDPOINT` | — | 国内下载本地模型必须走镜像，否则报 `Could not load model` |
 
 本地填 key 用 `rag/.env`（从 `rag/.env.example` 复制，已被 gitignore）。容器里用 `deploy/.env`。

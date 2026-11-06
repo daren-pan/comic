@@ -28,9 +28,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
-from .rag import chain, settings
-from .rag.index import build_index, get_store
-from .schemas import AskBody, LabAskBody, SearchBody
+from .runtime_env import prepare as _prepare_runtime
+
+# ⚠️ 必须在 `.rag` 之前：Chroma 的 Rust SQLite / fastembed 会直接读系统临时目录，
+# 检测到不可写时由它改到项目内目录（见 runtime_env 的模块注释）。
+_prepare_runtime()
+
+from .rag import chain, settings  # noqa: E402
+from .rag.index import build_index, get_store  # noqa: E402
+from .schemas import AskBody, LabAskBody, SearchBody  # noqa: E402
 
 _log = logging.getLogger("comic.chat")
 

@@ -30,6 +30,8 @@ import argparse
 import json
 import sys
 
+from .runtime_env import prepare as _prepare_runtime
+
 # Windows 控制台默认可能是 GBK，画分数条用的方块字符不在 GBK 里 —— 统一切 UTF-8，
 # 编码失败时用占位符而不是直接抛 UnicodeEncodeError 中断整个命令。
 try:
@@ -158,6 +160,8 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # 先准备临时目录 / 模型缓存，再让各子命令 import rag（chromadb / fastembed）。
+    _prepare_runtime()
     parser = argparse.ArgumentParser(
         prog="comic_chat.cli", description="RAG 客服命令行：索引 / 检索 / 问答 / 自检"
     )
