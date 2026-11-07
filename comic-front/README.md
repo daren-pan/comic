@@ -4,14 +4,14 @@
 
 - **业务约定与逻辑完全不变** —— 页面结构、接口调用、登录态、消息中心、阅读器行为都与 `comic-web` 一致；
   平台差异全部收敛在 `src/utils/`（兼容层）与 `src/api/request.ts`，业务层不感知；
-  （对 comic-web 的**有意调整**逐条记录在 [NOTES.md](NOTES.md) §1.1）
+  （对 comic-web 的**有意调整**逐条记录在 [docs/NOTES.md](docs/NOTES.md) §1.1）
 - **移动端为基准，网页版是增量**（2026-10-10 起双形态）：网页版全部写成 `.mode-web` 前缀的增量覆盖，
   按 UA 自动判定。网页版是**全新设计**、不参照 `comic-web`；
 - ⚠️ **目标平台 = H5**（移动端 + 网页端两种形态）；构建目标只有 `build:h5` 一个；
 - comic-web 曾长期作为本端的参考实现；2026-10-14 已以本端为蓝本重写为纯 Vue3 版，现与本端功能等价、独立维护（两个镜像各自带 nginx）。
 
 > **文档分工**：本文件 = 模块框架 / 页面用途 / 约定 / 命令（给人看）；
-> **[NOTES.md](NOTES.md) = 踩坑 / 实测 / 历史决策 / 排查规程**（AI 协作时维护，踩坑即写）；
+> **[docs/NOTES.md](docs/NOTES.md) = 踩坑 / 实测 / 历史决策 / 排查规程**（AI 协作时维护，踩坑即写）；
 > **各页面的具体逻辑**由其源码注释解释维护。
 
 ## 目录结构
@@ -106,7 +106,7 @@ cd comic-front && npm run gen:api     # → src/api/generated/schema.d.ts
 ### uni 内置组件样式归一化（`src/uni-compat.css`）
 
 把 uni 内置组件（`uni-input` / `uni-button` / `uni-form`…）的默认样式**归一化回原生元素的盒子模型**
-（11 条规则逐条记录在 [NOTES.md](NOTES.md) §2.1）。改这个文件前先读那边的注释。
+（11 条规则逐条记录在 [docs/NOTES.md](docs/NOTES.md) §2.1）。改这个文件前先读那边的注释。
 
 ## 基础命令
 
@@ -129,7 +129,7 @@ npm run gen:api         # 从后端 OpenAPI 快照生成类型（见上「后端
 | `@dcloudio/types` | 类型声明 | 锁 **`3.4.31`**（同上） |
 | vue 3 + **pinia** | 框架 / 全局共享 | 与 comic-web 同版本线（pinia@2） |
 | `vite` 5.2.8 | 构建 | 插件 peer 是**精确版本**，已锁 |
-| eslint 9 / vitest 3 / openapi-typescript 7 | 门禁 / 单测 / 类型生成 | 版本兼容约束见 [NOTES.md](NOTES.md) §5.3 |
+| eslint 9 / vitest 3 / openapi-typescript 7 | 门禁 / 单测 / 类型生成 | 版本兼容约束见 [docs/NOTES.md](docs/NOTES.md) §5.3 |
 
 ## 约定
 
@@ -161,4 +161,4 @@ npm run gen:api         # 从后端 OpenAPI 快照生成类型（见上「后端
 - **`uni-input` 的 `type` 是白名单**（text / number / idcard / digit / password / tel），
   白名单外一律被抹成 `text` —— 所以 `type="date"` 必须走 `DateInput.vue`。
 - **表面色一律走 CSS 变量，禁止再写 `#fff`**：主题（明亮 / 夜间）就是换一套变量值，写死的白底在夜间
-  会变成「白底 + 浅字」。变量分工表见 [NOTES.md](NOTES.md) §3.3。
+  会变成「白底 + 浅字」。变量分工表见 [docs/NOTES.md](docs/NOTES.md) §3.3。

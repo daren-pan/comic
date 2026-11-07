@@ -10,7 +10,7 @@
   `beforeEnter`**（`router.ts` 的 `requireRole`）。
 
 > **文档分工**：本文件 = 模块框架 / 页面用途 / 约定 / 命令（给人看）；
-> **[NOTES.md](NOTES.md) = 踩坑 / 实测 / 历史决策**（AI 协作时维护，踩坑即写）；
+> **[docs/NOTES.md](docs/NOTES.md) = 踩坑 / 实测 / 历史决策**（AI 协作时维护，踩坑即写）；
 > **各页面的具体逻辑**由其源码注释解释维护。
 
 ## 目录结构
@@ -109,7 +109,7 @@ npm run gen:api         # 从后端 OpenAPI 快照生成类型（见上「后端
 | vue 3 + **vue-router** + **pinia** | 框架 / 路由 / 全局共享 | 标准生态，无额外运行时抽象 |
 | **axios** | 请求 | 单通道封装在 `api/request.ts` |
 | `vite` 5 + `@vitejs/plugin-vue` | 构建 | `base: './'`，产物可挂任意子路径 |
-| eslint 9 / vitest 3 / openapi-typescript 7 | 门禁 / 单测 / 类型生成 | 版本兼容约束见 [NOTES.md](NOTES.md) |
+| eslint 9 / vitest 3 / openapi-typescript 7 | 门禁 / 单测 / 类型生成 | 版本兼容约束见 [docs/NOTES.md](docs/NOTES.md) |
 
 ## 约定
 

@@ -95,4 +95,4 @@ cd crawler-service && .venv/Scripts/python.exe ../tools/check_schema.py      # �
 
 ---
 
-> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）。
+> 踩坑、实测与复盘 → **[docs/NOTES.md](docs/NOTES.md)**（AI 维护）。

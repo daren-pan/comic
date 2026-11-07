@@ -149,4 +149,4 @@ cd api-service
 
 ---
 
-> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）；修复过程流水写在 `.workbuddy/memory/YYYY-MM-DD.md`。
+> 踩坑、实测与复盘 → **[docs/NOTES.md](docs/NOTES.md)**（AI 维护）；修复过程流水写在 `.workbuddy/memory/YYYY-MM-DD.md`。

@@ -12,7 +12,7 @@ CASES: list[dict] = [
     },
     {
         "query": "api 为什么只能 import crawler 的 facade",
-        "expect": ["api-service/README.md", "api-service/NOTES.md", "AGENTS.md"],
+        "expect": ["api-service/README.md", "api-service/docs/NOTES.md", "AGENTS.md"],
     },
     {
         "query": "JWT 角色三档和两道门",
@@ -80,7 +80,7 @@ CASES: list[dict] = [
     },
     {
         "query": "DSH 临时目录导致 Chroma code 14 怎么修",
-        "expect": ["chat-service/NOTES.md"],
+        "expect": ["chat-service/docs/NOTES.md"],
     },
     {
         "query": "fastembed 模型缓存放哪",
@@ -91,7 +91,7 @@ CASES: list[dict] = [
     },
     {
         "query": "API 统一响应格式",
-        "expect": ["api-service/NOTES.md", "api-service/README.md"],
+        "expect": ["api-service/docs/NOTES.md", "api-service/README.md"],
     },
     {
         "query": "登录 token 改密后为什么失效",

@@ -26,7 +26,7 @@
 
 ### 1.1 四个源 adapter 改调统一函数
 
-- **背景 / 现象**：`status` 此前**每个源各写一套转换**（见 `comic-core/NOTES.md` §1.1 的完整背景）。
+- **背景 / 现象**：`status` 此前**每个源各写一套转换**（见 `comic-core/docs/NOTES.md` §1.1 的完整背景）。
 - **结论**：四个源统一改调 `comic_core.status.normalize_status()`：
 
   | 源 | 改动 |

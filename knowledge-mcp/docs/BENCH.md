@@ -1,5 +1,8 @@
 # MCP 调/不调 · 延迟与准确率小基准
 
+> **只放性能与准确率基准**：不同取数方式的对比。检索质量（召回率）见 [EVAL.md](EVAL.md)，
+> 设计见 [ARCHITECTURE.md](ARCHITECTURE.md)，跑测命令见 [OPERATIONS.md](OPERATIONS.md)。
+
 **问题**：简单问题、复杂问题下，调 MCP 和不调 MCP，到底差多少？
 
 > ⚠️ 上一版把 `direct`（无检索、无文件工具、模型凭记忆答）当成“不调 MCP”，

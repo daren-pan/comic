@@ -3,7 +3,7 @@
 > **给读这个仓库的 AI / 新人看的第一份文件。**
 > 内容与 [`.workbuddy/memory/MEMORY.md`](.workbuddy/memory/MEMORY.md) **保持同步**（那份是 AI 协作助手自动加载的副本；**改任一份都要改另一份**）。
 > 本文件只放 **整体架构 / 各模块简介 / 基础命令 / 硬性约定**。
-> ⚠️ **实现细节、参数、踩坑复盘一律不下沉在本文件** —— 各模块**双文档**（`README.md` = 框架 / 约定 / 用途，给人看；`NOTES.md` = **踩坑 / 实测 / 复盘，AI 协作时维护**），这里只留一行指针。
+> ⚠️ **实现细节、参数、踩坑复盘一律不下沉在本文件** —— 各模块文档**按职责拆分**（`README.md` 只当**导读**：定位 / 能力边界 / 文档地图 / 上手命令），这里只留一行指针。
 > 每日工作日志写 `.workbuddy/memory/YYYY-MM-DD.md`。
 
 ## 整体架构
@@ -40,7 +40,7 @@ comic/
 | `docs/` | 总体架构 / 认证 / 部署 | `docs/README.md` |
 | `deploy/` · `scripts/` · `tools/` | 生产编排 · 启动自检 · 一次性迁移 | 各自 README |
 
-**跨模块边界**（细节见各模块 README；踩坑见其 `NOTES.md`）
+**跨模块边界**（细节见各模块 `README.md`；踩坑见其 `docs/NOTES.md`）
 - **模块间依赖（红线）**：`api-service` 只允许 `from comic_crawler.facade import ...` —— 采集侧内部随便重构，只要契约面符号名 / 签名不变，api 零改动；**不得穿透到任何子模块**（由 `api-service/tests/test_crawler_boundary.py` 断言守卫）。改契约面签名 = 破坏性变更。
 - **共用内核（单向依赖）**：`comic-core` 是采集端与接口端共同依赖的底层（模型 / 路径 / 存储 / 图库），**它不依赖 `comic_crawler`，也不依赖任何 HTTP 框架**。存储层无法走 HTTP（接口侧 28 处调用、且要保留批量语义），所以做成共享包而非接口 —— 见 `comic-core/README.md`。改 `comic-core` 等于同时改两端。
 - **存储**：唯一 MySQL，本项目独占实例（宿主 `127.0.0.1:3309`）。连接参数：环境变量 → `deploy/.env` → 默认值。
@@ -74,11 +74,22 @@ comic/
 
 - **改完代码自动重启**：AI 协作**不必等用户提醒** —— 动过 `comic-core` / `crawler-service` / `api-service` 就重启 uvicorn，动过 `comic-scheduler` 就重启**执行器进程**（`python -m comic_scheduler`，容器里是 `comic-scheduler` 服务），动过 `comic-web` / `comic-front` 就重启对应 Vite。⚠️ **`comic-core` / `crawler-service` 改完必须重启后端**：管理台任务在 api 进程内直接调 `comic_crawler`，而存储 / 图库 / 模型都在 `comic_core`，不重启就一直跑旧代码（**定时采集那一路在 `comic-scheduler` 进程里，也得一并重启**）。
 - **架构单职责 / 分层**：新增接口进 `api-service/routers/*`、业务逻辑进 `services/`（勿让 `main.py` 变胖）；`crawler-service` 保持 L0/L1/L2（通用外层 → 契约 → 可扩展内层），**L0 里的存储 / 模型 / 路径已上移到 `comic-core`**（外部依赖，不在采集侧分层守卫的断言范围内）。**新模块未归层会被分层守卫拦下**（`tests/test_layering.py`）。
-- **文档归属（双文档制）**：本文件只放骨架与规矩；每个模块 = `README.md`（框架 / 约定 / 用途，给人看）+ `NOTES.md`（**踩坑 / 实测 / 复盘，AI 协作时维护 —— 踩坑即写**）；具体逻辑写进代码注释；跨模块文档在 `docs/`。
+- **文档归属（按职责拆分，强制）**：本文件只放骨架与规矩。模块文档**一份只承担一个职责**，改内容时**只允许写进对应职责的文档，不得越界**：
+
+  | 职责 | 文档 | 只允许写 |
+  |---|---|---|
+  | 导读 | `README.md`（模块根） | 定位 / 能力边界 / 文档地图 / ≤3 条上手命令 |
+  | 设计 | `docs/ARCHITECTURE.md` | 数据流、契约、切分与检索设计、取舍理由 |
+  | 运维 | `docs/OPERATIONS.md` | 安装、建索引、接入、故障排查、日常检查 |
+  | 配置 | `docs/CONFIG.md` | 环境变量总表、默认值、调参影响 |
+  | 踩坑 | `docs/NOTES.md` | 踩坑 / 实测 / 复盘（**踩坑即写**） |
+  | 评测 | `docs/EVAL.md` / `docs/BENCH.md` | 题集与指标 / 性能基准 |
+
+  **`README.md` 留在模块根**（GitHub 落地页 / 唯一入口），**其余职责文档一律放 `<模块>/docs/`**，不要散在模块根。`README.md` + `docs/NOTES.md` 是**必备最小集**；某职责暂时没内容可以不建文件，但**一旦有内容就必须建对应文件，禁止塞进别的文档**（典型违规：命令清单写进 README、设计论述写进 NOTES、参数表写进 OPERATIONS）。判断不了归属时**先建对应文档再写**，不要往 README 里堆。新增职责文档必须在 `README.md` 的文档地图登记一行。范例见 `knowledge-mcp/`（`README.md` + `docs/` 下 6 份）。具体逻辑写进代码注释；跨模块文档在 `docs/`。
 - **性能**：面向**大数据量**设计 —— 禁止逐条访问（「先拿一批 id 再取对象」用 `get_comic_tags_bulk` / `get_comics_by_ids` 这类一次性批量方法）、禁止代价随数据量线性增长的写法（N+1、无索引全表扫、每次调用新建连接）。改 SQL / 存储层时按此自查。
 - **前端（comic-web）**：模板用原生标签、CSS 只写类选择器、`<form>` 必写 `@submit.prevent`（写法约定，详见其 README 约定段）。
 - **前端（comic-front）**：模板只用 uni 组件、CSS 只写类选择器、自定义组件不用 `v-model`（写法约定，详见其 README 开发约定）。
-- **前端问题先实跑取证**：页面出现**请求报错 / 样式错位 / 交互失效**时，**不必等用户要求**，先用 playwright MCP 在真浏览器里跑一遍再下结论 —— 报错看 `browser_console_messages`、请求看 `browser_network_requests`（单条详情 `browser_network_request`）、DOM 看 `browser_snapshot`。**禁止只读代码就断言"应该是 XX 问题"**。**MCP 不可用时先自检再补**：**先检测 playwright MCP 是否存在**（查工具索引 `mcp__playwright__*` / 连接器列表，**不要只看某个固定配置文件** —— 同一 MCP 可能由用户级、项目级或其他 agent 的配置提供）；确认**不存在**才写入标准配置并安装，再**显式提示用户去连接器管理页 Trust**；**已存在**（只是工具不在索引）→ 配置没坏，直接提示重新 Trust。**不得静默降级成"读代码猜"**。排查规程与配置见 `comic-front/NOTES.md` §4。
+- **前端问题先实跑取证**：页面出现**请求报错 / 样式错位 / 交互失效**时，**不必等用户要求**，先用 playwright MCP 在真浏览器里跑一遍再下结论 —— 报错看 `browser_console_messages`、请求看 `browser_network_requests`（单条详情 `browser_network_request`）、DOM 看 `browser_snapshot`。**禁止只读代码就断言"应该是 XX 问题"**。**MCP 不可用时先自检再补**：**先检测 playwright MCP 是否存在**（查工具索引 `mcp__playwright__*` / 连接器列表，**不要只看某个固定配置文件** —— 同一 MCP 可能由用户级、项目级或其他 agent 的配置提供）；确认**不存在**才写入标准配置并安装，再**显式提示用户去连接器管理页 Trust**；**已存在**（只是工具不在索引）→ 配置没坏，直接提示重新 Trust。**不得静默降级成"读代码猜"**。排查规程与配置见 `comic-front/docs/NOTES.md` §4。
 - **提交信息**：一律 Conventional Commits —— `<type>(<scope>): <中文主题>`。type 取 `feat` / `fix` / `refactor` / `perf` / `docs` / `chore` / `test` / `ci`；scope 取模块名（`crawler` / `api` / `web` / `db` / `deploy` / `tools`），跨模块或不限模块时可省。正文只写 2~3 行「改了什么、为什么」，不罗列文件 / 函数 / 实测数字。示例：`feat(crawler): 新增拷贝漫画源，失败日志带上漫画名`。
 - **提交时机与粒度：原子拆分** **不在一轮改动做完就提交**；先攒着，等**多个需求都完成后**再**按主题拆成多个原子提交**（一个提交只做一件事，能单独看懂、单独回退）。提交前仍要查：无意外删除、无硬编码密钥。
 - **同一文件里的多主题不拆 hunk**：按主题拆提交**只拆到「文件」这一层** —— 同一个文件里混了多个主题时，直接把它们**合并成一条提交**；跨文件的主题才拆开。

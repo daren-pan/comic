@@ -1,7 +1,10 @@
-# 检索评测（第一版）
+# 检索评测
+
+> **只放评测**：题集、指标、成绩、怎么加题。设计见 [ARCHITECTURE.md](ARCHITECTURE.md)，
+> 跑测的命令见 [OPERATIONS.md](OPERATIONS.md)，踩坑见 [NOTES.md](NOTES.md)。
 
 **方法**：20 条项目问题，`top_k=5`；命中期望文件中的任意一个即算通过。
-只看“文档有没有被召回”，不判断最终答案质量。
+只看"文档有没有被召回"，不判断最终答案质量。
 
 运行：
 
@@ -32,9 +35,9 @@ PYTHONPATH="knowledge-mcp/src;chat-service/src;comic-core/src" \
 | 13 | 同源判重键是什么 | `crawler-service/README.md` / 约定 | 0.6000 | 准确 |
 | 14 | 管理台任务记录在哪个表 | `mysql_schema.sql` / admin_task | 0.6992 | 直接答到表 |
 | 15 | scheduler 和 api 的依赖方向 | `comic-scheduler/README.md` / 约定 | 0.7736 | 准确 |
-| 16 | DSH 临时目录导致 Chroma code 14 | `chat-service/NOTES.md` / §7 | 0.7592 | 准确 |
+| 16 | DSH 临时目录导致 Chroma code 14 | `chat-service/docs/NOTES.md` / §7 | 0.7592 | 准确 |
 | 17 | fastembed 模型缓存放哪 | `chat-service/.../rag/NOTES.md` / §6 | 0.7497 | 准确（rag NOTES 更具体） |
-| 18 | API 统一响应格式 | `api-service/NOTES.md` / 1.2 | 0.7452 | 准确 |
+| 18 | API 统一响应格式 | `api-service/docs/NOTES.md` / 1.2 | 0.7452 | 准确 |
 | 19 | 登录 token 改密后为什么失效 | `docs/auth.md` / 6 安全要点 | 0.7869 | 准确 |
 | 20 | 部署时 compose 的服务名 | `docs/deploy.md` / 1 方式 A | 0.7017 | 准确 |
 
@@ -48,6 +51,29 @@ PYTHONPATH="knowledge-mcp/src;chat-service/src;comic-core/src" \
   “怎么新增源”前面；#02/#06/#10/#11 路径对但小节不是最贴切；
 - 后续应补 **MRR / top-1 accuracy / 答案正确性**，不要只看 Recall@5；
 - 如果继续调，优先调“查询意图 → 模块/文档类型”的加权，而不是继续加大 chunk。
+
+## 当前基线（2026-11-06，接入混合检索与分词后端之后）
+
+同一套 20 条题、`top_k=5`，三种分词后端 × 三种检索模式：
+
+| 后端 | vector | lexical | hybrid |
+|---|---|---|---|
+| `bigram` | 20/20 | 18/20 | **20/20** |
+| `jieba` | 20/20 | 19/20 | 19/20 |
+| **`mixed`（默认）** | 20/20 | 19/20 | **19/20** |
+
+三条后端掉的都是 `05. 怎么新增一个爬虫源`，且都确认是**语料缺词**
+（文档写"源站/适配器"，没有"爬虫源"），不是切分能力问题 —— 详见
+[NOTES.md](NOTES.md) 第五章「三组评估对比」。
+
+跑法：
+
+```bash
+bash scripts/dev.sh knowledge-eval
+# 或指定模式与后端：
+COMIC_KB_TOKENIZER=mixed \
+  crawler-service/.venv/Scripts/python.exe -m comic_rag_mcp.cli eval --mode hybrid
+```
 
 ## 后续用例
 

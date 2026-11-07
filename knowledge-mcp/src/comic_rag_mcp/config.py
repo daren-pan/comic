@@ -134,6 +134,8 @@ EXCLUDE_FILES = {
 #: 明确跳过的目录前缀（相对仓库根）。`docs/tasks/` 是需求任务档案 / 模板，
 #: 不是稳定的项目知识；留着会把“管理台任务记录在哪个表”这类问题带偏。
 EXCLUDE_PREFIXES = ("docs/tasks/",)
+#: 评测答案（逐条列出全部黄金问题）不进语料 —— 它会把问题原句带进索引，形成自污染。
+EXCLUDE_SUFFIXES = ("/docs/EVAL.md",)
 
 #: Markdown 之外的结构化知识源。
 SQL_SCHEMA_FILE = "comic-core/sql/mysql_schema.sql"

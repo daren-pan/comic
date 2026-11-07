@@ -31,7 +31,7 @@
 chat-service/
 ├── pyproject.toml            打包描述（含 package-data：knowledge/faq.md 必须进 wheel）
 ├── requirements.txt          本地开发用（与 pyproject 的 dependencies 同步）
-├── README.md · NOTES.md      本文件 / 踩坑记录
+├── README.md · docs/NOTES.md      本文件 / 踩坑记录
 └── src/comic_chat/
     ├── __init__.py           包说明（为什么拆、进程边界）
     ├── __main__.py           `python -m comic_chat` 启动 uvicorn
@@ -47,7 +47,7 @@ chat-service/
 ```
 
 > **改检索逻辑前先读 `rag/README.md` 的「检索设计」一节** —— 那里记了双路召回、
-> 文档分离的完整依据，以及 7 个被实测否掉的方案（避免重复试错）。实测数据在 `rag/NOTES.md`。
+> 文档分离的完整依据，以及 7 个被实测否掉的方案（避免重复试错）。实测数据在 `rag/docs/NOTES.md`。
 
 ## 怎么跑
 
@@ -139,7 +139,7 @@ docker compose exec comic-chat python -m comic_chat.cli search "图裂了"
 
 不用「像不像追问」来判断，因为实测发现**句式跟能不能检索到无关**：
 「我们之前讨论过的那个会员要多少钱」照样 0 命中，而「刚才说的那个收藏怎么取消」能命中。
-详见 `src/comic_chat/rag/NOTES.md` 的「多轮对话」一节。
+详见 `src/comic_chat/rag/docs/NOTES.md` 的「多轮对话」一节。
 
 改写结果会通过 `rewritten` 字段回传，前端显示成「理解为：xxx」—— 这是排查多轮有没有生效的唯一线索。
 

@@ -140,7 +140,7 @@ mysql 容器执行，不依赖 Python / 不需要挂载；跑完自动体检）�
   的 `python:3.13-slim` / `nginx:alpine` / `mysql:8.0`）—— 不再依赖 m.daocloud.io 等公共代理
   （它们间歇性 502，会让构建"时好时坏"）。首次搭建 / 升级基础镜像用 `bash deploy/push-base-images.sh`
   推送（日常构建不需要）；⚠️ 仓库为**私有** —— **服务器需先 `docker login` 一次**（之后持久有效），
-  或去控制台把三个仓库改为公开。详见 NOTES.md §2.3；
+  或去控制台把三个仓库改为公开。详见 docs/NOTES.md §2.3；
 - **构建上下文就是模块文件夹**（`context: ./api`），里面只有产物 + Dockerfile，
   所以不需要 `.dockerignore`，也不会把 `.git`/`.venv`/`node_modules` 送进构建；
 - **wheel 装进 site-packages 后相对路径推导失效**，所以镜像里显式给了
@@ -177,4 +177,4 @@ mysql 容器执行，不依赖 Python / 不需要挂载；跑完自动体检）�
 
 ---
 
-> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）；修复过程流水写在 `.workbuddy/memory/YYYY-MM-DD.md`。
+> 踩坑、实测与复盘 → **[docs/NOTES.md](docs/NOTES.md)**（AI 维护）；修复过程流水写在 `.workbuddy/memory/YYYY-MM-DD.md`。

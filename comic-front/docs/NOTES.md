@@ -605,7 +605,7 @@
   点条目里的「续读」按钮**连带触发**外层跳转，用户点续读却进了详情页。
 - **根因**：click 冒泡到父级 `@click`。
 - **结论**：按钮加 `@click.stop`，操作区容器的 `.stop` 保留作双保险（与 comic-web 同一处理，
-  详见 `comic-web/NOTES.md` 第二章）。
+  详见 `comic-web/docs/NOTES.md` 第二章）。
 - **实测**：Playwright 点续读 → 新标签打开阅读器，当前页仍停在 `#/pages/me/index`。
 - **位置**：`src/pages/me/index.vue`
 

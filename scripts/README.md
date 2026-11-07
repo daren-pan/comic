@@ -52,14 +52,14 @@ bash scripts/dev.sh down api      # 停（也支持 chat / web / front / all）
 - **python 是项目内两层**（都进 `.gitignore`，不碰系统 python）：
   `.python/` = 官方 CPython 3.13 底座（缺失自动下载，约 15MB）；`crawler-service/.venv` = 运行环境，
   `pyvenv.cfg` 的 `home` 指向 `.python`。`up api` / `check.sh` 会自动建齐，底座不一致会自动重建。
-  详见 `NOTES.md` §2.4。
+  详见 `docs/NOTES.md` §2.4。
 - `up chat` 首次会补装 `chat-service/requirements.txt`（RAG 依赖），并把
   `TMP`/`TEMP`/`TMPDIR` 指到 `crawler-service/data/tmp`、`FASTEMBED_CACHE_PATH` 指到
   `crawler-service/data/fastembed_cache`。这是为了让 Chroma 的 Rust SQLite / fastembed
   在 DSH 等受限 Windows 会话里也有可写临时目录；普通终端/容器不需要手工设置。
 - `bootstrap knowledge` 在同一个 venv 里补 `mcp`（官方 MCP Python SDK）；`knowledge-index`
   重建 `project_rag`，与 chat 的 `rag_lab` 完全分开。用法见 [`../knowledge-mcp/README.md`](../knowledge-mcp/README.md)。
-- 前端用标准 `npm run dev` / `npm run dev:h5`（`npm` 已由受管 Node 接管），探测失败时才回退 node 直调 bin —— 见 `NOTES.md` §2.1；
+- 前端用标准 `npm run dev` / `npm run dev:h5`（`npm` 已由受管 Node 接管），探测失败时才回退 node 直调 bin —— 见 `docs/NOTES.md` §2.1；
 - **前置条件会先检测再给指引**（不替用户安装）：`up api` 检查 MySQL —— 区分「没装 docker / 守护进程没起 /
   容器没建过 / 容器停了 / 健康检查没过」，每种给对应命令；`up web` / `up front` 检查 node 是否存在、版本是否 ≥18、
   `node_modules` 是否齐全，缺就提示 `cd <项目> && npm ci`。`status` 也会一并显示这些状态。
@@ -112,4 +112,4 @@ build/deploy/
 
 ---
 
-> 踩坑、实测与复盘 → **[NOTES.md](NOTES.md)**（AI 维护）。
+> 踩坑、实测与复盘 → **[docs/NOTES.md](docs/NOTES.md)**（AI 维护）。

@@ -70,6 +70,8 @@ def _is_excluded(rel: str) -> bool:
         return True
     if any(rel.startswith(prefix) for prefix in config.EXCLUDE_PREFIXES):
         return True
+    if any(rel.endswith(suffix) for suffix in config.EXCLUDE_SUFFIXES):
+        return True
     parts = set(Path(rel).parts)
     return bool(parts & config.EXCLUDE_DIR_PARTS)
 
@@ -85,6 +87,8 @@ def iter_markdown_files(root: Path) -> list[Path]:
     for pattern in ("README.md", "NOTES.md"):
         candidates.update(root.rglob(pattern))
     candidates.update((root / "docs").rglob("*.md"))
+    # 模块职责文档：`<module>/docs/*.md`（各模块的 README 仍在模块根，由上面的 rglob 收走）
+    candidates.update(root.glob("*/docs/*.md"))
 
     result: list[Path] = []
     for path in sorted(candidates):
@@ -114,6 +118,19 @@ def classify(rel: str) -> tuple[str, str]:
         return "design_doc", "docs"
     if "sources" in parts and rel.endswith("/README.md"):
         return "source_readme", "crawler"
+    # 模块 `docs/` 下的职责文档：一份文件一个职责，kind 按文件名区分
+    if "/docs/" in rel:
+        module_kind = {
+            "README.md": "module_readme",
+            "NOTES.md": "module_notes",
+            "ARCHITECTURE.md": "module_design",
+            "OPERATIONS.md": "module_ops",
+            "CONFIG.md": "module_config",
+            "EVAL.md": "module_eval",
+            "BENCH.md": "module_eval",
+        }.get(rel.rsplit("/", 1)[-1])
+        if module_kind:
+            return module_kind, _module_of(parts)
     if rel.endswith("/NOTES.md"):
         return "module_notes", _module_of(parts)
     if rel.endswith("/README.md"):

@@ -46,6 +46,7 @@ def search_knowledge(
         query: Natural-language question or keywords.
         top_k: Number of hits, 1-10 (default 5).
         kind: Optional filter: root_doc, module_readme, module_notes,
+            module_design, module_ops, module_config, module_eval,
             design_doc, deploy_doc, source_readme, schema, api,
             ext_md, ext_word, ext_excel (user documents).
         module: Optional filter: project, core, crawler, api, scheduler,
