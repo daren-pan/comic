@@ -106,6 +106,8 @@ def classify(query: str, vocab: set[str] | None = None) -> str:
         return DOC_LIKE
 
     # ③ 纯中文 + 疑问句 + 有一定长度 → 口语型（深度路径）
+    #    长度门槛 8 是实测出来的：试过 12（更保守），Recall 从 90% 掉到 86.7%、
+    #    Top-1 不变 —— 说明短疑问句（`更新了怎么通知我`）恰恰需要深度路径。
     if has_question and length >= 8:
         return COLLOQUIAL
 
