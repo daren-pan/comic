@@ -194,6 +194,51 @@ def _hit(
 _MODES = ("hybrid", "vector", "lexical")
 
 
+def _candidates(top_k: int) -> int:
+    """候选池大小：`max(top_k × 系数, 下限)`。
+
+    池子要**明显大于 top_k**，否则后面的融合/重排没有腾挪空间 ——
+    实测正确文档常排在第 15 名开外，池子只有 20 时重排也救不回来。
+    """
+    return max(int(top_k) * config.CANDIDATE_FACTOR, config.CANDIDATE_MIN)
+
+
+def _prune_by_score(
+    scored: dict[str, tuple], floor: float | None, top_k: int
+) -> dict[str, tuple]:
+    """**已弃用**：阈值不再砍候选池（会把融合/重排的腾挪空间一起砍掉）。
+
+    保留这个函数只为兼容旧调用点；新逻辑见 `_apply_min_score`。
+    """
+    return scored
+
+
+def _apply_min_score(
+    ordered: list[tuple], floor: float | None, top_k: int
+) -> list[tuple]:
+    """阈值过滤：**绝对底线 + 相对底线**，作用在**最终排序结果**上。
+
+    - 绝对底线（`min_score`）：跨查询的硬下限，砍掉"明显不相关"的。
+    - 相对底线（`config.MIN_SCORE_RATIO`）：低于 `top1 × 比例` 的也砍 ——
+      但**只有砍完仍够 top_k 条时才生效**，避免"整体分偏低的查询被误杀成空"。
+
+    ⚠️ 只在**语义检索**这一路生效：混合检索的分数是 RRF（≈0.19 量级），
+    拿余弦阈值去卡会一条不剩（刻度问题，不是阈值该不该留）。
+    """
+    if not ordered:
+        return ordered
+    kept = [
+        item for item in ordered if floor is None or item[1] >= float(floor)
+    ]
+    ratio = float(getattr(config, "MIN_SCORE_RATIO", 0.0) or 0.0)
+    if ratio > 0 and len(kept) > top_k:
+        cutoff = ordered[0][1] * ratio
+        pruned = [item for item in kept if item[1] >= cutoff]
+        if len(pruned) >= top_k:
+            kept = pruned
+    return kept
+
+
 def _rrf_weights(n_lists: int, weights: list[float] | None = None) -> list[float]:
     """取融合权重：调用方传入优先；否则用配置；长度不符时退回等权。"""
     for candidate in (weights, getattr(config, "RRF_WEIGHTS", [])):
@@ -303,6 +348,7 @@ def search(
     mode: str | None = None,
     rrf_k: int | None = None,
     rrf_weights: list[float] | None = None,
+    rewrite: bool | None = None,
 ) -> dict:
     """检索；默认**双路 + RRF 融合**，返回精简命中（不返回全文）。
 
@@ -314,12 +360,32 @@ def search(
 
     `rrf_k` / `rrf_weights` 只影响混合检索，省略时读配置（供调试页按次覆盖）。
 
+    `rewrite=True` 会先让 LLM 把问题改写成几个说法，再分别检索后合并
+    （见 `multiquery.py`）；`None` 表示按配置自动（有 key 且未禁用才开）。
+
     ⚠️ **阈值只作用在向量那一路**（`min_score`）：融合后的 RRF 分是 `权重/(k+名次)`
     量级（默认约 0.19），拿 0.45 去卡会一条不剩。这是刻度问题，不是阈值该不该留。
     """
     query = (query or "").strip()
     if not query:
         raise ValueError("query 不能为空")
+
+    if rewrite is None:
+        from . import query_rewrite
+
+        rewrite = config.REWRITE_ENABLED and query_rewrite.available()
+    if rewrite:
+        from .multiquery import search_multi
+
+        return search_multi(
+            query,
+            top_k=top_k,
+            kind=kind,
+            module=module,
+            include_historical=include_historical,
+            mode=mode,
+        )
+
     top_k = max(1, min(int(top_k), 10))
     # 允许传中文（语义检索 / 字面检索 / 混合检索）—— 与界面、命令行统一。
     mode = normalize_mode(mode)
@@ -329,33 +395,45 @@ def search(
     indexer.ensure_ready()
     store = indexer.get_store()
 
-    # ---- ① 语义那一路：LangChain 标准向量检索器 ----
-    # `as_retriever(search_type="similarity")` 是 `VectorStoreRetriever`：
-    # 它内部就是 `similarity_search_with_relevance_scores` + 按 k 截断。
-    # ⚠️ 检索器**只返回 Document、不带分数**，而加权与展示都要分数，
-    # 所以再调一次标准 store API 取分数（同一批 k、同一个 filter，集合一致）。
-    candidates = max(top_k * 4, top_k)
+    # ---- ① 语义那一路 ----
+    # 只编码**一次**，然后用向量查（`similarity_search_by_vector_with_relevance_scores`）。
+    # 早期版本先 `as_retriever().invoke()` 拿文档、再 `similarity_search_with_relevance_scores()`
+    # 拿分数 —— 同一个问题编码两遍，白花一倍延迟（实测 7.6ms → 3.8ms）。
+    candidates = _candidates(top_k)
     where = _where(kind, module)
     # 向量检索的 search_type：similarity（默认）/ mmr（最大边际相关，刻意去冗余）。
+    # MMR 需要"按边际相关重排"，只能走检索器（它内部自己编码）。
     search_type = os.environ.get("COMIC_RAG_VECTOR_SEARCH", "similarity")
     if search_type == "mmr":
         search_kwargs = {"k": candidates, "fetch_k": candidates * 2, "lambda_mult": 0.5}
+        if where:
+            search_kwargs["filter"] = where
+        candidate_docs = store.as_retriever(
+            search_type=search_type, search_kwargs=search_kwargs
+        ).invoke(query)
+        score_by_id = {
+            str((doc.metadata or {}).get("doc_id") or getattr(doc, "id", "")): float(score)
+            for doc, score in store.similarity_search_with_relevance_scores(
+                query, k=candidates, filter=where
+            )
+        }
     else:
-        search_kwargs = {"k": candidates}
-    if where:
-        search_kwargs["filter"] = where
-    vector_retriever = store.as_retriever(
-        search_type=search_type,
-        search_kwargs=search_kwargs,
-    )
-    candidate_docs = vector_retriever.invoke(query)
-
-    score_by_id: dict[str, float] = {}
-    for doc, score in store.similarity_search_with_relevance_scores(
-        query, k=candidates, filter=where
-    ):
-        meta = doc.metadata or {}
-        score_by_id[str(meta.get("doc_id") or getattr(doc, "id", ""))] = float(score)
+        query_vector = store.embeddings.embed_query(query)
+        # ⚠️ `similarity_search_by_vector_with_relevance_scores` **名不副实**：
+        # langchain_chroma 里它只做 `_results_to_docs_and_scores`，返回的是**距离**
+        # （余弦距离，越小越像），排序也是按距离升序。直接用会得到相反顺序、
+        # 而且数值落在 0.37 这种"看起来是相关度"的区间里，非常容易误判。
+        # 正确做法：拿距离，再用该向量库自己的换算函数转成相关度。
+        raw = store.similarity_search_by_vector_with_relevance_scores(
+            query_vector, k=candidates, filter=where
+        )
+        to_relevance = store._select_relevance_score_fn()
+        pairs = [(doc, float(to_relevance(distance))) for doc, distance in raw]
+        candidate_docs = [doc for doc, _ in pairs]
+        score_by_id = {
+            str((doc.metadata or {}).get("doc_id") or getattr(doc, "id", "")): float(score)
+            for doc, score in pairs
+        }
 
     # 只用于界面高亮「这几个字在正文里出现过」，**不参与打分**。
     query_terms = tokenizer.unique_tokens(query)
@@ -368,13 +446,14 @@ def search(
         vector_score = score_by_id.get(doc_id)
         if vector_score is None:
             continue
-        # 语义分 = 余弦 + 加成（加成策略见 BOOST_MODE；阈值卡的是加权后的分）。
+        # 语义分 = 余弦 + 加成（加成策略见 BOOST_MODE）。
         final_score = vector_score + _boost_score(query, meta, doc.page_content)
-        if min_score is not None and final_score < float(min_score):
-            continue
         lowered = (doc.page_content or "").lower()
         display_terms = tuple(t for t in query_terms if t in lowered)
         vector[doc_id] = (final_score, vector_score, doc, display_terms)
+
+    # ⚠️ 阈值**不在这里**砍：候选池要留给融合/重排腾挪，
+    # 过滤放到最终排序结果上（`_apply_min_score`，仅语义模式）。
     # 先排好，融合时才有名次可用。
     vector_order = [d for d, _ in sorted(vector.items(), key=lambda kv: -kv[1][0])]
 
@@ -403,6 +482,8 @@ def search(
     # ---- ④ 排序：按模式决定用哪个分数 ----
     if mode == "vector":
         ordered = [(d, vector[d][0], None, ["vector"]) for d in vector_order]
+        # 绝对 + 相对阈值只作用在语义这一路（混合/RRF 的刻度完全不同）。
+        ordered = _apply_min_score(ordered, min_score, top_k)
     elif mode == "lexical":
         ordered = [(d, lex_map[d].score, None, ["lexical"]) for d in lex_order]
     else:

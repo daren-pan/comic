@@ -85,6 +85,15 @@ OVERLAP_CHARS = int(os.environ.get("COMIC_RAG_OVERLAP_CHARS", "50"))
 TOP_K = int(os.environ.get("COMIC_RAG_TOP_K", "5"))
 MIN_SCORE = float(os.environ.get("COMIC_RAG_MIN_SCORE", "0.45"))
 
+#: 阈值过滤的**相对底线**：低于 `top1 × 此比例` 的候选也砍掉。
+#: 但只有"砍完仍够 top_k 条"时才生效 —— 防止整体分偏低的查询被误杀成空。
+MIN_SCORE_RATIO = float(os.environ.get("COMIC_RAG_MIN_SCORE_RATIO", "0.7"))
+
+#: 向量候选池：`max(top_k × 系数, 下限)`。
+#: 池子必须明显大于 top_k，后面的融合/重排才有腾挪空间（正确文档常在 15 名开外）。
+CANDIDATE_FACTOR = int(os.environ.get("COMIC_RAG_CANDIDATE_FACTOR", "10"))
+CANDIDATE_MIN = int(os.environ.get("COMIC_RAG_CANDIDATE_MIN", "50"))
+
 # ---- 词面检索（BM25，阶段二 P2.1：只建索引，尚未接入 search）----
 #
 # ⚠️ 这三个是**打分刻度**参数，不是普通开关：
@@ -116,6 +125,23 @@ RRF_K = int(os.environ.get("COMIC_KB_RRF_K", "3"))
 RRF_WEIGHTS: list[float] = [
     float(x) for x in (os.environ.get("COMIC_KB_RRF_WEIGHTS", "0.75,0.25").split(",")) if x.strip()
 ]
+
+#: 查询改写：先用 LLM 把问题换成 3 个说法再分别检索（治"同义说法"的词汇鸿沟）。
+#: 一次调用约 3 秒，所以默认关：`COMIC_RAG_REWRITE=1` 打开（需要 `COMIC_LLM_API_KEY`）。
+#: 值：`auto`（有 key 就开）/ `1` 强制开 / `0`（默认）关。
+#:
+#: ⚠️ 2026-11-08 实测（20 条黄金题）：只改写时 Top-1 持平 90%，但 Recall 100%→95%
+#: （正确文档被 4 个变体的泛词文档挤到第 6）；改写 + 重排再降到 50%。
+#: 它在"同义/口语"查询上确实有效（收藏更新那条从找不到变成字面第 1），
+#: 但现有题集测不出收益 —— 等难例题补齐后再定默认值。
+_REWRITE_RAW = os.environ.get("COMIC_RAG_REWRITE", "0").strip().lower()
+REWRITE_ENABLED = _REWRITE_RAW not in {"0", "false", "off", "no"}
+REWRITE_VARIANTS = int(os.environ.get("COMIC_RAG_REWRITE_VARIANTS", "3"))
+#: 改写变体在融合时的权重（原句固定 1.0）。
+REWRITE_WEIGHT = float(os.environ.get("COMIC_RAG_REWRITE_WEIGHT", "0.7"))
+REWRITE_TIMEOUT = int(os.environ.get("COMIC_RAG_REWRITE_TIMEOUT", "20"))
+#: 每个变体取多少候选（合并后才做去重/重排）。
+REWRITE_CANDIDATES = int(os.environ.get("COMIC_RAG_REWRITE_CANDIDATES", "20"))
 
 #: `read_knowledge` 返回父小节时的最大字符数，防止一次把整篇 37KB 文档塞给 Agent。
 READ_MAX_CHARS = int(os.environ.get("COMIC_RAG_READ_MAX_CHARS", "6000"))
