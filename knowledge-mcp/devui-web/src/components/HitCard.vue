@@ -10,42 +10,37 @@ const props = defineProps({
   mode: { type: String, default: 'hybrid' },
 })
 
-// 分数构成：只在"向量那一路参与排序"的模式下展示。
-// lexical 模式下 score 是 BM25，跟这套加权没关系，显示出来只会误导。
-const boostInfo = computed(() => {
-  const b = props.hit.boosts || {}
-  if (props.mode === 'lexical' || !b.terms?.length) return null
-  const heading = b.heading || {}
-  const module = b.module || {}
-  const body = b.body || {}
-  const parts = [
-    { key: '余弦', value: props.hit.vector_score, detail: '' },
-    {
-      key: '标题',
-      value: heading.score,
-      detail: heading.matched?.length
-        ? `命中「${heading.matched.join('、')}」${heading.matched.length}/${heading.total} 词（0.12×${heading.matched.length}/${heading.total}）`
-        : '未命中',
-    },
-    {
-      key: '模块',
-      value: module.score,
-      detail: module.reason || '未命中',
-    },
-    {
-      key: '正文',
-      value: body.score,
-      detail: body.matched?.length
-        ? `命中「${body.matched.join('、')}」${body.matched.length}/${body.total} 词（0.08×${body.matched.length}/${body.total}）`
-        : '未命中',
-    },
-  ]
-  return {
-    // ⚠️ 不能用 hit.score：hybrid 下那是 RRF 分，与这四项相加无关。
-    total: parts.reduce((sum, p) => sum + p.value, 0),
-    parts,
+// 计算链：把「这一条为什么排在这里」用一行讲清楚。
+// 后端只回三个数（余弦 / BM25 / RRF），加成不在接口里 —— 用 `score - 余弦` 反推，
+// 规则本身在 `retriever._boost_score`，界面不重复实现，避免两边漂移。
+const formula = computed(() => {
+  const { vector_score: vec, lexical_score: lex, rrf, score } = props.hit
+  if (props.mode === 'lexical') {
+    return lex == null ? null : [{ k: 'BM25', v: fmt(lex, 2) }]
   }
+  if (props.mode === 'vector') {
+    const parts = [{ k: '余弦', v: fmt(vec, 4) }]
+    if (vec != null && score != null) {
+      const boost = score - vec
+      if (boost > 1e-6) parts.push({ k: '模块加成', v: '+' + boost.toFixed(4) })
+    }
+    return parts
+  }
+  return [
+    { k: '语义', v: fmt(vec, 4) },
+    { k: '字面', v: fmt(lex, 2) },
+    { k: 'RRF', v: fmt(rrf, 4) },
+  ]
 })
+
+const formulaHint = computed(
+  () =>
+    ({
+      vector: '总分 = 余弦 + 模块加成',
+      lexical: 'BM25 无上界，别当 0~1 用',
+      hybrid: 'RRF = Σ 权重/(k+名次)，语义 0.75 / 字面 0.25，k=3',
+    })[props.mode] || '',
+)
 
 const open = ref(false)
 const loading = ref(false)
@@ -118,18 +113,9 @@ const highlightedSnippet = computed(() => {
   // 卡片显示的是**命中的那一块**（`body` 已剥掉 heading_path 前缀），不是整节。
   const full = props.hit.body || props.hit.snippet || ''
   const text = expanded.value || full.length <= 320 ? full : full.slice(0, 320) + '…'
-  // 命中词有两个来源：词面路的 `matched_terms`，以及向量路加权里的
-  // `boosts.heading/body.matched`。纯向量模式没有词面路，只用前者会一片不亮。
-  const boosts = props.hit.boosts || {}
-  const terms = [
-    ...new Set(
-      [
-        ...(props.hit.matched_terms || []),
-        ...(boosts.body?.matched || []),
-        ...(boosts.heading?.matched || []),
-      ].filter(Boolean),
-    ),
-  ]
+  // 命中词只有一个来源：后端 `matched_terms`（词面路命中 + 显示用词）。
+  // 向量那路的"加成"不再带匹配词，所以这里不做二次合并。
+  const terms = [...new Set((props.hit.matched_terms || []).filter(Boolean))]
   if (!terms.length) return escapeHtml(text)
 
   // 长词优先，避免「任务」先吃掉「定时任务」这种嵌套匹配
@@ -178,26 +164,13 @@ const highlightedSnippet = computed(() => {
       </template>
     </p>
 
-    <div v-if="boostInfo" class="boosts">
-      <div class="bline">
-        <span class="blabel">{{ mode === 'vector' ? '分数构成' : '语义路得分' }}</span>
-        <span class="bformula">
-          {{ boostInfo.total.toFixed(4) }} =
-          <template v-for="(p, i) in boostInfo.parts" :key="p.key">
-            <span v-if="i" class="muted"> + </span>{{ p.key }} {{ p.value.toFixed(4) }}
-          </template>
-        </span>
-        <span v-if="mode !== 'vector'" class="muted bnote">
-          （这串分数决定它在语义榜的名次；上方的 score 是 RRF 融合分）
-        </span>
-      </div>
-      <div class="bdetail">
-        <span v-for="p in boostInfo.parts.slice(1)" :key="p.key" class="bitem">
-          <b>{{ p.key }}</b>
-          <span :class="p.value > 0 ? 'ok' : 'muted'">{{ p.detail }}</span>
-        </span>
-      </div>
-    </div>
+    <p v-if="formula" class="formula">
+      <template v-for="(p, i) in formula" :key="p.k">
+        <span v-if="i" class="muted"> · </span>
+        <span class="fkey">{{ p.k }}</span> <span class="num">{{ p.v }}</span>
+      </template>
+      <span class="muted fnote">（{{ formulaHint }}）</span>
+    </p>
 
     <div v-if="open" class="section">
       <p v-if="loading" class="muted">读取中…</p>
@@ -311,38 +284,19 @@ const highlightedSnippet = computed(() => {
   padding: 0 2px;
   font-weight: 600;
 }
-.boosts {
-  margin-top: 8px;
+.formula {
+  margin: 8px 0 0;
   padding-top: 7px;
   border-top: 1px dashed var(--line);
   font-size: 12px;
-}
-.bline {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: baseline;
-}
-.blabel {
-  color: var(--dim);
-}
-.bformula {
   font-variant-numeric: tabular-nums;
   color: #c2c7d0;
 }
-.bnote {
-  font-size: 11px;
-}
-.bdetail {
-  margin-top: 3px;
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
+.fkey {
   color: var(--dim);
 }
-.bitem b {
-  color: #8b93a7;
-  font-weight: 600;
-  margin-right: 5px;
+.fnote {
+  margin-left: 6px;
+  font-size: 11px;
 }
 </style>

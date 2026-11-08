@@ -44,7 +44,7 @@ async function run() {
         v-model="query"
         type="text"
         class="grow"
-        placeholder="输入问题，回车检索（例：定时任务三个文件谁写谁读）"
+        placeholder="输入问题，回车检索（例：某模块为什么独立进程）"
         @keyup.enter="run"
       />
       <select v-model="mode">
