@@ -120,10 +120,13 @@ HYBRID_ENABLED = os.environ.get("COMIC_KB_HYBRID", "1").strip().lower() not in {
 #: 两路靠后 > 单路靠后"；k=60 时第 5 条会压过第 4 条（混合 Top-1 只有 65% 的原因之一）。
 RRF_K = int(os.environ.get("COMIC_KB_RRF_K", "3"))
 
-#: 两路权重（语义, 字面），逗号分隔。默认偏向语义（它 Top-1 90%，字面只有 60%），
-#: 但保留字面 25% 用于专有名词兜底。等权会让字面噪音（自文档污染）压过语义第一。
+#: 两路权重（语义, 字面），逗号分隔。默认**等权 1:1**。
+#:
+#: 历史：曾用 0.75:0.25（偏向语义）—— 在"文档原话式"题集上 Top-1 更高；但补上
+#: 同义/专名题后发现字面第 1 名会被系统性压掉：`X-Service-Token`、`hnsw:space`、
+#: `更新了怎么通知我` 三条都是"字面对、混合错"。等权后两路同权，字面独有命中不再被削弱。
 RRF_WEIGHTS: list[float] = [
-    float(x) for x in (os.environ.get("COMIC_KB_RRF_WEIGHTS", "0.75,0.25").split(",")) if x.strip()
+    float(x) for x in (os.environ.get("COMIC_KB_RRF_WEIGHTS", "1,1").split(",")) if x.strip()
 ]
 
 #: 按查询类型自动分流：**口语型**走「改写 + 合并 + 重排」的深度路径，其余走常规路径。
