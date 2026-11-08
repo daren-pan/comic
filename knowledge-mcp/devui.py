@@ -62,6 +62,22 @@ class SearchBody(BaseModel):
     top_k: int = 5
     kind: str | None = None
     module: str | None = None
+    # 融合参数（可选）：不传就用配置默认值，方便页面上现场 A/B。
+    rrf_k: int | None = None
+    rrf_semantic_weight: float | None = None
+    rrf_lexical_weight: float | None = None
+
+    def fusion_args(self) -> dict:
+        weights = None
+        if self.rrf_semantic_weight is not None or self.rrf_lexical_weight is not None:
+            weights = [
+                float(self.rrf_semantic_weight if self.rrf_semantic_weight is not None else 0.75),
+                float(self.rrf_lexical_weight if self.rrf_lexical_weight is not None else 0.25),
+            ]
+        return {
+            "rrf_k": None if self.rrf_k is None else int(self.rrf_k),
+            "rrf_weights": weights,
+        }
 
 
 class ReadBody(BaseModel):
@@ -111,6 +127,7 @@ def api_search(body: SearchBody) -> dict:
         kind=body.kind or None,
         module=body.module or None,
         mode=body.mode,
+        **body.fusion_args(),
     )
 
 
@@ -125,6 +142,7 @@ def api_compare(body: SearchBody) -> dict:
             kind=body.kind or None,
             module=body.module or None,
             mode=mode,
+            **body.fusion_args(),
         )
     return out
 

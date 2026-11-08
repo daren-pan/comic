@@ -194,21 +194,28 @@ def _hit(
 _MODES = ("hybrid", "vector", "lexical")
 
 
-def _rrf_weights(n_lists: int) -> list[float]:
-    """取融合权重：默认等权；`config.RRF_WEIGHTS` 长度不符时退回等权。"""
-    configured = list(getattr(config, "RRF_WEIGHTS", []) or [])
-    if len(configured) == n_lists and any(w > 0 for w in configured):
-        return configured
+def _rrf_weights(n_lists: int, weights: list[float] | None = None) -> list[float]:
+    """取融合权重：调用方传入优先；否则用配置；长度不符时退回等权。"""
+    for candidate in (weights, getattr(config, "RRF_WEIGHTS", [])):
+        values = list(candidate or [])
+        if len(values) == n_lists and any(w > 0 for w in values):
+            return values
     return [1.0] * n_lists
 
 
 def _fuse_ranked(
     ranked: list[tuple[str, list[str]]],
     docs: dict[str, object],
+    *,
+    k: int | None = None,
+    weights: list[float] | None = None,
 ) -> list[tuple[str, float, float | None, list[str]]]:
     """用 LangChain 的 `EnsembleRetriever` 做加权 RRF 融合。
 
     `ranked = [(来源名, 已按相关性排好的 doc_id 列表), ...]`
+
+    `k` / `weights` 省略时读 `config`（`COMIC_KB_RRF_K` / `COMIC_KB_RRF_WEIGHTS`）；
+    调试界面和 CLI 可以按次覆盖，方便现场 A/B。
 
     为什么用 RRF 而不是分数相加：向量分是 0~1 余弦、BM25 是无上界实数，两者**不可比**；
     直接相加，量级大的那一路永远赢，等于另一路白做。
@@ -252,10 +259,10 @@ def _fuse_ranked(
     ]
     ensemble = _Scored(
         retrievers=[_Noop() for _ in ranked],
-        # 权重按 `ranked` 顺序给（语义在前、字面在后），由 `config.RRF_WEIGHTS` 控制。
-        weights=_rrf_weights(len(ranked)),
+        # 权重按 `ranked` 顺序给（语义在前、字面在后）。
+        weights=_rrf_weights(len(ranked), weights),
         id_key="doc_id",
-        c=int(config.RRF_K),
+        c=int(k if k is not None else config.RRF_K),
     )
     fused_docs = ensemble.weighted_reciprocal_rank(doc_lists)
 
@@ -294,6 +301,8 @@ def search(
     include_historical: bool = False,
     min_score: float | None = config.MIN_SCORE,
     mode: str | None = None,
+    rrf_k: int | None = None,
+    rrf_weights: list[float] | None = None,
 ) -> dict:
     """检索；默认**双路 + RRF 融合**，返回精简命中（不返回全文）。
 
@@ -303,8 +312,10 @@ def search(
     | `vector` | 只走语义 | 回退 / 对照（等价于改动前） |
     | `lexical` | 只走 BM25 | 调试"字面到底能捞到什么" |
 
-    ⚠️ **阈值只作用在向量那一路**（`min_score`）：融合后的 RRF 分是 `1/(60+名次)`
-    量级（约 0.016），拿 0.45 去卡会一条不剩。这是刻度问题，不是阈值该不该留。
+    `rrf_k` / `rrf_weights` 只影响混合检索，省略时读配置（供调试页按次覆盖）。
+
+    ⚠️ **阈值只作用在向量那一路**（`min_score`）：融合后的 RRF 分是 `权重/(k+名次)`
+    量级（默认约 0.19），拿 0.45 去卡会一条不剩。这是刻度问题，不是阈值该不该留。
     """
     query = (query or "").strip()
     if not query:
@@ -395,7 +406,12 @@ def search(
     elif mode == "lexical":
         ordered = [(d, lex_map[d].score, None, ["lexical"]) for d in lex_order]
     else:
-        ordered = _fuse_ranked([("vector", vector_order), ("lexical", lex_order)], docs)
+        ordered = _fuse_ranked(
+            [("vector", vector_order), ("lexical", lex_order)],
+            docs,
+            k=rrf_k,
+            weights=rrf_weights,
+        )
 
     # ---- ④.5 重排（可选，默认关）：把候选真正读一遍，再决定顺序 ----
     if ordered and rerank.enabled():
@@ -447,6 +463,11 @@ def search(
         "collection": config.collection_name(),
         "candidates": {"vector": len(vector_order), "lexical": len(lex_order)},
         "elapsed_ms": elapsed_ms,
+        # 本次实际用的融合参数（界面/CLI 要显示"这次是按什么调的"）
+        "rrf": {
+            "k": int(rrf_k if rrf_k is not None else config.RRF_K),
+            "weights": _rrf_weights(2, rrf_weights),
+        },
         "hint": "需要全文时调用 read_knowledge(doc_id=...)。",
     }
 
