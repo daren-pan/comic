@@ -40,9 +40,15 @@
 |---|---|---|---|
 | `COMIC_KB_HYBRID` | `1` | 双路总开关 | 设 `0` 完全回到纯向量（回退用） |
 | `COMIC_KB_LEXICAL_TOP_K` | 20 | 词面路候选数 | 只用于融合，不是最终返回数 |
-| `COMIC_KB_LEXICAL_K1` | 1.5 | 词频饱和系数 | 越大，"出现次数多"越占便宜 |
-| `COMIC_KB_LEXICAL_B` | 0.75 | 长度归一强度 | 0 = 不惩罚长文，1 = 完全按长度摊平 |
-| `COMIC_KB_RRF_K` | 60 | RRF 平滑常数 | **只改变分数绝对量级，几乎不影响排序**；不要用它去"提分"或断平局 |
+| `COMIC_KB_LEXICAL_K1` | 1.8 | 词频饱和系数 | 越大，"出现次数多"越占便宜；1.5→1.8 使字面 Top-1 50%→60% |
+| `COMIC_KB_LEXICAL_B` | 0.9 | 长度归一强度 | 0 = 不惩罚长文，1 = 完全按长度摊平；0.75→0.9 是同一轮调参 |
+| `COMIC_RAG_BOOST` | `module` | 语义分加成策略 | `module`（默认，+0.06 命中模块）/ `none` / `heading` / `body` / `all`；实测 `module` 最好，见 [ARCHITECTURE.md](ARCHITECTURE.md) |
+| `COMIC_RAG_RERANK` | 空（关闭） | 重排总开关 | 设 `1` 打开。**默认关**：当时基线（k=60 等权、混合 Top-1 65%）下测到 70%，但每次查询 50ms→7s，且语义掉到 70%；现有基线已 90%，**未复测**，见 [NOTES.md](NOTES.md) 2.7 |
+| `COMIC_RAG_RERANK_MODEL` | `crawler-service/data/models/bge-reranker-v2-m3` | 重排模型目录 | 2.1 GB，`BAAI/bge-reranker-v2-m3`（多语言，中文可用） |
+| `COMIC_RAG_RERANK_CANDIDATES` | 10 | 送进重排的候选数 | 每多一条约 +0.7 秒（CPU） |
+| `COMIC_RAG_RERANK_MAX_LENGTH` | 256 | 重排截断长度 | 越大越慢 |
+| `COMIC_KB_RRF_K` | 3 | RRF 平滑常数 | **会改变排序**：k 越大，"两路都出现"越吃香；k=60 会让"两路靠后"压过"单路第一"，混合 Top-1 掉到 65% |
+| `COMIC_KB_RRF_WEIGHTS` | `0.75,0.25` | 两路权重（语义, 字面） | 等权会让字面噪音压过语义第一；默认偏向语义（Top-1 90% vs 字面 60%），保留 25% 用于专名兜底 |
 
 ## 五、分词
 

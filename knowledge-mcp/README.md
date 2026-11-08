@@ -61,12 +61,16 @@
 # 1. 装依赖（RAG 依赖复用 chat-service 的 venv，这里只补 MCP SDK）
 bash scripts/dev.sh bootstrap knowledge
 
-# 2. 建索引（首次约 30~50 秒，本地 bge、CPU）
-bash scripts/dev.sh knowledge-index
+# 2. 建索引（首次约 40 秒，本地 bge、CPU）
+bash scripts/kb.sh index
 
-# 3. 自检：看生效的向量后端、分词后端、索引条数、是否过期
-bash scripts/dev.sh knowledge-index --check
+# 3. 直接问
+bash scripts/kb.sh ask "&lt;你的问题&gt;"
 ```
+
+`scripts/kb.sh` 是统一入口，参数原样转给 CLI（`ask` / `search` / `eval` / `index` /
+`read` / `doctor` / `stats`），**不用手工设 `PYTHONPATH`**。完整命令见
+[OPERATIONS.md](docs/OPERATIONS.md)。
 
 然后在 MCP 客户端里接上（[OPERATIONS.md](docs/OPERATIONS.md) 有两份配置模板），
 就能用 `search_knowledge` / `read_knowledge` 了。
@@ -78,6 +82,8 @@ bash scripts/dev.sh knowledge-index --check
 ```
 knowledge-mcp/
 ├── run_mcp.py                  # MCP 启动器：注入 sys.path、临时目录、模型缓存
+├── devui.py                    # 调试界面后端（FastAPI，只提供 /api/*）
+├── devui-web/                  # 调试界面前端（Vue 3 + Vite）
 ├── README.md                   # 导读（本文件，留在模块根）
 ├── docs/                       # 其余职责文档（一份一个职责）
 │   ├── ARCHITECTURE.md         # 设计
@@ -96,6 +102,7 @@ knowledge-mcp/
 │   ├── lexical.py              # BM25 词面索引
 │   ├── indexer.py              # Chroma 构建、manifest、过期检测
 │   ├── retriever.py            # 双路召回 + RRF 融合 + 回读
+│   ├── rerank.py               # 可选重排（CrossEncoderReranker，默认关）
 │   ├── message_indexer.py      # message 表 → 独立增量集合
 │   ├── message_retriever.py    # message 检索 / 回读 / 统计
 │   ├── server.py               # FastMCP 工具定义

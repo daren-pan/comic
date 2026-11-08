@@ -5,16 +5,52 @@
 
 ## 速查
 
+**统一入口**：`bash scripts/kb.sh <子命令> [参数]`。脚本只做三件事 —— 找到项目内的
+Python、设好 `PYTHONPATH` 与临时目录、把参数转发给 CLI，所以不用手工 export 任何变量。
+
 | 我要做什么 | 命令 |
 |---|---|
+| 直接问（看答案） | `bash scripts/kb.sh ask "问题"`（可一次问多个） |
+| 看每条命中怎么来的 | `bash scripts/kb.sh search "问题" --explain` |
+| 看命中全文 | `bash scripts/kb.sh read "<doc_id>"` |
+| 跑评估（Recall/MRR/nDCG） | `bash scripts/kb.sh eval --mode hybrid` |
+| 逐题核对评估结果 | `bash scripts/kb.sh eval --detail` |
+| 全量重建索引 | `bash scripts/kb.sh index` |
+| 只检查索引是否过期 | `bash scripts/kb.sh index --check` |
+| 配置自检 | `bash scripts/kb.sh doctor` |
 | 装/补依赖 | `bash scripts/dev.sh bootstrap knowledge` |
-| 全量重建文档索引 | `bash scripts/dev.sh knowledge-index` |
-| 只检查索引是否过期 | `bash scripts/dev.sh knowledge-index --check` |
-| 看配置与索引状态 | `bash scripts/dev.sh knowledge-index --check` 或 CLI `doctor` / `stats` |
-| 试检索（不调模型） | CLI `search "<问题>"` |
-| 看命中全文 | CLI `read "<doc_id>"` |
-| 跑评估集 | `bash scripts/dev.sh knowledge-eval` |
 | 重建 message 索引 | `bash scripts/dev.sh message-index`（`--full` 全量 / `--stats` 只看状态） |
+
+> 等价的底层命令是 `python -m comic_rag_mcp.cli <子命令>`，需要自己设
+> `PYTHONPATH=knowledge-mcp/src;chat-service/src;comic-core/src`。日常用脚本即可。
+
+## 调试界面（浏览器里测）
+
+不想在命令行里反复敲？起一个本地页面（Vue 3 + Vite，后端是同一套 `retriever` / `eval`）：
+
+```bash
+bash scripts/kb-ui.sh                   # 界面 :5175 / 后端 API :8899
+KB_UI_PORT=9000 bash scripts/kb-ui.sh   # 换后端端口
+```
+
+首次需要装前端依赖：
+
+```bash
+cd knowledge-mcp/devui-web && npm install --registry=https://registry.npmmirror.com
+```
+
+三个页签：
+
+| 页签 | 用途 |
+|---|---|
+| **搜索** | 单条查询，看每条命中的分数构成（向量 / 词面 / RRF / 来源 / 命中词），可展开回读全文 |
+| **三路对比** | 同一个问题跑 `vector` / `lexical` / `hybrid`，并排看差别 |
+| **评测** | 跑 20 条黄金题，出 Recall / MRR / nDCG / Top-1 与逐题明细 |
+
+结构：`knowledge-mcp/devui.py`（FastAPI，只提供 `/api/*`）+ `knowledge-mcp/devui-web/`
+（Vue 单页，`/api` 由 vite 代理到 8899）。改了前端不用重启后端，vite 热更新。
+
+⚠️ 只绑 `127.0.0.1`、**无鉴权**，是本地调试工具，不要改成对外监听。
 
 ## 前置条件
 
@@ -152,7 +188,7 @@ crawler-service/.venv/Scripts/python.exe -m comic_rag_mcp.cli doctor   # 2. 生�
 | 首次建索引卡住 / 报模型下载失败 | 直连 HuggingFace 不通 | 设 `HF_ENDPOINT=https://hf-mirror.com` |
 | 检索结果全是无关文档 | ① 索引过期<br>② 分词后端不是预期<br>③ 向量后端是 `hash` 占位 | 依次查 `doctor` 三项 |
 | 答案里出现"不存在的功能" | 语料里没有，但检索给了低分噪音 | 看 `min_score`；看命中的 `sources` 与 `matched_terms` |
-| 两个语义相近的文档总抢第一 | RRF 平局，靠 doc_id 排序 | 用 `mode=vector` 对照；根本上需要二次重排（尚未实现） |
+| 两个语义相近的文档总抢第一 | 融合分接近（同一条在两路排名相近），或语料里有"引用问题原句"的段落（自文档污染） | 先用 `mode=语义检索` 对照；污染看 [NOTES.md](NOTES.md) 2.6；仍不行再试 `COMIC_RAG_RERANK=1` |
 | MCP 工具在客户端里不出现 | profile 未重载 / 未 Trust / 路径写错 | 重启 DSH 或重新 Trust；核对 `run_mcp.py` 绝对路径 |
 | 改了文档但检索没变化 | 没重建索引；或改了 `page_content` 拼法但没升 `CHUNKER_VERSION` | 重建；必要时升版本号 |
 | Word / Excel 命中后内容不全 | 二进制源没有行号，只能回单条 chunk | 属于已知限制，看原文件 |
