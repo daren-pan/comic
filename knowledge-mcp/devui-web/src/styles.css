@@ -1,0 +1,132 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --line: #262b36;
+  --fg: #e6e8ee;
+  --dim: #8b93a7;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --bad: #f85149;
+  --accent: #58a6ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.6 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+button {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: #1f6feb;
+  color: #fff;
+  cursor: pointer;
+  font-size: 14px;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button.ghost {
+  background: transparent;
+  color: var(--accent);
+}
+
+input[type='text'],
+select,
+input[type='number'] {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 14px;
+}
+input[type='text']:focus,
+select:focus {
+  outline: 1px solid var(--accent);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.chip {
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 11px;
+}
+.chip.vector {
+  border-color: #2f81f7;
+  color: #79c0ff;
+}
+.chip.lexical {
+  border-color: #a371f7;
+  color: #d2a8ff;
+}
+
+.muted {
+  color: var(--dim);
+}
+.ok {
+  color: var(--ok);
+}
+.mid {
+  color: var(--warn);
+}
+.bad {
+  color: var(--bad);
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th,
+td {
+  text-align: left;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+}
+th {
+  color: var(--dim);
+  font-weight: 600;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0b0d11;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+  margin: 8px 0 0;
+  max-height: 340px;
+  overflow: auto;
+}
