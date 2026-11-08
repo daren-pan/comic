@@ -101,4 +101,56 @@ CASES: list[dict] = [
         "query": "部署时 compose 的服务名",
         "expect": ["deploy/README.md", "docs/deploy.md"],
     },
+    # ---- 难例题（2026-11-08 补）----
+    # 前 20 条都是"文档原话式"提问，衡量不出同义/口语能力 —— 实测会出现
+    # "常规路径 90%、深度路径 50%"这种相反结论。下面这些特意用**用户说法**，
+    # 且正确答案确实存在于语料里（`expect` 都是人工核对过的真实章节）。
+    #
+    # ① 同义/口语型：用户说"提醒"，文档写"通知"
+    {
+        "query": "收藏漫画有更新时如何提醒",
+        "expect": ["comic-scheduler/README.md"],
+    },
+    {
+        "query": "我收藏的漫画更新了咋没提示",
+        "expect": ["comic-scheduler/README.md"],
+    },
+    {
+        "query": "更新了怎么通知我",
+        "expect": ["comic-scheduler/README.md", "AGENTS.md"],
+    },
+    {
+        "query": "采集任务隔多久跑一次",
+        "expect": ["comic-scheduler/README.md", "docs/deploy.md"],
+    },
+    {
+        "query": "怎么把项目部署上线",
+        "expect": ["docs/deploy.md", "deploy/README.md"],
+    },
+    # ② 专名型：字面路该救场的场景
+    {
+        "query": "X-Service-Token 是什么",
+        "expect": [
+            "knowledge-mcp/docs/ARCHITECTURE.md",
+            "AGENTS.md",
+            "api-service/README.md",
+        ],
+    },
+    {
+        "query": "require_admin 是哪个装饰器",
+        "expect": ["docs/auth.md", "api-service/README.md"],
+    },
+    {
+        "query": "hnsw:space 怎么设",
+        "expect": ["knowledge-mcp/docs/NOTES.md", "knowledge-mcp/docs/ARCHITECTURE.md"],
+    },
+    # ③ 改写型：意思对但用词不同
+    {
+        "query": "采集到的数据存在哪里",
+        "expect": ["comic-core/README.md", "AGENTS.md", "docs/architecture.md"],
+    },
+    {
+        "query": "定时任务的配置存在哪个文件",
+        "expect": ["comic-scheduler/README.md", "AGENTS.md"],
+    },
 ]

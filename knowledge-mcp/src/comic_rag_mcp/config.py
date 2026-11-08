@@ -127,12 +127,15 @@ RRF_WEIGHTS: list[float] = [
 ]
 
 #: 按查询类型自动分流：**口语型**走「改写 + 合并 + 重排」的深度路径，其余走常规路径。
-#: 依据实测：深度路径能把口语查询从"找不到"推进前 2，但会把文档原话型查询的
-#: Top-1 拖下来（重排偏好"内容最像答案"，而非"规范文档章节"）。
 #:
-#: ⚠️ 默认关：现有题集里被判为口语型的 4 条有 1~2 条会从第 1 掉到第 2~3，
-#: 而真正受益的"同义口语"题集还没建。补完难例题再决定是否默认开。
-AUTO_ROUTE = os.environ.get("COMIC_RAG_AUTO_ROUTE", "0").strip() not in {"0", "false", "off"}
+#: 实测（30 条题 = 原 20 条文档原话式 + 新补 10 条同义/专名/口语式）：
+#:
+#!    关闭分流：Recall 83.3% · MRR 0.732 · nDCG 0.782 · Top-1 66.7%
+#:     开启分流：Recall **90.0%** · MRR 0.732 · nDCG 0.798 · Top-1 63.3%
+#:
+#: 也就是**多找回 2 条、少排对 1 条**。按「宁可慢也别答不出」的产品取向，默认开。
+#: 代价：口语型查询要 30~40 秒（改写 3s + 重排 ~25s）。
+AUTO_ROUTE = os.environ.get("COMIC_RAG_AUTO_ROUTE", "1").strip() not in {"0", "false", "off"}
 #: 深度路径是否强制开启重排（口语型查询用）。
 DEEP_RERANK = os.environ.get("COMIC_RAG_DEEP_RERANK", "1").strip() not in {"0", "false", "off"}
 
