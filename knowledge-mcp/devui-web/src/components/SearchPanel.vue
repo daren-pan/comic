@@ -89,12 +89,12 @@ async function run() {
       <input v-model="kind" type="text" placeholder="module_readme / schema…" style="flex: 0 1 220px" />
       <span>module</span>
       <input v-model="module" type="text" placeholder="crawler / api…" style="flex: 0 1 180px" />
-      <a href="#" @click.prevent="showFusion = !showFusion">
+      <a v-if="mode === 'hybrid'" href="#" @click.prevent="showFusion = !showFusion">
         {{ showFusion ? '收起融合参数' : '融合参数' }}{{ fusionDirty ? ' · 已改' : '' }}
       </a>
     </div>
 
-    <div v-if="showFusion" class="fusion" :class="{ dimmed: mode !== 'hybrid' }">
+    <div v-if="showFusion && mode === 'hybrid'" class="fusion">
       <label>
         k
         <input v-model="rrfK" type="number" min="0" max="200" step="1" />
@@ -109,7 +109,7 @@ async function run() {
       </label>
       <a href="#" @click.prevent="resetFusion">恢复默认</a>
       <span class="muted note">
-        score = Σ 权重 / (k + 名次)。k 越大，"两路都靠后"越吃香；只有混合检索生效。
+        score = Σ 权重 / (k + 名次)。k 越大，"两路都靠后"越吃香。
       </span>
     </div>
 
@@ -150,9 +150,6 @@ async function run() {
   border: 1px solid var(--line);
   border-radius: 8px;
   font-size: 12px;
-}
-.fusion.dimmed {
-  opacity: 0.5;
 }
 .fusion label {
   display: flex;
