@@ -6,14 +6,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import datetime
 from pathlib import Path
 
 from langchain_chroma import Chroma
+from langchain_core.indexing import InMemoryRecordManager
 
 from . import config
 from .corpus import CorpusResult
+
+_log = logging.getLogger(__name__)
 
 
 class KnowledgeIndexError(RuntimeError):
@@ -72,22 +76,31 @@ def documents_by_ids(doc_ids: list[str]) -> dict[str, "Document"]:  # noqa: F821
     """按 `doc_id` 批量取回 Document（**不构造 embedding**）。
 
     融合时词面那一路只带了 doc_id，需要回填正文与元数据；一次批量取完，避免逐条查。
+
+    ⚠️ 必须按 **metadata.doc_id** 查，不能用 `get(ids=...)`：集合主键现在是
+    LangChain `index()` 写入的内容哈希，和我们的 doc_id 是两套东西。
     """
     if not doc_ids:
         return {}
     collection = raw_collection()
-    result = collection.get(ids=list(doc_ids), include=["documents", "metadatas"])
-    ids = result.get("ids") or []
-    documents = result.get("documents") or []
-    metadatas = result.get("metadatas") or [{} for _ in ids]
 
     from langchain_core.documents import Document
 
     out: dict[str, Document] = {}
-    for doc_id, text, meta in zip(ids, documents, metadatas):
-        meta = meta or {}
-        key = str(meta.get("doc_id") or doc_id)
-        out[key] = Document(id=key, page_content=text or "", metadata=meta)
+    batch_size = 100
+    unique = list(dict.fromkeys(doc_ids))
+    for start in range(0, len(unique), batch_size):
+        batch = unique[start : start + batch_size]
+        result = collection.get(
+            where={"doc_id": {"$in": batch}}, include=["documents", "metadatas"]
+        )
+        ids = result.get("ids") or []
+        documents = result.get("documents") or []
+        metadatas = result.get("metadatas") or [{} for _ in ids]
+        for doc_id, text, meta in zip(ids, documents, metadatas):
+            meta = meta or {}
+            key = str(meta.get("doc_id") or doc_id)
+            out[key] = Document(id=key, page_content=text or "", metadata=meta)
     return out
 
 
@@ -101,11 +114,77 @@ def _write_manifest(payload: dict) -> None:
     tmp.replace(config.MANIFEST_FILE)
 
 
-def build_index(corpus: CorpusResult, *, batch_size: int = 32) -> dict:
-    """全量重建：删集合 → 重开 → 分批写入 → 写 manifest。
+class JsonRecordManager(InMemoryRecordManager):
+    """LangChain 的内存记录管理器 + **落盘**。
 
-    第一版不做增量：项目文档不到 1MB，全量重建比维护「按文件 diff + 删除旧 chunk」
-    的复杂度低得多；等文档量上来再按 manifest 的 `sha1` 做增量。
+    `index()` 靠它判断"哪些文件变了"：键是 `(源文件, 内容哈希)`，值是更新时间。
+    内存版进程一退就丢，下次会全量重算 —— 所以这里在每次写入后落一份 JSON。
+    """
+
+    def __init__(self, namespace: str, path: Path) -> None:
+        super().__init__(namespace=namespace)
+        self._path = Path(path)
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if payload.get("namespace") == self.namespace:
+            self.records = dict(payload.get("records") or {})
+
+    def _save(self) -> None:
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(
+                json.dumps(
+                    {"namespace": self.namespace, "records": self.records},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            # 落盘失败不影响本次索引，只是下次会退化成全量。
+            pass
+
+    def update(self, keys, *, group_ids=None, time_at_least=None) -> None:  # noqa: ANN001
+        super().update(keys, group_ids=group_ids, time_at_least=time_at_least)
+        self._save()
+
+    def delete_keys(self, keys) -> None:  # noqa: ANN001
+        super().delete_keys(keys)
+        self._save()
+
+
+def _can_incremental() -> bool:
+    """集合存在、非空，**记录文件也在**，且 manifest 的 embedding / 切分版本与当前一致。
+
+    ⚠️ 必须要求记录文件存在：否则「集合有数据、记录为空」会被判定成"全是新文档"，
+    于是把整库再插一遍 —— 结果是一堆重复块，而且不报错。
+    """
+    try:
+        if raw_collection_count() <= 0:
+            return False
+        if not (config.INDEX_DIR / "record_manager.json").exists():
+            return False
+        manifest = json.loads(config.MANIFEST_FILE.read_text(encoding="utf-8"))
+        return (
+            manifest.get("embedding") == config.embedding_info()
+            and manifest.get("chunker_version") == config.CHUNKER_VERSION
+        )
+    except (OSError, ValueError):
+        return False
+
+
+def build_index(
+    corpus: CorpusResult, *, batch_size: int = 32, incremental: bool = True
+) -> dict:
+    """建索引：**能增量就增量**（LangChain `index()`），否则全量重建。
+
+    增量会把 `(源文件, 内容哈希)` 记在 `record_manager.json` 里，只重算变过的文件，
+    并删掉源文件里已经不存在的旧块。切分版本 / embedding 变了必须全量
+    （块 id 与向量空间都变了），`_can_incremental()` 会挡住这种情况。
     """
     if not corpus.documents:
         raise RuntimeError("没有可索引的文档：检查 corpus 扫描规则")
@@ -113,18 +192,55 @@ def build_index(corpus: CorpusResult, *, batch_size: int = 32) -> dict:
     started = time.perf_counter()
     config.INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
-    try:
-        get_store().delete_collection()
-    except Exception:
-        # 首次建索引时集合还不存在；正常情况，忽略。
-        pass
+    from langchain_core.indexing import index as lc_index
 
+    can_incremental = bool(incremental and _can_incremental())
+    record_file = config.INDEX_DIR / "record_manager.json"
+
+    if not can_incremental:
+        # 全量：集合与记录一起清掉，否则「旧记录 + 新集合」会让增量判断错乱。
+        try:
+            get_store().delete_collection()
+        except Exception:
+            # 首次建索引时集合还不存在；正常情况，忽略。
+            pass
+        try:
+            record_file.unlink()
+        except FileNotFoundError:
+            pass
+
+    manager = JsonRecordManager(config.collection_name(), record_file)
     store = get_store()
-    for start in range(0, len(corpus.documents), batch_size):
-        batch = corpus.documents[start : start + batch_size]
-        store.add_documents(batch)
+    try:
+        result = lc_index(
+            corpus.documents,
+            manager,
+            store,
+            batch_size=batch_size,
+            # 全量用 "full"：把源里已不存在的旧块删干净；增量只处理变化的文件。
+            cleanup="incremental" if can_incremental else "full",
+            source_id_key="path",      # 以「文件」为增量单位
+        )
+        mode = "incremental" if can_incremental else "full"
+        counts = {
+            "added": result["num_added"],
+            "updated": result["num_updated"],
+            "deleted": result["num_deleted"],
+            "skipped": result["num_skipped"],
+        }
+    except Exception as exc:  # noqa: BLE001 —— 标准索引失败必须能退回手写写入
+        _log.warning("LangChain index() 失败（%s）：%s；退回逐批写入", type(exc).__name__, exc)
+        try:
+            store.delete_collection()
+        except Exception:
+            pass
+        store = get_store()
+        for start in range(0, len(corpus.documents), batch_size):
+            store.add_documents(corpus.documents[start : start + batch_size])
+        mode = "full"
+        counts = {}
 
-    vectors = store._collection.count()  # noqa: SLF001 —— 取真实写入条数做校验
+    vectors = raw_collection_count()
     elapsed_ms = int((time.perf_counter() - started) * 1000)
 
     # 词面索引是从集合现读的内存结构，重建后必须让它重新读一遍。
@@ -139,6 +255,8 @@ def build_index(corpus: CorpusResult, *, batch_size: int = 32) -> dict:
         "root": str(config.ROOT),
         "index_dir": str(config.INDEX_DIR),
         "collection": config.collection_name(),
+        "mode": mode,
+        "changes": counts,
         "embedding": embedding,
         "chunker_version": config.CHUNKER_VERSION,
         "chunking": {

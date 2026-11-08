@@ -128,8 +128,14 @@ def read(doc_id: str) -> dict:
         raise ValueError("doc_id 必须是 message:<id>")
     _ready()
     collection = message_indexer._collection()
-    result = collection.get(ids=[doc_id], include=["documents", "metadatas"])
+    # 按 metadata 查（集合主键可能是自动生成的 uuid，不等于 doc_id）
+    result = collection.get(
+        where={"doc_id": doc_id}, include=["documents", "metadatas"]
+    )
     ids = result.get("ids") or []
+    if not ids:
+        result = collection.get(ids=[doc_id], include=["documents", "metadatas"])
+        ids = result.get("ids") or []
     if not ids:
         raise KeyError(f"未找到 doc_id：{doc_id}")
     meta = (result.get("metadatas") or [{}])[0] or {}

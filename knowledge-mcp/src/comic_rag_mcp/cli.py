@@ -80,27 +80,70 @@ def cmd_index(args: argparse.Namespace) -> int:
         print("[index] ✅ 索引与当前文档一致")
         return 0
 
-    payload = build_index(corpus)
+    payload = build_index(corpus, incremental=not getattr(args, "full", False))
+    changes = payload.get("changes") or {}
+    tail = ""
+    if payload.get("mode") == "incremental":
+        tail = (
+            f"  增量：新增 {changes.get('added', 0)} / 更新 {changes.get('updated', 0)} / "
+            f"删除 {changes.get('deleted', 0)} / 跳过 {changes.get('skipped', 0)}"
+        )
     print(
         f"[index] ✅ {payload['counts']['documents']} chunk / "
         f"{payload['counts']['vectors']} 向量 → {payload['collection']} "
-        f"（{payload['elapsed_ms']}ms）"
+        f"（{payload['elapsed_ms']}ms，{payload.get('mode', 'full')}）{tail}"
     )
     return 0
 
 
 def cmd_search(args: argparse.Namespace) -> int:
-    from .retriever import search
+    from .retriever import MODE_LABELS, mode_label, normalize_mode, search
 
+    mode = normalize_mode(args.mode)
     payload = search(
         args.query,
         top_k=args.top_k,
         kind=args.kind,
         module=args.module,
         include_historical=args.historical,
-        mode=args.mode,
+        mode=mode,
     )
-    _print_json(payload)
+    if not args.explain:
+        _print_json(payload)
+        return 0
+
+    hits = payload.get("hits") or []
+    cands = payload.get("candidates") or {}
+    source_names = {"vector": "语义", "lexical": "字面"}
+    print(
+        f"查询：{payload.get('query')}   "
+        f"模式：{mode_label(mode)}（{mode}）   "
+        f"候选：语义 {cands.get('vector', 0)} / 字面 {cands.get('lexical', 0)}   "
+        f"耗时：{payload.get('elapsed_ms')}ms"
+    )
+    print(
+        f"{'#':>2}  {'score':>7}  {'语义':>6}  {'字面':>7}  {'RRF':>7}  "
+        f"{'来源':<12}  {'命中词':<20}  路径 / 小节"
+    )
+    for index, hit in enumerate(hits, 1):
+        lexical_score = hit.get("lexical_score")
+        rrf = hit.get("rrf")
+        sources = ",".join(source_names.get(s, s) for s in (hit.get("sources") or []))
+        print(
+            f"{index:>2}  {hit.get('score', 0):>7.4f}  {hit.get('vector_score', 0):>6.3f}  "
+            f"{(lexical_score if lexical_score is not None else 0):>7.3f}  "
+            f"{(rrf if rrf is not None else 0):>7.4f}  "
+            f"{sources:<12}  "
+            f"{','.join(hit.get('matched_terms') or [])[:20]:<20}  "
+            f"{hit.get('path')} [{hit.get('heading', '')[:24]}]"
+        )
+    if not hits:
+        print("（没有命中）")
+    print(
+        "\n提示：score 的含义随模式变化（"
+        f"{MODE_LABELS['vector']}=余弦、{MODE_LABELS['lexical']}=BM25、"
+        f"{MODE_LABELS['hybrid']}=RRF 分），比对时看『语义』列。"
+    )
     return 0
 
 
@@ -120,29 +163,111 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 def cmd_eval(args: argparse.Namespace) -> int:
     from .eval_cases import CASES
-    from .retriever import search
+    from .metrics import ndcg_at_k, rank_of_first_hit, summarize
+    from .retriever import mode_label, normalize_mode, search
 
-    passed = 0
-    print(f"检索评测：{len(CASES)} 条，top_k={args.top_k}")
+    mode = normalize_mode(args.mode)
+    head = (
+        f"检索评测：{len(CASES)} 条   top_k={args.top_k}   "
+        f"模式={mode_label(mode)}（{mode}）   分词={tokenizer.backend()}"
+    )
+    if not args.json:
+        print(head)
+
+    rows: list[dict] = []
     for index, case in enumerate(CASES, 1):
-        result = search(case['query'], top_k=args.top_k, mode=args.mode)
+        result = search(case["query"], top_k=args.top_k, mode=mode)
         hits = result.get("hits") or []
         paths = [hit["path"] for hit in hits]
-        ok = any(path in case["expect"] for path in paths)
-        passed += 1 if ok else 0
-        mark = "✅" if ok else "❌"
-        best = hits[0] if hits else {}
-        print(
-            f"{mark} {index:02d}. {case['query']}  "
-            f"→ {best.get('path', '（无命中）')} "
-            f"[{best.get('heading', '')}] {best.get('score', 0)}"
+        rank = rank_of_first_hit(paths, case["expect"], args.top_k)
+        ndcg = ndcg_at_k(paths, case["expect"], args.top_k)
+        rows.append(
+            {
+                "query": case["query"],
+                "expect": list(case["expect"]),
+                "paths": paths,
+                "rank": rank,
+                "rr": (1.0 / rank) if rank else 0.0,
+                "ndcg": ndcg,
+            }
         )
-        if not ok:
+        if args.json:
+            continue
+
+        mark = "✅" if rank == 1 else ("⚠️" if rank else "❌")
+        if args.detail:
+            print(f"\n{mark} {index:02d}. {case['query']}")
+            print(
+                f"     名次={rank if rank else '—'}   RR={(1.0 / rank) if rank else 0:.3f}   "
+                f"nDCG={ndcg:.3f}"
+            )
+            for position, hit in enumerate(hits, 1):
+                ok = "✓" if hit["path"] in case["expect"] else " "
+                print(
+                    f"       {position}.{ok} {hit.get('score', 0):<8} "
+                    f"{hit.get('path')} [{hit.get('heading', '')[:26]}] "
+                    f"{','.join(hit.get('sources') or [])}"
+                )
+        else:
+            best = hits[0] if hits else {}
+            print(
+                f"{mark} {index:02d}. {case['query']}  → {best.get('path', '（无命中）')}  "
+                f"名次={rank if rank else '—'}  nDCG={ndcg:.2f}"
+            )
+        if not rank:
             print(f"     期望：{case['expect']}")
             print(f"     实际：{paths}")
-    recall = passed / len(CASES) if CASES else 0.0
-    print(f"\nRecall@{args.top_k}: {passed}/{len(CASES)} = {recall:.1%}")
-    return 0 if recall >= args.min_recall else 1
+
+    summary = summarize(rows, args.top_k)
+    total = summary["total"]
+    payload = {"mode": mode, "k": args.top_k, "summary": summary, "cases": rows}
+    if args.json:
+        _print_json(payload)
+    else:
+        print("\n" + "─" * 62)
+        print(
+            f"Recall@{args.top_k} = {round(summary['recall'] * total)}/{total} = "
+            f"{summary['recall']:.1%}"
+        )
+        print(f"MRR@{args.top_k}    = {summary['mrr']:.3f}")
+        print(f"nDCG@{args.top_k}   = {summary['ndcg']:.3f}")
+        print(
+            f"Top-1     = {round(summary['top1'] * total)}/{total} = {summary['top1']:.1%}"
+            f"   （命中但非第 1 名 {summary['hit_but_not_first']} 条，未命中 {summary['miss']} 条）"
+        )
+    return 0 if summary["recall"] >= args.min_recall else 1
+
+
+def cmd_ask(args: argparse.Namespace) -> int:
+    """把检索结果渲染成人能直接看的样子（一条问题一段）。
+
+    与 `search` 的区别：`search` 给 JSON / 分数表（排查用），`ask` 给"答案"
+    （路径 + 小节 + 摘要），多个问题一次问完。
+    """
+    from .retriever import search
+
+    for query in args.questions:
+        payload = search(query, top_k=args.top_k, mode=args.mode)
+        hits = payload.get("hits") or []
+        print(
+            f"\n问：{query}    [{payload.get('mode')} · {tokenizer.backend()} · "
+            f"{payload.get('elapsed_ms')}ms]"
+        )
+        if not hits:
+            print("  （知识库里没有匹配内容）")
+            continue
+        for position, hit in enumerate(hits, 1):
+            lexical_score = hit.get("lexical_score")
+            print(f" {position}. {hit.get('path')} › {hit.get('heading')}")
+            print(
+                f"    向量 {hit.get('vector_score', 0):.3f} · "
+                f"词面 {(lexical_score if lexical_score is not None else 0):.2f} · "
+                f"来源 {','.join(hit.get('sources') or []) or '—'}"
+            )
+            snippet = (hit.get("snippet") or "").replace("\n", " ").strip()
+            if snippet:
+                print(f"    {snippet[:120]}…" if len(snippet) > 120 else f"    {snippet}")
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -157,6 +282,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     index = sub.add_parser("index", help="全量重建项目知识库")
     index.add_argument("--check", action="store_true", help="只检查是否过期，不重建")
+    index.add_argument(
+        "--full", action="store_true",
+        help="强制全量重建（默认只重算改动过的文件；切分/embedding 变了会自动全量）",
+    )
     index.set_defaults(func=cmd_index)
 
     search = sub.add_parser("search", help="检索（JSON 输出）")
@@ -165,9 +294,22 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--kind", default=None)
     search.add_argument("--module", default=None)
     search.add_argument("--historical", action="store_true", help="包含历史稿")
-    search.add_argument("--mode", choices=["hybrid", "vector", "lexical"], default=None,
-                        help="检索模式：hybrid（默认）/ vector / lexical")
+    search.add_argument(
+        "--mode", default=None, metavar="模式",
+        help="检索模式：混合检索（默认）/ 语义检索 / 字面检索；也接受 hybrid/vector/lexical",
+    )
+    search.add_argument("--explain", action="store_true",
+                        help="人类可读表格：每条的分数构成、来源、命中词")
     search.set_defaults(func=cmd_search)
+
+    ask = sub.add_parser("ask", help="直接问（人看的答案：路径 / 小节 / 摘要）")
+    ask.add_argument("questions", nargs="+", help="一个或多个问题")
+    ask.add_argument("--top-k", type=int, default=3)
+    ask.add_argument(
+        "--mode", default=None, metavar="模式",
+        help="检索模式：混合检索（默认）/ 语义检索 / 字面检索",
+    )
+    ask.set_defaults(func=cmd_ask)
 
     read = sub.add_parser("read", help="按 doc_id 回读（JSON 输出）")
     read.add_argument("doc_id")
@@ -177,11 +319,17 @@ def build_parser() -> argparse.ArgumentParser:
     stats.add_argument("--detail", action="store_true", help="附带完整 manifest")
     stats.set_defaults(func=cmd_stats)
 
-    evaluate = sub.add_parser("eval", help="跑检索评测（Recall@k）")
+    evaluate = sub.add_parser("eval", help="跑检索评测（Recall / MRR / nDCG）")
     evaluate.add_argument("--top-k", type=int, default=5)
-    evaluate.add_argument("--min-recall", type=float, default=0.8)
-    evaluate.add_argument("--mode", choices=["hybrid", "vector", "lexical"], default=None,
-                          help="检索模式，用于 A/B 对比")
+    evaluate.add_argument("--min-recall", type=float, default=0.8,
+                          help="Recall 低于它就以非 0 退出（接 CI 用）")
+    evaluate.add_argument(
+        "--mode", default=None, metavar="模式",
+        help="检索模式，用于 A/B 对比：混合检索 / 语义检索 / 字面检索",
+    )
+    evaluate.add_argument("--detail", action="store_true",
+                          help="逐题列出全部命中与名次，人工核对用")
+    evaluate.add_argument("--json", action="store_true", help="只输出 JSON（存基线 / 接脚本）")
     evaluate.set_defaults(func=cmd_eval)
 
     return parser
@@ -201,7 +349,15 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except ValueError as exc:
+        # 参数层面的错误（模式名、doc_id、query 为空）不该甩 traceback。
+        print(f"❌ {exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("已中断", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

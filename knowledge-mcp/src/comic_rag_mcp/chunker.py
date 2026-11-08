@@ -260,7 +260,11 @@ def _hard_split(text: str, max_chars: int) -> list[str]:
 
 
 def _split_block(block: str, max_chars: int) -> list[str]:
-    """单个原子块超长时的处理：表格按行、代码块整体保留、文本按行/句/字符。"""
+    """单个原子块超长时的处理：表格按行、代码块整体保留、文本交给 LangChain 递归切。
+
+    普通文本用 `RecursiveCharacterTextSplitter`（与 chat-service 同一套算法）：
+    分隔符**从语义到字节**排列 —— 段落 → 句子 → 软换行 → 空格 → 字符。
+    """
     if len(block) <= max_chars:
         return [block]
 
@@ -271,23 +275,31 @@ def _split_block(block: str, max_chars: int) -> list[str]:
     if _FENCE_RE.match(block.splitlines()[0]):
         return [block]
 
-    pieces: list[str] = []
-    current: list[str] = []
-    for line in block.splitlines():
-        candidate = "\n".join(current + [line])
-        if len(candidate) > max_chars and current:
-            pieces.append("\n".join(current))
-            current = []
-        if len(line) > max_chars:
-            if current:
-                pieces.append("\n".join(current))
-                current = []
-            pieces.extend(_hard_split(line, max_chars))
-            continue
-        current.append(line)
-    if current:
-        pieces.append("\n".join(current))
-    return pieces or [block]
+    return _split_text(block, max_chars)
+
+
+#: 分隔符**从语义到字节**。⚠️ 句号必须排在 `\n` 前面：
+#: 中文文档普遍按 60 字手工折行，换行不是语义边界；按行切会切出"半句话"的碎块
+#: （实测 `comic-scheduler/README.md` 会切成 467 + 36，末块只有一句 `Duplicate entry`）。
+_TEXT_SEPARATORS = ["\n\n", "。", "！", "？", "；", "\n", " ", ""]
+
+
+def _split_text(text: str, max_chars: int) -> list[str]:
+    """普通文本的递归切分：先按最粗的分隔符切，某段仍超长就用更细的继续切。
+
+    递归只在"单个片段 ≥ max_chars"时发生 —— 这正是它能保住句子完整性的原因：
+    每一行都短于上限时，切点会停在句子边界，而不是换行处。
+    """
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=max_chars,
+        chunk_overlap=0,            # 不重叠：块要能严丝合缝拼回原文
+        keep_separator="end",       # 标点归前一句，不会跑到下一块开头
+        separators=_TEXT_SEPARATORS,
+        length_function=len,
+    )
+    return [p for p in splitter.split_text(text) if p.strip()]
 
 
 def split_body(body: str, max_chars: int | None = None) -> list[str]:

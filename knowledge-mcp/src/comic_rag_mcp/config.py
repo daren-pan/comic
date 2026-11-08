@@ -28,6 +28,17 @@ INDEX_DIR = Path(
 ).resolve()
 MANIFEST_FILE = INDEX_DIR / "manifest.json"
 
+#: 重排（rerank）：用中文交叉编码器给候选重新打分。默认关闭，设 `COMIC_RAG_RERANK=1` 打开。
+#: 模型 2.1 GB，CPU 上重排 10 条约 1 秒 —— 是检索本身的 20 倍，所以要显式开。
+RERANK_ENABLED = os.environ.get("COMIC_RAG_RERANK", "").strip() in {"1", "true", "on"}
+RERANK_MODEL = Path(
+    os.environ.get("COMIC_RAG_RERANK_MODEL", "").strip()
+    or (ROOT / "crawler-service" / "data" / "models" / "bge-reranker-v2-m3")
+)
+#: 送进重排的候选数（太多会慢，太少会漏）。CPU 上每条约 0.4~0.8 秒。
+RERANK_CANDIDATES = int(os.environ.get("COMIC_RAG_RERANK_CANDIDATES", "10"))
+RERANK_MAX_LENGTH = int(os.environ.get("COMIC_RAG_RERANK_MAX_LENGTH", "256"))
+
 #: 集合名前缀；最终名字带 embedding + 切分版本指纹。
 COLLECTION_PREFIX = "project_kb"
 
@@ -57,7 +68,7 @@ MESSAGE_TIMEOUT_SECONDS = float(os.environ.get("COMIC_KNOWLEDGE_MESSAGE_TIMEOUT"
 #:   - Word / Excel 的 chunk 标 `read_mode="chunk"`（原始文件不是纯文本、没有行号可回读）；
 #:   - 集合名随指纹变化，旧集合保留，重建后自动生效。
 #: 它进集合名指纹，保证不会拿旧索引配新读法。
-CHUNKER_VERSION = 3
+CHUNKER_VERSION = 4
 
 #: chunk 目标 / 硬上限（中文字符，保守近似 token；最终还会用 tokenizer 复核）。
 TARGET_CHARS = int(os.environ.get("COMIC_RAG_TARGET_CHARS", "400"))
@@ -82,8 +93,8 @@ MIN_SCORE = float(os.environ.get("COMIC_RAG_MIN_SCORE", "0.45"))
 #   · TOP_K 是候选条数，P2.2 融合时取 `top_k × 4` 量级。
 # 换分词器（jieba ↔ bigram）后分数分布会整体变化，**必须重新标定并重跑评估集**。
 LEXICAL_TOP_K = int(os.environ.get("COMIC_KB_LEXICAL_TOP_K", "20"))
-LEXICAL_K1 = float(os.environ.get("COMIC_KB_LEXICAL_K1", "1.5"))
-LEXICAL_B = float(os.environ.get("COMIC_KB_LEXICAL_B", "0.75"))
+LEXICAL_K1 = float(os.environ.get("COMIC_KB_LEXICAL_K1", "1.8"))
+LEXICAL_B = float(os.environ.get("COMIC_KB_LEXICAL_B", "0.9"))
 
 #: 双路总开关（`0` 时 `search()` 完全回到纯向量行为，用于回退与对照）。
 HYBRID_ENABLED = os.environ.get("COMIC_KB_HYBRID", "1").strip().lower() not in {
@@ -93,9 +104,18 @@ HYBRID_ENABLED = os.environ.get("COMIC_KB_HYBRID", "1").strip().lower() not in {
     "off",
 }
 
-#: RRF 的平滑常数（论文默认 60）。它几乎不影响排序，只影响分数的绝对量级；
-#: **不要靠调它来"提分"** —— 融合只排先后，不产生"相关性判断"。
-RRF_K = int(os.environ.get("COMIC_KB_RRF_K", "60"))
+#: RRF 的平滑常数。**它会改变排序，不是纯量级**：
+#: 两路都出现的文档得分是 `weight/(k+名次) × 2`，k 越大、名次差距被压得越小，
+#: 于是"两路都靠后"就越容易赢过"单路第一"。k 调小 = 放大名次差距。
+#: 默认 3：让排序满足"两路第一 > 一路第一+一路靠后 > 单路语义第一 > 单路字面第一 >
+#: 两路靠后 > 单路靠后"；k=60 时第 5 条会压过第 4 条（混合 Top-1 只有 65% 的原因之一）。
+RRF_K = int(os.environ.get("COMIC_KB_RRF_K", "3"))
+
+#: 两路权重（语义, 字面），逗号分隔。默认偏向语义（它 Top-1 90%，字面只有 60%），
+#: 但保留字面 25% 用于专有名词兜底。等权会让字面噪音（自文档污染）压过语义第一。
+RRF_WEIGHTS: list[float] = [
+    float(x) for x in (os.environ.get("COMIC_KB_RRF_WEIGHTS", "0.75,0.25").split(",")) if x.strip()
+]
 
 #: `read_knowledge` 返回父小节时的最大字符数，防止一次把整篇 37KB 文档塞给 Agent。
 READ_MAX_CHARS = int(os.environ.get("COMIC_RAG_READ_MAX_CHARS", "6000"))
