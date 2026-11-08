@@ -116,9 +116,15 @@ def _parse(raw: str) -> list[str]:
     return [str(item).strip() for item in items if str(item).strip()]
 
 
-def rewrite(query: str, n: int | None = None) -> list[str]:
-    """返回改写后的说法（不含原句）；失败或没配置 key 时返回空列表。"""
-    if not config.REWRITE_ENABLED or not available():
+def rewrite(query: str, n: int | None = None, force: bool = False) -> list[str]:
+    """返回改写后的说法（不含原句）；失败或没配置 key 时返回空列表。
+
+    `force=True` 忽略 `COMIC_RAG_REWRITE` 开关 —— 深度路径（口语型查询）专用：
+    那条路径上改写是必需的一环，不能被全局默认值关掉。
+    """
+    if not force and not config.REWRITE_ENABLED:
+        return []
+    if not available():
         return []
     query = (query or "").strip()
     if not query:

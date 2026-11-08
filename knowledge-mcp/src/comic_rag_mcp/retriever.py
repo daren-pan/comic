@@ -10,7 +10,7 @@ import os
 import time
 from pathlib import Path
 
-from . import config, indexer, lexical, rerank, tokenizer
+from . import config, indexer, lexical, query_type, rerank, tokenizer
 
 _log = logging.getLogger(__name__)
 
@@ -373,6 +373,24 @@ def search(
     if rewrite is None:
         from . import query_rewrite
 
+        qtype = query_type.classify(query)
+        # 口语型 → 深度路径（改写 + 合并 + 重排）；其余保持常规排序。
+        if (
+            config.AUTO_ROUTE
+            and qtype == query_type.COLLOQUIAL
+            and query_rewrite.available()
+        ):
+            from .multiquery import search_multi
+
+            return search_multi(
+                query,
+                top_k=top_k,
+                kind=kind,
+                module=module,
+                include_historical=include_historical,
+                mode=mode,
+                rerank_override=config.DEEP_RERANK,
+            )
         rewrite = config.REWRITE_ENABLED and query_rewrite.available()
     if rewrite:
         from .multiquery import search_multi
@@ -538,6 +556,8 @@ def search(
     return {
         "query": query,
         "mode": mode,
+        "route": "normal",
+        "query_type": query_type.label(query_type.classify(query)),
         "hits": hits,
         "count": len(hits),
         "backend": config.embedding_info()["backend"],

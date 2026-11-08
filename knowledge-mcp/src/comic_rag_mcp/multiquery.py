@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import time
 
-from . import config, query_rewrite, rerank
+from . import config, query_rewrite, query_type, rerank
 from .retriever import _fuse_ranked, search
 
 
@@ -36,11 +36,16 @@ def search_multi(
     module: str | None = None,
     include_historical: bool = False,
     mode: str | None = None,
+    rerank_override: bool | None = None,
 ) -> dict:
-    """原句 + N 个改写变体分别检索，合并后返回（**形状与 `retriever.search` 一致**）。"""
+    """原句 + N 个改写变体分别检索，合并后返回（**形状与 `retriever.search` 一致**）。
+
+    `rerank_override=True` 强制对合并池重排（口语型查询的深度路径用）。
+    """
     started = time.perf_counter()
-    variants = query_rewrite.rewrite(query)
+    variants = query_rewrite.rewrite(query, force=True)
     queries = [query, *variants]
+    use_rerank = rerank.enabled() if rerank_override is None else rerank_override
 
     hits_by_id: dict[str, dict] = {}
     ranked: list[tuple[str, list[str]]] = []
@@ -70,7 +75,7 @@ def search_multi(
     # 重排（可选）：**对整个合并池**重新打分。
     # ⚠️ 不能只重排 RRF 前 N（默认 10）：目标文档常常排在 15 名开外，
     # 截断等于没救 —— 实测截到 10 时「收藏更新提醒」仍排在错误段落后面。
-    if rerank.enabled() and merged:
+    if use_rerank and merged:
         from langchain_core.documents import Document
 
         head = merged[: config.REWRITE_CANDIDATES]
@@ -107,11 +112,13 @@ def search_multi(
     return {
         "query": query,
         "mode": mode or "hybrid",
+        "route": "deep",
+        "query_type": query_type.label(query_type.classify(query)),
+        "variants": variants,
         "hits": hits,
         "count": len(hits),
         "backend": config.embedding_info()["backend"],
         "collection": config.collection_name(),
-        "variants": variants,
         "candidates": {"merged": len(hits_by_id)},
         "elapsed_ms": int((time.perf_counter() - started) * 1000),
     }

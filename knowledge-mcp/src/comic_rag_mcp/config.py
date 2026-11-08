@@ -126,6 +126,16 @@ RRF_WEIGHTS: list[float] = [
     float(x) for x in (os.environ.get("COMIC_KB_RRF_WEIGHTS", "0.75,0.25").split(",")) if x.strip()
 ]
 
+#: 按查询类型自动分流：**口语型**走「改写 + 合并 + 重排」的深度路径，其余走常规路径。
+#: 依据实测：深度路径能把口语查询从"找不到"推进前 2，但会把文档原话型查询的
+#: Top-1 拖下来（重排偏好"内容最像答案"，而非"规范文档章节"）。
+#:
+#: ⚠️ 默认关：现有题集里被判为口语型的 4 条有 1~2 条会从第 1 掉到第 2~3，
+#: 而真正受益的"同义口语"题集还没建。补完难例题再决定是否默认开。
+AUTO_ROUTE = os.environ.get("COMIC_RAG_AUTO_ROUTE", "0").strip() not in {"0", "false", "off"}
+#: 深度路径是否强制开启重排（口语型查询用）。
+DEEP_RERANK = os.environ.get("COMIC_RAG_DEEP_RERANK", "1").strip() not in {"0", "false", "off"}
+
 #: 查询改写：先用 LLM 把问题换成 3 个说法再分别检索（治"同义说法"的词汇鸿沟）。
 #: 一次调用约 3 秒，所以默认关：`COMIC_RAG_REWRITE=1` 打开（需要 `COMIC_LLM_API_KEY`）。
 #: 值：`auto`（有 key 就开）/ `1` 强制开 / `0`（默认）关。
