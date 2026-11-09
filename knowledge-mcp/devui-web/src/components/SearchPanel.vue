@@ -28,6 +28,25 @@ const fusionDirty = computed(
     Number(rrfLex.value) !== DEFAULT_LEX,
 )
 
+// 耗时展示：常规 <300ms 绿色、<1500ms 黄色、再慢红色。
+const elapsedText = computed(() => {
+  const ms = result.value?.elapsed_ms ?? 0
+  return ms >= 1000 ? `${(ms / 1000).toFixed(2)} s` : `${ms} ms`
+})
+const speedClass = computed(() => {
+  const ms = result.value?.elapsed_ms ?? 0
+  return ms < 300 ? 'fast' : ms < 1500 ? 'mid' : 'slow'
+})
+// 分段：常规是 向量/字面/融合；深度是 改写/检索/重排。
+const timingText = computed(() => {
+  const t = result.value?.timings
+  if (!t) return ''
+  if (result.value.route === 'deep') {
+    return `分段：改写 ${t.rewrite}ms · 检索 ${t.search}ms · 重排 ${t.rerank}ms`
+  }
+  return `分段：向量 ${t.vector}ms · 字面 ${t.lexical}ms · 融合 ${t.fusion}ms`
+})
+
 function resetFusion() {
   rrfK.value = DEFAULT_K
   rrfSem.value = DEFAULT_SEM
@@ -116,13 +135,18 @@ async function run() {
     <p v-if="error" class="bad">检索失败：{{ error }}</p>
 
     <template v-if="result">
-      <p class="muted">
-        {{ result.count }} 条命中 · 候选 语义 {{ result.candidates.vector }} / 字面
-        {{ result.candidates.lexical }} · {{ result.elapsed_ms }}ms
+      <div class="stats">
+        <span class="time" :class="speedClass">{{ elapsedText }}</span>
+        <span class="muted">{{ result.count }} 条命中</span>
+        <span v-if="result.route === 'deep'" class="badge deep">深度路径（改写+重排）</span>
+        <span v-else class="badge">常规路径</span>
+        <span class="muted">类型 {{ result.query_type }}</span>
+        <span class="muted">候选 语义 {{ result.candidates?.vector ?? '-' }} / 字面 {{ result.candidates?.lexical ?? '-' }}</span>
         <template v-if="mode === 'hybrid' && result.rrf">
-          · 本次融合 k={{ result.rrf.k }}，权重 {{ result.rrf.weights.join(' / ') }}
+          <span class="muted">融合 k={{ result.rrf.k }} · 权重 {{ result.rrf.weights.join(' / ') }}</span>
         </template>
-      </p>
+      </div>
+      <p v-if="timingText" class="muted detail">{{ timingText }}</p>
       <HitCard
         v-for="(hit, i) in result.hits"
         :key="hit.doc_id"
@@ -161,5 +185,43 @@ async function run() {
 }
 .fusion .note {
   flex-basis: 100%;
+}
+.stats {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+.time.fast {
+  color: #3fb950;
+}
+.time.mid {
+  color: #d29922;
+}
+.time.slow {
+  color: #f85149;
+}
+.badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
+.badge.deep {
+  color: #d29922;
+  border-color: #d29922;
+}
+.detail {
+  margin-top: 4px;
+  font-size: 11px;
 }
 </style>

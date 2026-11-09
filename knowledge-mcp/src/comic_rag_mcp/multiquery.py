@@ -44,6 +44,7 @@ def search_multi(
     """
     started = time.perf_counter()
     variants = query_rewrite.rewrite(query, force=True)
+    t_rewrite = time.perf_counter()
     queries = [query, *variants]
     use_rerank = rerank.enabled() if rerank_override is None else rerank_override
 
@@ -71,6 +72,7 @@ def search_multi(
 
     docs = {doc_id: None for doc_id in hits_by_id}
     merged = _fuse_ranked(ranked, docs, weights=weights)
+    t_search = time.perf_counter()
 
     # 重排（可选）：**对整个合并池**重新打分。
     # ⚠️ 不能只重排 RRF 前 N（默认 10）：目标文档常常排在 15 名开外，
@@ -95,6 +97,7 @@ def search_multi(
         merged = [(doc_id, score, None, ["rerank"]) for doc_id, score in scored] + [
             item for item in merged if item[0] not in seen
         ]
+    t_rerank = time.perf_counter()
 
     hits: list[dict] = []
     for doc_id, score, rrf, sources in merged:
@@ -120,5 +123,11 @@ def search_multi(
         "backend": config.embedding_info()["backend"],
         "collection": config.collection_name(),
         "candidates": {"merged": len(hits_by_id)},
+        "timings": {
+            "rewrite": int((t_rewrite - started) * 1000),
+            "search": int((t_search - t_rewrite) * 1000),
+            "rerank": int((t_rerank - t_search) * 1000),
+            "total": int((time.perf_counter() - started) * 1000),
+        },
         "elapsed_ms": int((time.perf_counter() - started) * 1000),
     }
