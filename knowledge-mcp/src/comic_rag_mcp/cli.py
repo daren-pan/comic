@@ -162,44 +162,54 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
+    """评测只看两件事：**答案进没进前 5 / 前 10**。
+
+    不看 Top-1 / MRR / nDCG —— 本项目的用法是把 top-k 一起交给生成侧，
+    "排第一"没有实际价值，反而会诱导去调一堆没有泛化性的排序技巧。
+    """
     from .eval_cases import CASES
-    from .metrics import ndcg_at_k, rank_of_first_hit, summarize
+    from .metrics import rank_of_first_hit
     from .retriever import mode_label, normalize_mode, search
 
     mode = normalize_mode(args.mode)
-    head = (
-        f"检索评测：{len(CASES)} 条   top_k={args.top_k}   "
-        f"模式={mode_label(mode)}（{mode}）   分词={tokenizer.backend()}"
-    )
+    depth = max(int(args.top_k), 10)
+    total = len(CASES)
+
     if not args.json:
-        print(head)
+        print(
+            f"检索评测：{total} 条   取前 {depth} 条   模式={mode_label(mode)}（{mode}）"
+            f"   分词={tokenizer.backend()}"
+        )
 
     rows: list[dict] = []
+    hit5 = hit10 = 0
     for index, case in enumerate(CASES, 1):
-        result = search(case["query"], top_k=args.top_k, mode=mode)
+        result = search(case["query"], top_k=depth, mode=mode)
         hits = result.get("hits") or []
         paths = [hit["path"] for hit in hits]
-        rank = rank_of_first_hit(paths, case["expect"], args.top_k)
-        ndcg = ndcg_at_k(paths, case["expect"], args.top_k)
+        rank5 = rank_of_first_hit(paths, case["expect"], 5)
+        rank10 = rank_of_first_hit(paths, case["expect"], 10)
+        hit5 += 1 if rank5 else 0
+        hit10 += 1 if rank10 else 0
         rows.append(
             {
                 "query": case["query"],
                 "expect": list(case["expect"]),
                 "paths": paths,
-                "rank": rank,
-                "rr": (1.0 / rank) if rank else 0.0,
-                "ndcg": ndcg,
+                "in5": bool(rank5),
+                "in10": bool(rank10),
+                "rank": rank5 or rank10,
             }
         )
         if args.json:
             continue
 
-        mark = "✅" if rank == 1 else ("⚠️" if rank else "❌")
+        mark = "✅" if rank5 else ("🟡" if rank10 else "❌")
         if args.detail:
             print(f"\n{mark} {index:02d}. {case['query']}")
             print(
-                f"     名次={rank if rank else '—'}   RR={(1.0 / rank) if rank else 0:.3f}   "
-                f"nDCG={ndcg:.3f}"
+                f"     前5={'是' if rank5 else '否'}  前10={'是' if rank10 else '否'}"
+                f"   名次={rank5 or rank10 or '—'}"
             )
             for position, hit in enumerate(hits, 1):
                 ok = "✓" if hit["path"] in case["expect"] else " "
@@ -209,33 +219,18 @@ def cmd_eval(args: argparse.Namespace) -> int:
                     f"{','.join(hit.get('sources') or [])}"
                 )
         else:
-            best = hits[0] if hits else {}
-            print(
-                f"{mark} {index:02d}. {case['query']}  → {best.get('path', '（无命中）')}  "
-                f"名次={rank if rank else '—'}  nDCG={ndcg:.2f}"
-            )
-        if not rank:
+            print(f"{mark} {index:02d}. {case['query']}   名次={rank5 or rank10 or '—'}")
+        if not rank10:
             print(f"     期望：{case['expect']}")
             print(f"     实际：{paths}")
 
-    summary = summarize(rows, args.top_k)
-    total = summary["total"]
-    payload = {"mode": mode, "k": args.top_k, "summary": summary, "cases": rows}
     if args.json:
-        _print_json(payload)
+        _print_json({"mode": mode, "recall@5": hit5, "recall@10": hit10, "cases": rows})
     else:
         print("\n" + "─" * 62)
-        print(
-            f"Recall@{args.top_k} = {round(summary['recall'] * total)}/{total} = "
-            f"{summary['recall']:.1%}"
-        )
-        print(f"MRR@{args.top_k}    = {summary['mrr']:.3f}")
-        print(f"nDCG@{args.top_k}   = {summary['ndcg']:.3f}")
-        print(
-            f"Top-1     = {round(summary['top1'] * total)}/{total} = {summary['top1']:.1%}"
-            f"   （命中但非第 1 名 {summary['hit_but_not_first']} 条，未命中 {summary['miss']} 条）"
-        )
-    return 0 if summary["recall"] >= args.min_recall else 1
+        print(f"Recall@5  = {hit5}/{total} = {hit5 / total:.1%}")
+        print(f"Recall@10 = {hit10}/{total} = {hit10 / total:.1%}")
+    return 0 if hit5 / total >= args.min_recall else 1
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
