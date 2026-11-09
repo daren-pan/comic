@@ -11,11 +11,13 @@ const topK = ref(5)
 const kind = ref('')
 const module = ref('')
 
-// 融合参数：只有混合检索用得上，其他模式下灰掉（传了也不生效）。
-// 默认值与后端 config.RRF_K / RRF_WEIGHTS 保持一致。
+// 融合参数：只有混合检索用得上。
+// 默认值与后端 config.RRF_K / RRF_WEIGHTS 保持一致；**只有用户改过才发送覆盖**，
+// 否则页面就成了"每次都偷偷用旧默认值打后端"（曾经踩过：界面默认 0.75/0.25，
+// 导致后端明明改成等权，页面上仍然按 0.75/0.25 算）。
 const DEFAULT_K = 3
-const DEFAULT_SEM = 0.75
-const DEFAULT_LEX = 0.25
+const DEFAULT_SEM = 1
+const DEFAULT_LEX = 1
 const showFusion = ref(false)
 const rrfK = ref(DEFAULT_K)
 const rrfSem = ref(DEFAULT_SEM)
@@ -64,16 +66,20 @@ async function run() {
   error.value = ''
   result.value = null
   try {
-    result.value = await api.search({
+    const payload = {
       query: q,
       mode: mode.value,
       top_k: Number(topK.value) || 5,
       kind: kind.value.trim() || null,
       module: module.value.trim() || null,
-      rrf_k: Number(rrfK.value),
-      rrf_semantic_weight: Number(rrfSem.value),
-      rrf_lexical_weight: Number(rrfLex.value),
-    })
+    }
+    // 只有用户**真的改过**融合参数才覆盖后端默认值
+    if (mode.value === 'hybrid' && fusionDirty.value) {
+      payload.rrf_k = Number(rrfK.value)
+      payload.rrf_semantic_weight = Number(rrfSem.value)
+      payload.rrf_lexical_weight = Number(rrfLex.value)
+    }
+    result.value = await api.search(payload)
   } catch (e) {
     error.value = e.message
   } finally {
