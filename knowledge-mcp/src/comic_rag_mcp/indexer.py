@@ -194,6 +194,21 @@ def build_index(
 
     from langchain_core.indexing import index as lc_index
 
+    # ⚠️ 批次必须能**装下一个文件的全部块**。
+    #
+    # LangChain 的 `cleanup="incremental"` 是**每批处理完就清理一次**：它把该批次里出现的
+    # 源文件（group_id）中"更新时间早于本轮开始"的记录全删掉。如果某文件有 125 块、
+    # 批次只有 32，那么第 1 批处理完就把这个文件**还没轮到**的 93 块当成"过期"删了，
+    # 后面几批再把它们重新加回来 —— 结果就是「什么都没改，却新增 421 / 删除 421」。
+    # 实测：batch=32 一次 26 秒且反复churn；batch≥单文件最大块数后 1.5 秒、0 增删。
+    per_file: dict[str, int] = {}
+    for doc in corpus.documents:
+        path = str((doc.metadata or {}).get("path") or "")
+        per_file[path] = per_file.get(path, 0) + 1
+    largest_file = max(per_file.values(), default=0)
+    # 单批装下整个语料（上限 4096）—— 这样清理只在最后跑一次，文件跨批次的问题从根上消失。
+    effective_batch = max(batch_size, largest_file, min(len(corpus.documents), 4096))
+
     can_incremental = bool(incremental and _can_incremental())
     record_file = config.INDEX_DIR / "record_manager.json"
 
@@ -216,7 +231,7 @@ def build_index(
             corpus.documents,
             manager,
             store,
-            batch_size=batch_size,
+            batch_size=effective_batch,
             # 全量用 "full"：把源里已不存在的旧块删干净；增量只处理变化的文件。
             cleanup="incremental" if can_incremental else "full",
             source_id_key="path",      # 以「文件」为增量单位
