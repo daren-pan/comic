@@ -204,10 +204,24 @@ _TABLE: dict[str, list[str]] | None = None
 
 
 def table() -> dict[str, list[str]]:
-    """带缓存的映射表（进程内只读一次）。"""
+    """带缓存的映射表（进程内只读一次）。
+
+    ⚠️ 读盘后做一次**反边闭包**：表里写的是 `提醒 → [提示, 通知]`，
+    那么 `提示` 也该能反向扩到 `通知`（它们同属"提醒"这一组）。
+    不做这一步的话，用户说「提示」时就查不到任何东西 —— 实测
+    `我收藏的漫画更新了咋没提示` 正因此找不到答案。
+    """
     global _TABLE
     if _TABLE is None:
-        _TABLE = load_approved()
+        raw = load_approved()
+        merged: dict[str, list[str]] = {k: list(v) for k, v in raw.items()}
+        for key, values in raw.items():
+            for value in values:
+                bucket = merged.setdefault(value, [])
+                for other in (key, *values):
+                    if other != value and other not in bucket:
+                        bucket.append(other)
+        _TABLE = merged
     return _TABLE
 
 
