@@ -198,3 +198,41 @@ def load_approved() -> dict[str, list[str]]:
         for key, values in data.items()
         if isinstance(values, list)
     }
+
+
+_TABLE: dict[str, list[str]] | None = None
+
+
+def table() -> dict[str, list[str]]:
+    """带缓存的映射表（进程内只读一次）。"""
+    global _TABLE
+    if _TABLE is None:
+        _TABLE = load_approved()
+    return _TABLE
+
+
+def invalidate() -> None:
+    """表被人工改过之后调用（下次读盘）。"""
+    global _TABLE
+    _TABLE = None
+
+
+def expand(query: str, tokens: list[str] | None = None) -> list[str]:
+    """把查询里的「用户说法」扩成「语料用词」，返回**额外要加的词**。
+
+    只加进字面路：语义路加词等于改问题（容易跑偏），字面路加词只是多几个精确匹配机会。
+    """
+    if not config.SYNONYM_EXPAND:
+        return []
+    mapping = table()
+    if not mapping:
+        return []
+    from . import tokenizer
+
+    source = tokens if tokens is not None else tokenizer.tokens(query or "")
+    extra: list[str] = []
+    for token in source:
+        for term in mapping.get(token, []):
+            if term and term not in source and term not in extra:
+                extra.append(term)
+    return extra[: config.SYNONYM_EXPAND_TERMS]

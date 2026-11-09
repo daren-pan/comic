@@ -113,6 +113,13 @@ HYBRID_ENABLED = os.environ.get("COMIC_KB_HYBRID", "1").strip().lower() not in {
     "off",
 }
 
+#: 混合检索的融合方式：
+#: - `rrf`（默认）：`Σ 权重/(k+名次)`，两路都出现的累加更高；
+#: - `interleave`：轮流取（每路各出第 1 名、再各出第 2 名…），**不比较分数**。
+#:   实测它能把"单路第 1 被埋到 20 名外"的文档拉回前排（Top-1 60%→66.7%，Recall 不变），
+#:   但**默认不改**，等需要时再切换。
+FUSION = os.environ.get("COMIC_RAG_FUSION", "rrf").strip().lower()
+
 #: RRF 的平滑常数。**它会改变排序，不是纯量级**：
 #: 两路都出现的文档得分是 `weight/(k+名次) × 2`，k 越大、名次差距被压得越小，
 #: 于是"两路都靠后"就越容易赢过"单路第一"。k 调小 = 放大名次差距。
@@ -128,6 +135,12 @@ RRF_K = int(os.environ.get("COMIC_KB_RRF_K", "3"))
 RRF_WEIGHTS: list[float] = [
     float(x) for x in (os.environ.get("COMIC_KB_RRF_WEIGHTS", "1,1").split(",")) if x.strip()
 ]
+
+#: 同义词扩展：查询里出现"用户说法"（提醒/追更/多久…）时，把对应的**语料用词**
+#: （通知/更新/频率…）也加进**字面路**。表在 `<INDEX_DIR>/synonyms.json`，人工维护。
+#: 这是零延迟的召回增强 —— 有了它，一部分口语查询不必走 15 秒的深度路径。
+SYNONYM_EXPAND = os.environ.get("COMIC_RAG_SYNONYMS", "1").strip() not in {"0", "false", "off"}
+SYNONYM_EXPAND_TERMS = int(os.environ.get("COMIC_RAG_SYNONYM_TERMS", "3"))
 
 #: 按查询类型自动分流：**口语型**走「改写 + 合并 + 重排」的深度路径，其余走常规路径。
 #:

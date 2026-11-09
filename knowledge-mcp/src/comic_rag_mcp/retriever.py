@@ -10,7 +10,7 @@ import os
 import time
 from pathlib import Path
 
-from . import config, indexer, lexical, query_type, rerank, tokenizer
+from . import config, indexer, lexical, query_type, rerank, synonyms, tokenizer
 
 _log = logging.getLogger(__name__)
 
@@ -239,6 +239,43 @@ def _apply_min_score(
     return kept
 
 
+def _interleave(
+    ranked: list[tuple[str, list[str]]],
+    docs: dict[str, object],
+    top_k: int,
+) -> list[tuple[str, float, float | None, list[str]]]:
+    """轮流取（round-robin）融合：**不比较任何分数**，只按名次交替。
+
+    为什么需要它：RRF 把"两路都出现"的文档分数累加成 0.35，而"单路第 1"只有 0.25 ——
+    于是**字面路的第 1 名会被系统性埋进 20 名开外**（实测 `收藏更新通知` 就是这样）。
+    轮流取的规则是"每路各出第 1 名，再各出第 2 名…"，保证**每一路的头部都进得了前排**。
+
+    代价：某一路的第 1 名如果本身是噪音，也会被带进 top 2。
+    """
+    sources: dict[str, list[str]] = {}
+    for label, doc_ids in ranked:
+        for doc_id in doc_ids:
+            sources.setdefault(doc_id, []).append(label)
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    depth = max((len(ids) for _, ids in ranked), default=0)
+    for index in range(depth):
+        for _, doc_ids in ranked:
+            if index >= len(doc_ids):
+                continue
+            doc_id = doc_ids[index]
+            if doc_id in seen or doc_id not in docs:
+                continue
+            seen.add(doc_id)
+            ordered.append(doc_id)
+
+    return [
+        (doc_id, round(1.0 / (config.RRF_K + rank), 6), None, sources.get(doc_id, []))
+        for rank, doc_id in enumerate(ordered, start=1)
+    ]
+
+
 def _rrf_weights(n_lists: int, weights: list[float] | None = None) -> list[float]:
     """取融合权重：调用方传入优先；否则用配置；长度不符时退回等权。"""
     for candidate in (weights, getattr(config, "RRF_WEIGHTS", [])):
@@ -375,9 +412,12 @@ def search(
 
         qtype = query_type.classify(query)
         # 口语型 → 深度路径（改写 + 合并 + 重排）；其余保持常规排序。
+        # ⚠️ 只对**混合检索**生效：语义/字面是调试与回退用的"单路视图"，
+        # 把它们也送进深度路径会让一次查询从 50ms 变成几十秒（实测语义模式 63s）。
         if (
             config.AUTO_ROUTE
             and qtype == query_type.COLLOQUIAL
+            and normalize_mode(mode) == "hybrid"
             and query_rewrite.available()
         ):
             from .multiquery import search_multi
@@ -474,15 +514,30 @@ def search(
     # 过滤放到最终排序结果上（`_apply_min_score`，仅语义模式）。
     # 先排好，融合时才有名次可用。
     vector_order = [d for d, _ in sorted(vector.items(), key=lambda kv: -kv[1][0])]
+    t_vector = time.perf_counter()
 
     # ---- ② 词面那一路（BM25）----
     lex_map: dict[str, object] = {}
     lex_order: list[str] = []
     if mode in {"lexical", "hybrid"}:
         try:
-            for hit in lexical.get_index().search(query, config.LEXICAL_TOP_K):
+            index = lexical.get_index()
+            for hit in index.search(query, config.LEXICAL_TOP_K):
                 lex_map[hit.doc_id] = hit
-                lex_order.append(hit.doc_id)
+            # 同义词扩展：只加进**字面路**（语义路加词等于改问题，容易跑偏）。
+            # 两份结果按 doc 取较高分合流 —— 命中原词的和命中扩展词的都保留。
+            extra_terms = synonyms.expand(query, query_terms)
+            if extra_terms:
+                for hit in index.search(
+                    query + " " + " ".join(extra_terms), config.LEXICAL_TOP_K
+                ):
+                    current = lex_map.get(hit.doc_id)
+                    if current is None or hit.score > current.score:
+                        lex_map[hit.doc_id] = hit
+            lex_order = [
+                hit.doc_id
+                for hit in sorted(lex_map.values(), key=lambda h: -h.score)
+            ]
         except Exception as exc:  # noqa: BLE001 —— 词面挂了不该拖垮整条检索
             _log.warning("词面索引不可用（%s）：%s；本次仅向量", type(exc).__name__, exc)
 
@@ -496,6 +551,7 @@ def search(
         for d in lex_order
         if d in docs and _passes((docs[d].metadata or {}), kind, module, include_historical)
     ]
+    t_lexical = time.perf_counter()
 
     # ---- ④ 排序：按模式决定用哪个分数 ----
     if mode == "vector":
@@ -505,16 +561,21 @@ def search(
     elif mode == "lexical":
         ordered = [(d, lex_map[d].score, None, ["lexical"]) for d in lex_order]
     else:
-        ordered = _fuse_ranked(
-            [("vector", vector_order), ("lexical", lex_order)],
-            docs,
-            k=rrf_k,
-            weights=rrf_weights,
-        )
+        ranked_lists = [("vector", vector_order), ("lexical", lex_order)]
+        if config.FUSION == "interleave":
+            ordered = _interleave(ranked_lists, docs, top_k)
+        else:
+            ordered = _fuse_ranked(
+                ranked_lists,
+                docs,
+                k=rrf_k,
+                weights=rrf_weights,
+            )
 
     # ---- ④.5 重排（可选，默认关）：把候选真正读一遍，再决定顺序 ----
     if ordered and rerank.enabled():
         ordered = rerank.rerank(query, ordered, docs, top_k)
+    t_fusion = time.perf_counter()
 
     # ---- ⑤ 去重取 top_k：同一 H2/H3 的多个 child 只留分最高的一个 ----
     hits: list[dict] = []
@@ -564,6 +625,13 @@ def search(
         "collection": config.collection_name(),
         "candidates": {"vector": len(vector_order), "lexical": len(lex_order)},
         "elapsed_ms": elapsed_ms,
+        # 分段耗时（界面展示"慢在哪"用；单位毫秒）
+        "timings": {
+            "vector": int((t_vector - started) * 1000),
+            "lexical": int((t_lexical - t_vector) * 1000),
+            "fusion": int((t_fusion - t_lexical) * 1000),
+            "total": elapsed_ms,
+        },
         # 本次实际用的融合参数（界面/CLI 要显示"这次是按什么调的"）
         "rrf": {
             "k": int(rrf_k if rrf_k is not None else config.RRF_K),
