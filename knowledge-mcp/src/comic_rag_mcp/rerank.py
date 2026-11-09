@@ -78,6 +78,24 @@ def get_compressor():
         return _COMPRESSOR
 
 
+def warm_up() -> bool:
+    """把模型加载 + 首次推理的固定开销**挪到进程启动时**。
+
+    实测第一次调用重排要 **27 秒**（加载权重 + 首次前向 + 线程池初始化），
+    之后的调用只要 3 秒。如果不预热，用户问的第一个口语型问题就要等半分钟。
+
+    放在后台线程里做，不阻塞服务启动；失败只记日志（重排不是必需能力）。
+    """
+    try:
+        compressor = get_compressor()
+        compressor.model.score([("预热", "预热文本")])
+        _log.info("重排模型预热完成")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("重排预热失败（%s）：%s", type(exc).__name__, exc)
+        return False
+
+
 def rerank(query: str, documents: list[dict], docs_by_id: dict, top_n: int) -> list[dict]:
     """把命中按重排分重排，返回新列表（元素是 `_hit` 用的 dict）。
 

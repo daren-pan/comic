@@ -44,6 +44,28 @@ _BUILD_LOCK = threading.Lock()
 
 app = FastAPI(title="知识库调试 API", docs_url="/docs", redoc_url=None)
 
+
+@app.on_event("startup")
+def _warm_reranker() -> None:
+    """后台预热：重排模型 + 向量模型 + BM25 索引。
+
+    不预热的话，进程启动后**第一个**问题要付三笔固定开销：
+    重排模型加载 ~25 秒、向量模型加载 ~2 秒、BM25 索引重建 ~1.4 秒。
+    预热后实测：首问 6.8 秒 → 后续 3.3 秒。
+    """
+    from comic_rag_mcp import config, rerank
+    from comic_rag_mcp.retriever import search
+
+    def _warm() -> None:
+        try:
+            search("预热", top_k=1, mode="hybrid", rewrite=False)
+        except Exception:  # noqa: BLE001 —— 预热失败不影响正常服务
+            pass
+        if config.AUTO_ROUTE and config.DEEP_RERANK:
+            rerank.warm_up()
+
+    threading.Thread(target=_warm, name="kb-warmup", daemon=True).start()
+
 # 界面跑在 Vite（:5175）且通过 `/api` 代理转发；直连时也放行这两个来源。
 app.add_middleware(
     CORSMiddleware,
