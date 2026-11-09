@@ -37,7 +37,10 @@ RERANK_MODEL = Path(
 )
 #: 送进重排的候选数（太多会慢，太少会漏）。CPU 上每条约 0.4~0.8 秒。
 RERANK_CANDIDATES = int(os.environ.get("COMIC_RAG_RERANK_CANDIDATES", "10"))
-RERANK_MAX_LENGTH = int(os.environ.get("COMIC_RAG_RERANK_MAX_LENGTH", "256"))
+#: 重排截断长度（token）。**这是 CPU 上最关键的延迟旋钮**：
+#: 512 → 20 条约 18s，256 → 9s，128 → 7s（实测，8 线程）。
+#: 128 足够判断"这段在讲什么"，再长只是多读细节、不改变排序。
+RERANK_MAX_LENGTH = int(os.environ.get("COMIC_RAG_RERANK_MAX_LENGTH", "128"))
 
 #: 集合名前缀；最终名字带 embedding + 切分版本指纹。
 COLLECTION_PREFIX = "project_kb"
@@ -175,8 +178,11 @@ REWRITE_VARIANTS = int(os.environ.get("COMIC_RAG_REWRITE_VARIANTS", "3"))
 #: 改写变体在融合时的权重（原句固定 1.0）。
 REWRITE_WEIGHT = float(os.environ.get("COMIC_RAG_REWRITE_WEIGHT", "0.7"))
 REWRITE_TIMEOUT = int(os.environ.get("COMIC_RAG_REWRITE_TIMEOUT", "20"))
-#: 每个变体取多少候选（合并后才做去重/重排）。
-REWRITE_CANDIDATES = int(os.environ.get("COMIC_RAG_REWRITE_CANDIDATES", "20"))
+#: 合并池里**送进重排的条数**。重排是 CPU 上唯一的慢环节（每条约 0.35 秒 @128 token）：
+#: 8 条约 3 秒、20 条约 7 秒、20 条 @256 约 9 秒。
+#: 实测 8 条已能把 Recall@5 做到 96.7%，再往上只多救回个位数条，
+#: 代价却是"每问一次多等好几秒"。
+REWRITE_CANDIDATES = int(os.environ.get("COMIC_RAG_REWRITE_CANDIDATES", "8"))
 
 #: `read_knowledge` 返回父小节时的最大字符数，防止一次把整篇 37KB 文档塞给 Agent。
 READ_MAX_CHARS = int(os.environ.get("COMIC_RAG_READ_MAX_CHARS", "6000"))

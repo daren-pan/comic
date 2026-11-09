@@ -45,11 +45,12 @@
 | `COMIC_RAG_BOOST` | `module` | 语义分加成策略 | `module`（默认，+0.06 命中模块）/ `none` / `heading` / `body` / `all`；实测 `module` 最好，见 [ARCHITECTURE.md](ARCHITECTURE.md) |
 | `COMIC_RAG_RERANK` | 空（关闭） | 重排总开关 | 设 `1` 打开。**默认关**：当时基线（k=60 等权、混合 Top-1 65%）下测到 70%，但每次查询 50ms→7s，且语义掉到 70%；现有基线已 90%，**未复测**，见 [NOTES.md](NOTES.md) 2.7 |
 | `COMIC_RAG_RERANK_MODEL` | `crawler-service/data/models/bge-reranker-v2-m3` | 重排模型目录 | 2.1 GB，`BAAI/bge-reranker-v2-m3`（多语言，中文可用） |
-| `COMIC_RAG_RERANK_CANDIDATES` | 10 | 送进重排的候选数 | 每多一条约 +0.7 秒（CPU） |
-| `COMIC_RAG_RERANK_MAX_LENGTH` | 256 | 重排截断长度 | 越大越慢 |
+| `COMIC_RAG_RERANK_CANDIDATES` | 10 | 常规路径送排条数 | 每多一条约 +0.35 秒（CPU，128 token） |
+| `COMIC_RAG_RERANK_MAX_LENGTH` | **128** | 重排截断长度（token） | **最关键的延迟旋钮**：20 条时 512→18s、256→9s、128→7s；128 已够判断"这段在讲什么" |
+| `COMIC_RAG_REWRITE_CANDIDATES` | **8** | 深度路径送排条数 | 8 条约 3 秒（Recall@5 96.7%）；20 条 10 秒（Recall@10 100%） |
 | `COMIC_KB_RRF_K` | 3 | RRF 平滑常数 | **会改变排序**：k 越大，"两路都出现"越吃香；k=60 会让"两路靠后"压过"单路第一" |
 | `COMIC_KB_RRF_WEIGHTS` | `1,1` | 两路权重（语义, 字面） | 默认**等权**。曾用 `0.75,0.25`：文档原话式题集上 Top-1 更高，但会把"字面对、混合错"的三条（专名类与短问句各一条）压掉 |
-| `COMIC_RAG_AUTO_ROUTE` | `1` | 按查询类型分流 | 口语型走「改写+合并+重排」（10~45 秒），其余 40ms；**只对混合检索生效** |
+| `COMIC_RAG_AUTO_ROUTE` | `1` | 按查询类型分流 | 口语型走「改写+合并+重排」（**约 3 秒**），其余 40ms；**只对混合检索生效** |
 | `COMIC_RAG_FUSION` | `rrf` | 融合方式 | `rrf`=按名次加权求和；`interleave`=两路轮流取（实测 Top-1 60%→66.7%、Recall 不变），默认不改 |
 | `COMIC_RAG_SYNONYMS` | `1` | 同义词扩展 | 查询里的用户说法按 `synonyms.json` 扩成语料用词，**只加进字面路** |
 
