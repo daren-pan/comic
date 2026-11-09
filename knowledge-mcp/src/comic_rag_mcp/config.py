@@ -155,6 +155,12 @@ AUTO_ROUTE = os.environ.get("COMIC_RAG_AUTO_ROUTE", "1").strip() not in {"0", "f
 #: 深度路径是否强制开启重排（口语型查询用）。
 DEEP_RERANK = os.environ.get("COMIC_RAG_DEEP_RERANK", "1").strip() not in {"0", "false", "off"}
 
+#: 深度路径的改写来源：
+#! - `table`（默认）：用 `synonyms.json` 做同义替换 —— 确定性、零延迟、可人审；
+#: - `llm`：调 LLM 生成 3 个说法；
+#: - `table+llm`：先查表，表里没有可替换的词才调 LLM。
+REWRITE_SOURCE = os.environ.get("COMIC_RAG_REWRITE_SOURCE", "table+llm").strip().lower()
+
 #: 查询改写：先用 LLM 把问题换成 3 个说法再分别检索（治"同义说法"的词汇鸿沟）。
 #: 一次调用约 3 秒，所以默认关：`COMIC_RAG_REWRITE=1` 打开（需要 `COMIC_LLM_API_KEY`）。
 #: 值：`auto`（有 key 就开）/ `1` 强制开 / `0`（默认）关。

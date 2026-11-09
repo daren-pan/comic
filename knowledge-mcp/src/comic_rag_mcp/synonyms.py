@@ -249,3 +249,47 @@ def expand(query: str, tokens: list[str] | None = None) -> list[str]:
         if len(extra) >= config.SYNONYM_EXPAND_TERMS:
             break
     return extra[: config.SYNONYM_EXPAND_TERMS]
+
+
+def variants(query: str, limit: int | None = None) -> list[str]:
+    """用同义词表生成**改写变体**：把稀有词替换成它的同义说法。
+
+    ```
+    收藏漫画有更新时如何提醒
+      → 收藏漫画有更新时如何通知      （提醒 → 通知）
+      → 收藏漫画有更新时如何提示      （提醒 → 提示）
+    ```
+
+    为什么用它替代 LLM 改写（深度路径）：
+    - **确定性**：同一个问题每次得到同一组变体（LLM 每次都不一样）；
+    - **零延迟**：不调模型，省掉 3~9 秒；
+    - **可控**：换成什么词完全看表，人审过就放心。
+
+    表里没有可替换的词时返回空列表，调用方可回退到 LLM 改写。
+    """
+    mapping = table()
+    if not mapping:
+        return []
+    from . import lexical, tokenizer
+
+    count = int(limit or config.REWRITE_VARIANTS)
+    tokens = tokenizer.tokens(query or "")
+    try:
+        idf = lexical.get_index()._retriever.vectorizer.idf
+    except Exception:  # noqa: BLE001
+        idf = {}
+
+    out: list[str] = []
+    # 稀有词优先：替换"提醒"比替换"更新"更能改变检索结果
+    for token in sorted(dict.fromkeys(tokens), key=lambda t: -idf.get(t, 0.0)):
+        if token not in query:
+            continue
+        for term in mapping.get(token, []):
+            if not term or term == token or term in query:
+                continue
+            variant = query.replace(token, term)
+            if variant != query and variant not in out:
+                out.append(variant)
+            if len(out) >= count:
+                return out
+    return out

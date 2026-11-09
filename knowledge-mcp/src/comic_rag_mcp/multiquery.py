@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import time
 
-from . import config, query_rewrite, query_type, rerank
+from . import config, query_rewrite, query_type, rerank, synonyms
 from .retriever import _fuse_ranked, search
 
 
@@ -43,7 +43,12 @@ def search_multi(
     `rerank_override=True` 强制对合并池重排（口语型查询的深度路径用）。
     """
     started = time.perf_counter()
-    variants = query_rewrite.rewrite(query, force=True)
+    # 优先用**同义词表**做改写（确定性、零延迟）；表里没有可替换的词才回落 LLM。
+    variants = synonyms.variants(query) if config.REWRITE_SOURCE != "llm" else []
+    source = "table"
+    if not variants and config.REWRITE_SOURCE != "table" and query_rewrite.available():
+        variants = query_rewrite.rewrite(query, force=True)
+        source = "llm"
     t_rewrite = time.perf_counter()
     queries = [query, *variants]
     use_rerank = rerank.enabled() if rerank_override is None else rerank_override
@@ -117,6 +122,7 @@ def search_multi(
         "mode": mode or "hybrid",
         "route": "deep",
         "query_type": query_type.label(query_type.classify(query)),
+        "variant_source": source,
         "variants": variants,
         "hits": hits,
         "count": len(hits),
