@@ -411,6 +411,8 @@ def search(
         from . import query_rewrite
 
         qtype = query_type.classify(query)
+        # 能给出变体就行 —— 表驱动改写不需要 LLM key（只有回落到 LLM 时才需要）。
+        can_variant = bool(synonyms.table()) or query_rewrite.available()
         # 口语型 → 深度路径（改写 + 合并 + 重排）；其余保持常规排序。
         # ⚠️ 只对**混合检索**生效：语义/字面是调试与回退用的"单路视图"，
         # 把它们也送进深度路径会让一次查询从 50ms 变成几十秒（实测语义模式 63s）。
@@ -418,7 +420,7 @@ def search(
             config.AUTO_ROUTE
             and qtype == query_type.COLLOQUIAL
             and normalize_mode(mode) == "hybrid"
-            and query_rewrite.available()
+            and can_variant
         ):
             from .multiquery import search_multi
 
