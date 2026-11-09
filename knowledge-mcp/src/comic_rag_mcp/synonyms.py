@@ -221,18 +221,31 @@ def expand(query: str, tokens: list[str] | None = None) -> list[str]:
     """把查询里的「用户说法」扩成「语料用词」，返回**额外要加的词**。
 
     只加进字面路：语义路加词等于改问题（容易跑偏），字面路加词只是多几个精确匹配机会。
+
+    ⚠️ **扩展词按 idf 从高到低取**（越稀有越有区分度），不是按分词顺序。
+    踩过的坑：`收藏漫画有更新时如何提醒` 的分词顺序是 收藏/漫画/更新/如何/提醒，
+    按顺序取前 3 个会拿到 `标记/刷新/升级`，而**最该用的 `通知`（来自"提醒"）被截掉**。
     """
     if not config.SYNONYM_EXPAND:
         return []
     mapping = table()
     if not mapping:
         return []
-    from . import tokenizer
+    from . import lexical, tokenizer
 
     source = tokens if tokens is not None else tokenizer.tokens(query or "")
+    try:
+        idf = lexical.get_index()._retriever.vectorizer.idf
+    except Exception:  # noqa: BLE001 —— 词面索引没就绪时退回原顺序
+        idf = {}
+
+    # 稀有词优先：它的同义替换更有信息量（"提醒"比"更新"更值得换）
+    ordered = sorted(dict.fromkeys(source), key=lambda t: -idf.get(t, 0.0))
     extra: list[str] = []
-    for token in source:
+    for token in ordered:
         for term in mapping.get(token, []):
             if term and term not in source and term not in extra:
                 extra.append(term)
+        if len(extra) >= config.SYNONYM_EXPAND_TERMS:
+            break
     return extra[: config.SYNONYM_EXPAND_TERMS]
