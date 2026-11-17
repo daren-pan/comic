@@ -129,4 +129,4 @@ def run_task(worktree: Path, prompt: str, task_id: str) -> tuple[str, int]:
         raise AgentError(f"任务超时（>{config.TASK_TIMEOUT}s）已终止") from exc
 
     tail = "\n".join(((proc.stdout or "") + (proc.stderr or "")).splitlines()[-60:])
-    return tail, proc.returncode
+    return tail, proc.returncode, (proc.stdout or "")

@@ -71,6 +71,9 @@ def _run_one(store: TaskStore, task_id: str) -> None:
         return
 
     store.update(task_id, status="running")
+    if task.get("mode") == "ask":
+        _run_ask(store, task)
+        return
     branch = ""
     original = "main"
     baseline: set[str] = set()
@@ -129,6 +132,57 @@ def _notify_review(store: TaskStore, task_id: str) -> None:
     notify.push_text(text)
 
 
+
+#: 只读问答的任务前缀：明确禁止改动，避免「问问题却改了文件」
+ASK_PREFIX = (
+    "只读任务：不要修改、创建或删除任何文件，也不要执行改变仓库状态的命令。"
+    "请阅读代码后直接回答问题，答案用中文、简洁分点：\n"
+)
+
+
+def _clean_answer(stdout: str, tail: str) -> str:
+    """从 opencode 输出里抽出可读答案：去掉 ANSI 与工具命令行。"""
+    import re as _re
+
+    text = _re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", stdout or "")
+    lines = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("$") or s.startswith(">"):
+            continue
+        lines.append(line.rstrip())
+    answer = "\n".join(lines).strip()
+    return answer or tail or "（没有拿到答案）"
+
+
+def _run_ask(store: TaskStore, task: dict) -> None:
+    """只读问答：不改文件、不要求 diff；答案直接推给用户。"""
+    task_id = task["id"]
+    branch, original = workspace.start_branch(task_id)
+    try:
+        baseline = _paths_from_status(workspace.baseline_status())
+        agent.write_opencode_config(workspace.config.REPO_ROOT)
+        tail, code, stdout = agent.run_task(
+            workspace.config.REPO_ROOT, ASK_PREFIX + task["prompt"], task_id
+        )
+        answer = _clean_answer(stdout, tail)
+
+        # 万一 agent 还是改了文件：先还原，再切回 main
+        changed = [
+            p for p in _paths_from_status(workspace.baseline_status())
+            if p not in baseline and p != _INTERNAL
+        ]
+        workspace.abort_branch(changed, original)
+        Path(workspace.config.REPO_ROOT / _INTERNAL).unlink(missing_ok=True)
+
+        store.update(task_id, status="answered", answer=answer, files=[], error="")
+        notify.push_text(f"{task_id} 回答：\n{answer[:1500]}")
+    except Exception as exc:  # noqa: BLE001
+        workspace.abort_branch([], original)
+        store.update(task_id, status="failed", error=f"{type(exc).__name__}: {exc}")
+        notify.push_text(f"{task_id} 查询失败：{exc}")
+
+
 def _cleanup_failed(branch: str, original: str, baseline: set[str]) -> None:
     """失败时把工作区还原干净：只还原本任务新增的改动，保留任务前就脏的文件。"""
     try:
@@ -176,7 +230,7 @@ def discard_task(store: TaskStore, task_id: str) -> dict:
     task = store.get(task_id)
     if not task:
         raise workspace.BridgeError("任务不存在")
-    if task["status"] in {"applied", "discarded", "failed"}:
+    if task["status"] in {"applied", "discarded", "failed", "answered"}:
         raise workspace.BridgeError(f"任务已结束（{task['status']}）")
 
     workspace.abort_branch(task["files"], "main")

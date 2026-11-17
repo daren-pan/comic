@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     status        TEXT NOT NULL,
     allowed_paths TEXT NOT NULL DEFAULT '[]',
     branch        TEXT NOT NULL DEFAULT '',
+    mode          TEXT NOT NULL DEFAULT 'code',
+    answer        TEXT NOT NULL DEFAULT '',
     worktree      TEXT NOT NULL DEFAULT '',
     files         TEXT NOT NULL DEFAULT '[]',
     diff_stat     TEXT NOT NULL DEFAULT '',
@@ -57,17 +59,23 @@ class TaskStore:
         cols = {row[1] for row in self._conn.execute("PRAGMA table_info(tasks)")}
         if "branch" not in cols:
             self._conn.execute("ALTER TABLE tasks ADD COLUMN branch TEXT NOT NULL DEFAULT ''")
+        if "mode" not in cols:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN mode TEXT NOT NULL DEFAULT 'code'")
+        if "answer" not in cols:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN answer TEXT NOT NULL DEFAULT ''")
 
     # ---- 写 ----
 
-    def create(self, action: str, prompt: str, allowed_paths: list[str]) -> dict[str, Any]:
+    def create(
+        self, action: str, prompt: str, allowed_paths: list[str], mode: str = "code"
+    ) -> dict[str, Any]:
         task_id = uuid.uuid4().hex[:8].upper()
         now = time.time()
         with self._lock:
             self._conn.execute(
-                "INSERT INTO tasks (id, action, prompt, status, allowed_paths, created_at, updated_at)"
-                " VALUES (?,?,?,?,?,?,?)",
-                (task_id, action, prompt, "queued", json.dumps(allowed_paths), now, now),
+                "INSERT INTO tasks (id, action, prompt, status, allowed_paths, mode, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?)",
+                (task_id, action, prompt, "queued", json.dumps(allowed_paths), mode, now, now),
             )
             self._conn.commit()
         return self.get(task_id)  # type: ignore[return-value]

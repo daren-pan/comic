@@ -39,6 +39,7 @@ _STATUS_TEXT = {
     "applied": "已提交",
     "discarded": "已丢弃",
     "failed": "失败",
+    "answered": "已回答",
 }
 
 #: 命令词 → 规范名
@@ -109,14 +110,33 @@ def _pick(store: TaskStore, rest: str) -> tuple[str, str]:
 
 # ---------------- 动作实现 ----------------
 
+ASK_HINTS = ("多少", "几个", "哪些", "什么", "怎么", "为什么", "是否", "有没有", "列出", "总结", "介绍", "在哪", "哪里")
+CHANGE_HINTS = ("改", "新增", "添加", "加一个", "删掉", "删除", "修复", "重构", "重命名", "部署", "上线", "提交", "迁移", "升级")
+
+
+def _detect_mode(text: str) -> str:
+    """判断这是「问问题」还是「改代码」。
+
+    先看有没有改动类动词（有 = 改代码，哪怕句子里带问号）；
+    再看是不是问句（问号结尾或含疑问词）= 只读问答；其余按改代码处理。
+    """
+    s = (text or "").strip()
+    if any(k in s for k in CHANGE_HINTS):
+        return "code"
+    if s.endswith(("？", "?")) or any(k in s for k in ASK_HINTS):
+        return "ask"
+    return "code"
+
+
 def _submit(store: TaskStore, text: str) -> dict[str, Any]:
-    task = store.create("code", text, [])
+    mode = _detect_mode(text)
+    task = store.create("code", text, [], mode=mode)
     worker.submit(task["id"])
-    return {
-        "reply": f"已受理 {task['id']}，正在改。改完我会直接发消息给你（也可以发「进度」查）。",
-        "task_id": task["id"],
-        "status": "queued",
-    }
+    if mode == "ask":
+        reply = f"已受理 {task['id']}，正在查项目代码，稍后把答案发给你。"
+    else:
+        reply = f"已受理 {task['id']}，正在改。改完我会直接发消息给你。"
+    return {"reply": reply, "task_id": task["id"], "status": "queued"}
 
 
 def _status(store: TaskStore, rest: str) -> dict[str, Any]:
@@ -140,6 +160,12 @@ def _status(store: TaskStore, rest: str) -> dict[str, Any]:
                 f"改动量：{task['diff_stat'] or ''}\n"
                 f"回复「应用」提交，或「丢弃」放弃。"
             ),
+            "task_id": task_id,
+            "status": status,
+        }
+    if status == "answered":
+        return {
+            "reply": f"{task_id} 的回答：\n" + (task.get("answer") or ""),
             "task_id": task_id,
             "status": status,
         }
