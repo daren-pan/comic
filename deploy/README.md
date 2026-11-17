@@ -14,7 +14,7 @@ deploy/
 ├── mysql/     Dockerfile + sql/（建库脚本产物）              → comic-mysql:1.0.0    本项目独占的库
 ├── build.sh / build.bat                                      生成产物 + 按序构建这些镜像
 ├── up.sh                                                     **一键**：前端 build + 上面这些 + up -d + 自检
-├── docker-compose.yml                                        编排：comic-mysql + comic-app + comic-scheduler + comic-chat + comic-web + comic-front
+├── docker-compose.yml                                        编排：comic-mysql + comic-app + comic-scheduler + comic-chat + comic-web + comic-front + comic-napcat + comic-langbot + comic-langbot-runtime
 └── .env.example                                              配置模板（`deploy/.env` 已 gitignore）
 ```
 
@@ -174,6 +174,13 @@ mysql 容器执行，不依赖 Python / 不需要挂载；跑完自动体检）�
   ⚠️ **改 `.env` 后要 `up -d` 重建容器才生效**；镜像自带 tzdata，无需额外装包。
 
 完整说明（环境变量、上线前必做清单、迁移脚本怎么跑）见 [`../docs/deploy.md`](../docs/deploy.md)。
+
+## QQ 机器人（可选）
+
+- **用途**：在 QQ 群里 @ 机器人问项目问题，走 LangBot 的 Dify 运行器。
+- **comic-napcat**：QQ 协议端，WebUI 端口 6099，用 QQ 小号扫码登录。
+- **comic-langbot**：应用层，面板端口 5300，OneBot v11 反向 WS；`comic-langbot-runtime` 是插件运行时，端口 5401。
+- **数据与启动**：数据目录 `deploy/qq-bot/`（已 gitignore），启动命令 `docker compose -f deploy/docker-compose.yml up -d comic-napcat comic-langbot comic-langbot-runtime`；第三方协议端仅个人试验用途，有封号风险，务必用小号。
 
 ---
 
