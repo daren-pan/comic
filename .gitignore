@@ -99,3 +99,5 @@ docs/tasks/TASK-*/
 # chat-service 拆出来后配置在这两处；旧路径留着无害（历史上曾放在 api-service 下）
 chat-service/src/comic_chat/rag/.env
 api-service/services/chat/lab/.env
+# QQ 机器人运行时数据（NapCat 登录态 / LangBot 配置与数据库，含密钥，不入库）
+deploy/qq-bot/
