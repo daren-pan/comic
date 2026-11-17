@@ -277,10 +277,10 @@ services:
     image: mlikiowa/napcat-docker:latest
     container_name: comic-napcat
     restart: unless-stopped
-    # -q <QQ号>：尝试用已保存的登录态快速登录（首次仍需扫码）
-    command: ["-q", "1096682643"]
     environment:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
+      # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
+      - ACCOUNT=1096682643
     ports:
       - "6099:6099"     # WebUI：扫码登录 + 网络配置
       - "3001:3001"     # OneBot 正向 WS（本项目走反向 WS，用不到）
@@ -300,6 +300,8 @@ services:
     restart: unless-stopped
     environment:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
+      # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
+      - ACCOUNT=1096682643
       - BOX__ENABLED=false          # 本机不跑沙箱，关掉可减少无谓重连
     ports:
       - "5300:5300"                 # Web 管理面板 + 机器人的反向 WS 入口
@@ -325,6 +327,8 @@ services:
     command: ["uv", "run", "--no-sync", "-m", "langbot_plugin.cli.__init__", "rt"]
     environment:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
+      # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
+      - ACCOUNT=1096682643
     volumes:
       - ./qq-bot/langbot/data/plugins:/app/data/plugins
       - ./qq-bot/langbot/data/plugin-runtime:/app/data/plugin-runtime
