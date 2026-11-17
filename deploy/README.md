@@ -154,7 +154,7 @@ mysql 容器执行，不依赖 Python / 不需要挂载；跑完自动体检）�
   命名卷首次创建会继承镜像中该路径的属主，否则以 uid 10001 运行的进程写不进去；
 - **app 单进程**（不加 `--workers`）—— 数据源开关状态仍在进程内缓存，多 worker 会导致"开关不同步"；
   （后台任务表已落库 `admin_task`，2026-10-06 起不再是阻塞项，详见 `docs/deploy.md` §8）；
-- **容器名固定**：`comic-mysql` / `comic-app` / `comic-web` / `comic-front`（+ `comic-scheduler` / `comic-chat`）——
+- **容器名固定**：`comic-mysql` / `comic-app` / `comic-web` / `comic-front` / `comic-scheduler` / `comic-chat` / `comic-napcat` / `comic-langbot` / `comic-langbot-runtime` ——
   由 compose 的 `container_name` 指定，不用 compose 自动生成的 `xxx-1` 形式，运维时好叫；
 - **宿主端口可配**：`.env` 的 `WEB_PORT`（默认 85）/ `FRONT_PORT`（默认 86）。端口被占用就改这里，容器内仍是 80；
 - **数据分两处**：`mysql_data` 卷 → 数据库（`down` 不删卷）；**图库与源开关状态在宿主目录**
