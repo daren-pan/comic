@@ -181,6 +181,7 @@ mysql 容器执行，不依赖 Python / 不需要挂载；跑完自动体检）�
 - **comic-napcat**：QQ 协议端，WebUI 端口 6099，用 QQ 小号扫码登录。
 - **comic-langbot**：应用层，面板端口 5300，OneBot v11 反向 WS；`comic-langbot-runtime` 是插件运行时，端口 5401。
 - **数据与启动**：数据目录 `deploy/qq-bot/`（已 gitignore），启动命令 `docker compose -f deploy/docker-compose.yml up -d comic-napcat comic-langbot comic-langbot-runtime`；第三方协议端仅个人试验用途，有封号风险，务必用小号。
+- **TaskBridge**：独立服务（端口 8020），把群里的需求转给 coding agent 执行，改动经人工确认后才提交。
 
 ---
 
