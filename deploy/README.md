@@ -183,6 +183,7 @@ mysql 容器执行，不依赖 Python / 不需要挂载；跑完自动体检）�
 - **数据与启动**：数据目录 `deploy/qq-bot/`（已 gitignore），启动命令 `docker compose -f deploy/docker-compose.yml up -d comic-napcat comic-langbot comic-langbot-runtime`；第三方协议端仅个人试验用途，有封号风险，务必用小号。
 - **TaskBridge**：独立服务（端口 8020），把群里的需求转给 coding agent 执行，改动经人工确认后才提交。
 - **端口**：6099（NapCat WebUI，扫码登录）、3000（OneBot HTTP API，供 TaskBridge 主动推送）、5300（LangBot 面板）、5401（插件运行时）。
+- **结果推送**：任务跑完由 TaskBridge 经 NapCat 的 OneBot HTTP API（3000）主动推送，无需轮询。
 
 ---
 
