@@ -40,7 +40,9 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
     )
     if check and proc.returncode != 0:
         raise BridgeError(f"git {' '.join(args)} 失败：{(proc.stderr or proc.stdout).strip()[:400]}")
-    return (proc.stdout or "").strip()
+    # ⚠️ 只能去尾部换行：`git status --porcelain` 首行以空格开头（` M path`），
+    # 用 `.strip()` 会削掉那个空格，导致列位移、路径少首字符（deploy → eploy）。
+    return (proc.stdout or "").rstrip("\n")
 
 
 def current_branch() -> str:
@@ -104,7 +106,11 @@ def abort_branch(files: list[str], original: str = "main") -> None:
 # ---------------- 改动采集与校验 ----------------
 
 def changed_files() -> list[str]:
-    """采集工作区全部改动（含新增/删除/重命名），排除服务自己的配置文件。"""
+    """采集工作区全部改动（含新增/删除/重命名），排除服务自己的配置文件。
+
+    用 `git status --porcelain` 而不是 `git diff`：`diff` 看不到未跟踪的新文件。
+    格式固定为 `XY<空格>路径`，所以从第 4 个字符开始取；重命名取箭头右侧。
+    """
     out = git(config.REPO_ROOT, "status", "--porcelain", "--untracked-files=all")
     files: list[str] = []
     for line in out.splitlines():
