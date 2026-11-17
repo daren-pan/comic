@@ -113,3 +113,6 @@ build/deploy/
 ---
 
 > 踩坑、实测与复盘 → **[docs/NOTES.md](docs/NOTES.md)**（AI 维护）。
+
+## TaskBridge 起停脚本
+`taskbridge.ps1` 提供 start / stop / status / logs 四个动作，用于在 Windows 本机起停 TaskBridge 服务。
