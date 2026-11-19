@@ -15,6 +15,9 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple \
     NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
 
+# 先把 Debian 源换成阿里云镜像：默认的 deb.debian.org 在国内常常几十 KB/s，
+# apt 层能卡十几分钟（实测服务器上 25 分钟没装完）。bookworm 用 .sources 文件。
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         python3 python3-pip git ca-certificates curl \
