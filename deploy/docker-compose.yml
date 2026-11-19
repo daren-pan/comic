@@ -330,7 +330,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   comic-langbot:
-    image: rockchin/langbot:latest
+    image: rockchin/langbot:${LANGBOT_IMAGE_TAG:-v4.11.8}
     container_name: comic-langbot
     restart: unless-stopped
     environment:
@@ -361,7 +361,7 @@ services:
 
   # 插件运行时（LangBot 的插件依赖它；不跑则插件与部分能力不可用）
   comic-langbot-runtime:
-    image: rockchin/langbot:latest
+    image: rockchin/langbot:${LANGBOT_IMAGE_TAG:-v4.11.8}
     container_name: comic-langbot-runtime
     restart: unless-stopped
     command: ["uv", "run", "--no-sync", "-m", "langbot_plugin.cli.__init__", "rt"]
