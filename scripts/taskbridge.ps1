@@ -22,7 +22,7 @@ switch ($Action) {
     'start' {
         if (Get-TbProcess) { Write-Host '[taskbridge] 已在运行'; break }
         New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
-        Start-Process -FilePath $Python -ArgumentList 'tools/taskbridge/run.py' `
+        Start-Process -FilePath $Python -ArgumentList 'taskbridge-service/run.py' `
             -WorkingDirectory $RepoRoot -WindowStyle Hidden `
             -RedirectStandardOutput $LogFile -RedirectStandardError "$LogFile.err"
         Start-Sleep -Seconds 6

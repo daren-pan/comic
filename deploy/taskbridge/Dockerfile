@@ -44,4 +44,4 @@ ENV TB_REPO_ROOT=/repo \
 EXPOSE 8020
 
 # run.py 会把 tools/ 塞进 sys.path，让 taskbridge 以普通包被导入
-CMD ["python3", "tools/taskbridge/run.py"]
+CMD ["python3", "taskbridge-service/run.py"]

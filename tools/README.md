@@ -100,4 +100,4 @@ cd crawler-service && .venv/Scripts/python.exe ../tools/check_schema.py      # �
 ## TaskBridge（QQ 机器人任务网关）
 - 定位：把 QQ 群里的需求转成一次可审阅的改动，服务监听 0.0.0.0:8020；
 - 用法：POST /tasks 提交、GET /tasks/{id} 查进度、POST /tasks/{id}/apply 确认提交；
-- 详细说明见 tools/taskbridge/README.md。
+- 详细说明见 taskbridge-service/README.md（已独立成模块，不在 tools 下）。

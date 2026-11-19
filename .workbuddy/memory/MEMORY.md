@@ -18,6 +18,7 @@ comic/
 ├── comic-web/         # 前端 · 纯 Vue3 + Vite（H5 :5173，移动 / 网页双形态）—— 与 comic-front 功能等价
 ├── comic-front/       # 前端 · uni-app（H5 :5174，移动 / 网页双形态）—— 与 comic-web 功能等价
 ├── deploy/            # 生产编排（Docker Compose + 两个前端镜像各自带 nginx + 自带 MySQL 镜像）
+├── taskbridge-service/  # 任务网关（Dify「改代码」入口；分支隔离 + 人工确认后提交）
 ├── docs/ · scripts/ · tools/                # 文档 · 启动自检 · 一次性迁移
 └── logs/ · build/ · backup/ · .workbuddy/   # 运行时产物与 AI 配置（非架构）
 ```
@@ -35,6 +36,7 @@ comic/
 | `comic-web/` | 纯 Vue3 + Vite 版（与 comic-front 功能等价，2026-10-14 由后者迁移） | `comic-web/README.md` |
 | `comic-front/` | uni-app 版（与 comic-web 功能等价）；靠 `src/utils/*` 兼容层保持平台无关 | `comic-front/README.md` |
 | `docs/` | 总体架构 / 认证 / 部署 | `docs/README.md` |
+| `taskbridge-service/` | **任务网关**（FastAPI :8020）：收 Dify 的「改代码」指令 → 建 `tb/<任务号>` 分支 → 跑 opencode → 出 diff → 人工确认后提交；只读问答走 ask 模式 | `taskbridge-service/README.md` |
 | `deploy/` · `scripts/` · `tools/` | 生产编排 · 启动自检 · 一次性迁移 | 各自 README |
 
 **跨模块边界**（细节见各模块 `README.md`；踩坑见其 `docs/NOTES.md`）

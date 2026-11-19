@@ -5,8 +5,29 @@
 
 链路：`QQ → NapCat → LangBot（OneBot v11 流水线）→ Dify Chatflow → TaskBridge → opencode CLI + 模型`
 
+## 模块结构
+本模块是独立目录（不再挂在 `tools/` 下）：`run.py` 是入口，`taskbridge/` 是包本体。`run.py` 把自己的上级目录塞进 `sys.path`，所以 `python taskbridge-service/run.py` 就能直接跑，不需要安装成包。
+
+```
+taskbridge-service/
+├── run.py               # 启动入口（uvicorn 由这里拉起）
+├── README.md            # 本文件（导读）
+├── docs/NOTES.md        # 踩坑与复盘
+└── taskbridge/          # 包：config / store / workspace / agent / worker / commands / notify / main
+```
+
+它跑在 `comic-taskbridge` 容器里（见 `deploy/docker-compose.yml`）：仓库以**可写**方式挂到 `/repo`，镜像内同时装 python（服务本体）与 node（opencode 是 npm 包）。
+
 ## 为什么需要它
 聊天窗口承载不了「改代码」这类长任务：Dify 的 HTTP 节点几十秒就超时、agent 可能跑飞、改动必须人工确认后才提交。TaskBridge 负责排队、校验、持久化与落地，四件事缺一不可。
+
+## 两种模式
+同一个入口按内容自动分派，避免「问问题却被当成改代码」：
+
+| 模式 | 判定 | 行为 |
+|---|---|---|
+| `code` | 含改动类动词（改 / 加 / 删 / 修复 / 部署…） | 建分支 → agent 改文件 → 出 diff → **等人工确认** |
+| `ask` | 问号结尾，或含疑问词（多少 / 哪些 / 为什么 / 在哪…） | **禁止改文件**，读代码后直接回答，答案入库并主动推送 |
 
 ## 分支模型
 每个任务在主仓库里开一个分支 `tb/<任务号>`，coding agent 直接在工作区改；确认后在该分支提交，再把 `main` 快进过去并删分支。丢弃则还原改动、切回 `main`、删分支。
@@ -33,8 +54,10 @@ POST /discard→ git checkout -- <files> + clean → git checkout main → git b
 
 ## 上手命令
 ```bash
-# 启动（默认 0.0.0.0:8020）
-python tools/taskbridge/run.py
+# 容器里跑（推荐）：部署编排已包含该服务
+docker compose -f deploy/docker-compose.yml up -d comic-taskbridge
+# 本机直跑（需要已装 opencode 与 fastapi/uvicorn）
+python taskbridge-service/run.py
 # 健康检查
 curl http://127.0.0.1:8020/healthz
 ```
@@ -61,9 +84,19 @@ curl http://127.0.0.1:8020/healthz
 | `帮助` | 用法说明 |
 
 ## 状态机
-`queued → running → awaiting_review → applying → applied`，另有两个终态 `discarded` / `failed`。服务重启时残留的 `running` / `applying` 会被标成失败，并把工作区还原到 `main`。
+`queued → running → awaiting_review → applying → applied`；`ask` 模式走 `answered`；失败/放弃是 `failed` / `discarded`。服务重启时残留的 `running` / `applying` 会被标成失败，并把工作区还原到 `main`。
+
+## 配置（环境变量）
+下表列出影响运行位置与外部依赖的变量。
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `TB_REPO_ROOT` | 仓库根 | 操作的 git 仓库（容器里是 `/repo`） |
+| `TB_HOST` / `TB_PORT` | `0.0.0.0` / `8020` | 监听地址 |
+| `TB_OPENCODE_BIN` | `opencode` | opencode 可执行文件（容器里是 `/usr/local/bin/opencode`） |
+| `TB_XDG_ROOT` | `logs/taskbridge/ocdata` | opencode 的数据目录（**跨平台不通用**，容器里指到独立卷） |
+| `TB_PUSH_BASE` / `TB_PUSH_TOKEN` / `TB_PUSH_TARGETS` | 空 | 主动推送通道（NapCat 的 OneBot HTTP） |
+| `TB_KEY_ENV_FILE` / `TB_KEY_ENV_NAME` | `chat-service/.../.env` / `COMIC_LLM_API_KEY` | 模型密钥来源（不落盘到别处） |
 
 ## 已踩过的坑
-**① coding agent 的日志目录可能不可写**：opencode 默认写 `~/.local/share/opencode/log`，在受限沙箱或只读 HOME 下会直接报 `FileSystem.open` 退出。解决办法是把 `XDG_DATA_HOME` / `XDG_CACHE_HOME` / `XDG_CONFIG_HOME` 重定向到本服务自己的目录（`logs/taskbridge/ocdata`）。
-
-**② 曾经用 worktree 做副本，结果 agent 改到了主仓库**：worktree 的 `.git` 只是指针文件，`--git-common-dir` 会指回主仓库，agent 据此把工程根判成主仓库，改动全落在主仓库、副本里 diff 为空。现在改用分支模型，不再有副本，这个坑随之消失；但仍保留「改动路径白名单 + diff 非空 + 文件数上限」三道硬校验。
+踩坑细节见 [docs/NOTES.md](docs/NOTES.md)（opencode 日志目录不可写、worktree 副本失效、容器里 git 把整仓看成已修改等）。
