@@ -32,3 +32,8 @@ Windows 上 npm 全局安装的 `opencode` 是 `.cmd` 批处理壳子，命令�
 ## 代理缓存会让「后端已挂」看起来正常
 Dify 的 HTTP 节点经 `ssrf_proxy`（squid）出网，squid 默认会缓存 GET 响应。实测停掉后端后，**同一关键词仍返回旧数据**，只有新关键词才会走异常分支。
 处理：在 `dify/docker/ssrf_proxy/squid.conf.template` 里加 `cache deny all` 并重建该容器。这条不在本模块内，但排查时容易误判成「TaskBridge 没生效」。
+
+## 应用后自动推送与容器 ssh 依赖
+apply 成功后会**先在本地提交，再推远端** —— 两步都在同一次 apply 里完成，无需再手工 push。
+推送失败**不回滚**本地提交（提交已在 `tb/<任务号>` 分支上，代码不会丢）：错误按原样回报到 QQ，并附上补救命令，方便人工补推或修正凭据后重试。
+容器里必须装 `openssh-client`，且把宿主 `~/.ssh` **只读**挂载进容器；缺任一项时 `git push` 会报 `cannot run ssh`（找不到 ssh 可执行文件或读不到密钥）。
