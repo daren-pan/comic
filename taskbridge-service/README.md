@@ -45,6 +45,7 @@ POST /discard→ git checkout -- <files> + clean → git checkout main → git b
 - **提交即返回**：`POST /tasks` 毫秒级返回任务号，绝不等待 agent 执行完成。
 - **硬校验**：成败只看 `git status` 与 `diff`，**不采信模型的「done」**（实测有模型会谎报完成）。
 - **人工确认**：`awaiting_review` 之后必须显式调 `/apply` 才提交。
+- **应用即推送**：apply 合并后会自动把 `main` 推到远端，推送失败只把错误报到 QQ（本地提交保留）。
 - **原子提交**：只提交本次任务涉及的文件，不裹挟工作区里其它未提交改动。
 
 ## 代价（选分支模型的必然结果）
