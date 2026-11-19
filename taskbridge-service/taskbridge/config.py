@@ -15,6 +15,17 @@ REPO_ROOT = Path(os.environ.get("TB_REPO_ROOT", r"D:\software\RuoYi\comic")).res
 #: 运行时目录：worktree 副本 / 产物 / 日志。放 logs/ 下，天然被 gitignore
 RUN_ROOT = Path(os.environ.get("TB_RUN_ROOT", REPO_ROOT / "logs" / "taskbridge"))
 
+#: apply 之后是否自动把 main 推到远端。推不上去**不回滚本地提交**，
+#: 只把错误回报到 QQ —— 本地提交已经在，人工补一次 push 即可。
+GIT_PUSH_ENABLED = os.environ.get("TB_GIT_PUSH", "true").lower() in ("1", "true", "yes")
+
+#: 推哪个远端、哪个分支（服务器上用 SSH remote，见 deploy/docs/NOTES.md §三）
+GIT_REMOTE = os.environ.get("TB_GIT_REMOTE", "origin")
+GIT_BRANCH = os.environ.get("TB_GIT_BRANCH", "main")
+
+#: push 超时（秒）：网络差时别把队列卡死
+GIT_PUSH_TIMEOUT = int(os.environ.get("TB_GIT_PUSH_TIMEOUT", "120"))
+
 #: opencode 的数据/缓存目录。Windows 与 Linux 生成的库不通用，因此容器里必须指向独立路径
 #: （compose 用命名卷挂到 /root/ocdata，避免与宿主那份互相踩）
 XDG_ROOT = Path(os.environ.get("TB_XDG_ROOT", str(RUN_ROOT / "ocdata"))).expanduser()

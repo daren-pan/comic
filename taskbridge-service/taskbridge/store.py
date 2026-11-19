@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     log_tail      TEXT NOT NULL DEFAULT '',
     commit_hash   TEXT NOT NULL DEFAULT '',
     commit_msg    TEXT NOT NULL DEFAULT '',
+    push_ok       INTEGER NOT NULL DEFAULT 1,
+    push_error    TEXT NOT NULL DEFAULT '',
     error         TEXT NOT NULL DEFAULT '',
     created_at    REAL NOT NULL,
     updated_at    REAL NOT NULL
@@ -63,6 +65,10 @@ class TaskStore:
             self._conn.execute("ALTER TABLE tasks ADD COLUMN mode TEXT NOT NULL DEFAULT 'code'")
         if "answer" not in cols:
             self._conn.execute("ALTER TABLE tasks ADD COLUMN answer TEXT NOT NULL DEFAULT ''")
+        if "push_ok" not in cols:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN push_ok INTEGER NOT NULL DEFAULT 1")
+        if "push_error" not in cols:
+            self._conn.execute("ALTER TABLE tasks ADD COLUMN push_error TEXT NOT NULL DEFAULT ''")
 
     # ---- 写 ----
 

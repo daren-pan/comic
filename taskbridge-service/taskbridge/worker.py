@@ -199,7 +199,10 @@ def _cleanup_failed(branch: str, original: str, baseline: set[str]) -> None:
 
 
 def apply_task(store: TaskStore, task_id: str, commit_message: str) -> dict:
-    """确认后落地：在任务分支提交 → main 快进 → 删分支。"""
+    """确认后落地：分支提交 → main 快进 → 删分支 → 推远端。
+
+    推送失败不回滚本地提交，只把错误回报到 QQ（人工补一次 push 即可）。
+    """
     task = store.get(task_id)
     if not task:
         raise workspace.BridgeError("任务不存在")
@@ -208,7 +211,9 @@ def apply_task(store: TaskStore, task_id: str, commit_message: str) -> dict:
 
     store.update(task_id, status="applying")
     try:
-        commit = workspace.finish_branch(task["branch"], task["files"], commit_message)
+        commit, pushed, push_msg = workspace.finish_branch(
+            task["branch"], task["files"], commit_message
+        )
     except workspace.BridgeError as exc:
         store.update(task_id, status="awaiting_review", error=str(exc))
         raise
@@ -220,9 +225,19 @@ def apply_task(store: TaskStore, task_id: str, commit_message: str) -> dict:
         status="applied",
         commit_hash=commit,
         commit_msg=commit_message,
-        error="",
+        error="" if pushed else f"推送失败：{push_msg}",
+        push_ok=1 if pushed else 0,
+        push_error="" if pushed else push_msg,
     )
-    notify.push_text(f"{task_id} 已提交（commit {commit}）：{commit_message}")
+    if pushed:
+        notify.push_text(f"{task_id} 已提交并推送（commit {commit}）：{commit_message}")
+    else:
+        notify.push_text(
+            f"{task_id} 已提交到本地（commit {commit}），但推送远端失败：\n"
+            f"{push_msg}\n\n"
+            f"本地提交还在，处理方式：登录服务器 `cd {workspace.config.REPO_ROOT} && git push`；"
+            f"若远端有新提交，先 `git pull --rebase` 再推。"
+        )
     return store.get(task_id)  # type: ignore[return-value]
 
 

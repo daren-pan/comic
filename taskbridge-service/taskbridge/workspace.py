@@ -66,8 +66,43 @@ def start_branch(task_id: str) -> tuple[str, str]:
     return branch, "main"
 
 
-def finish_branch(branch: str, files: list[str], commit_message: str) -> str:
-    """在任务分支上提交这些文件，再把 main 快进过去，返回 commit hash。"""
+def push_main() -> tuple[bool, str]:
+    """把本地 main 推到远端，返回 (是否成功, 说明/错误)。
+
+    刻意**不抛异常**：本地提交已经完成，推送失败只是"远端还没同步"，
+    属于可恢复状态 —— 让调用方把错误回报到 QQ，人工补一次 push 即可。
+    """
+    if not config.GIT_PUSH_ENABLED:
+        return True, "已关闭自动推送（TB_GIT_PUSH=false）"
+
+    ref = f"HEAD:{config.GIT_BRANCH}"
+    try:
+        proc = subprocess.run(
+            ["git", "push", config.GIT_REMOTE, ref],
+            cwd=str(config.REPO_ROOT),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=config.GIT_PUSH_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"git push 超时（超过 {config.GIT_PUSH_TIMEOUT}s），远端可能不可达"
+
+    if proc.returncode == 0:
+        return True, f"已推送 {config.GIT_REMOTE}/{config.GIT_BRANCH}"
+
+    detail = (proc.stderr or proc.stdout or "").strip()
+    # 去掉 git 自己加的提示行，只留第一段可读原因
+    detail = "\n".join(line for line in detail.splitlines() if not line.startswith("hint:"))
+    return False, (detail[:500] or f"git push 退出码 {proc.returncode}")
+
+
+def finish_branch(branch: str, files: list[str], commit_message: str) -> tuple[str, bool, str]:
+    """在任务分支上提交这些文件，把 main 快进过去，再推远端。
+
+    返回 `(commit, 是否已推送, 推送说明)` —— 推送失败不影响本地提交。
+    """
     git(config.REPO_ROOT, "add", "-A", "--", *files)
     git(config.REPO_ROOT, "commit", "-m", commit_message)
     commit = git(config.REPO_ROOT, "rev-parse", "--short", "HEAD")
@@ -87,7 +122,8 @@ def finish_branch(branch: str, files: list[str], commit_message: str) -> str:
         raise BridgeError("main 在任务期间有了新提交，无法快进合并；改动仍在任务分支上，请手动处理")
 
     git(config.REPO_ROOT, "branch", "-D", branch, check=False)
-    return commit
+    pushed, push_msg = push_main()
+    return commit, pushed, push_msg
 
 
 def abort_branch(files: list[str], original: str = "main") -> None:

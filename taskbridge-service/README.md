@@ -30,7 +30,7 @@ taskbridge-service/
 | `ask` | 问号结尾，或含疑问词（多少 / 哪些 / 为什么 / 在哪…） | **禁止改文件**，读代码后直接回答，答案入库并主动推送 |
 
 ## 分支模型
-每个任务在主仓库里开一个分支 `tb/<任务号>`，coding agent 直接在工作区改；确认后在该分支提交，再把 `main` 快进过去并删分支。丢弃则还原改动、切回 `main`、删分支。
+每个任务在主仓库里开一个分支 `tb/<任务号>`，coding agent 直接在工作区改；确认后在该分支提交，再把 `main` 快进过去、删分支，**并把 `main` 推到远端**。推送失败不回滚本地提交，错误会原样推送到 QQ（附处理命令）。丢弃则还原改动、切回 `main`、删分支。
 
 ```
 POST /tasks  → git checkout -b tb/A49A189F → agent 改文件 → 采集 diff 并硬校验
@@ -70,7 +70,7 @@ curl http://127.0.0.1:8020/healthz
 | `POST /command` | **自然语言入口**：一句话完成提交/进度/应用/丢弃，返回可直接回给用户的 `reply` |
 | `POST /tasks` | 提交任务，立即返回任务号（`action` / `prompt` / `allowed_paths`） |
 | `GET /tasks/{id}` | 查进度（含任务分支名）；`?full=1` 连带完整 diff |
-| `POST /tasks/{id}/apply` | 确认后落地并提交，需给 `message`（Conventional Commits） |
+| `POST /tasks/{id}/apply` | 确认后落地：分支提交 → `main` 快进 → 推远端，需给 `message`（Conventional Commits）；推送失败写入 `push_error` 并推送到 QQ |
 | `POST /tasks/{id}/discard` | 丢弃：还原改动、删任务分支 |
 
 `/command` 支持的句式（Dify 只需一个 HTTP 节点）：
@@ -96,6 +96,9 @@ curl http://127.0.0.1:8020/healthz
 | `TB_OPENCODE_BIN` | `opencode` | opencode 可执行文件（容器里是 `/usr/local/bin/opencode`） |
 | `TB_XDG_ROOT` | `logs/taskbridge/ocdata` | opencode 的数据目录（**跨平台不通用**，容器里指到独立卷） |
 | `TB_PUSH_BASE` / `TB_PUSH_TOKEN` / `TB_PUSH_TARGETS` | 空 | 主动推送通道（NapCat 的 OneBot HTTP） |
+| `TB_GIT_PUSH` | `true` | apply 后是否自动把 `main` 推到远端 |
+| `TB_GIT_REMOTE` / `TB_GIT_BRANCH` | `origin` / `main` | 推哪个远端、哪个分支 |
+| `TB_GIT_PUSH_TIMEOUT` | `120` | 推送超时（秒），避免队列卡死 |
 | `TB_KEY_ENV_FILE` / `TB_KEY_ENV_NAME` | `chat-service/.../.env` / `COMIC_LLM_API_KEY` | 模型密钥来源（不落盘到别处） |
 
 ## 已踩过的坑
