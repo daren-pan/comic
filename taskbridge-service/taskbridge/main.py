@@ -133,6 +133,9 @@ def _brief(task: dict) -> dict:
         "files": task["files"],
         "diff_stat": task["diff_stat"],
         "commit": task["commit_hash"],
+        # 推送失败不改本地提交的结果，单独暴露给调用方判断要不要人工补推
+        "push_ok": bool(task.get("push_ok", 1)),
+        "push_error": task.get("push_error", ""),
         "error": task["error"],
         "created_at": task["created_at"],
         "updated_at": task["updated_at"],

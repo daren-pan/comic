@@ -178,6 +178,9 @@ services:
       - TB_XDG_ROOT=/root/ocdata
     volumes:
       - ../:/repo
+      # apply 后要 git push；远端是 SSH 时容器里得有客户端和私钥。
+      # 只读挂载：容器只需要读私钥，不应该能改宿主 ~/.ssh
+      - ${TB_SSH_DIR:-/root/.ssh}:/root/.ssh:ro
       - taskbridge_oc:/root/ocdata
     # 同上：Dify 走内网服务名，服务器上绑 127.0.0.1 即可
     ports: ["${TB_BIND:-0.0.0.0}:${TB_HOST_PORT:-8020}:8020"]

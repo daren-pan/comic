@@ -20,7 +20,7 @@ ENV PYTHONUNBUFFERED=1 \
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        python3 python3-pip git ca-certificates curl \
+        python3 python3-pip git ca-certificates curl openssh-client \
  && rm -rf /var/lib/apt/lists/*
 
 # TaskBridge 只依赖这三个；opencode 用 npm 全局装（Linux 下是可执行脚本，没有 .cmd 壳子问题）
