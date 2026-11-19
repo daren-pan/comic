@@ -15,6 +15,10 @@ REPO_ROOT = Path(os.environ.get("TB_REPO_ROOT", r"D:\software\RuoYi\comic")).res
 #: 运行时目录：worktree 副本 / 产物 / 日志。放 logs/ 下，天然被 gitignore
 RUN_ROOT = Path(os.environ.get("TB_RUN_ROOT", REPO_ROOT / "logs" / "taskbridge"))
 
+#: opencode 的数据/缓存目录。Windows 与 Linux 生成的库不通用，因此容器里必须指向独立路径
+#: （compose 用命名卷挂到 /root/ocdata，避免与宿主那份互相踩）
+XDG_ROOT = Path(os.environ.get("TB_XDG_ROOT", str(RUN_ROOT / "ocdata"))).expanduser()
+
 #: 本地运行参数文件（KEY=VALUE，一行一个）：推送令牌这类敏感值放这儿，不进版本库
 ENV_FILE = Path(os.environ.get("TB_ENV_FILE", RUN_ROOT / "env"))
 

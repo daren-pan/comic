@@ -82,7 +82,7 @@ def _run_one(store: TaskStore, task_id: str) -> None:
         branch, original = workspace.start_branch(task_id)
 
         agent.write_opencode_config(workspace.config.REPO_ROOT)
-        log_tail, code = agent.run_task(workspace.config.REPO_ROOT, task["prompt"], task_id)
+        log_tail, code, _stdout = agent.run_task(workspace.config.REPO_ROOT, task["prompt"], task_id)
         store.update(task_id, log_tail=log_tail[-6000:])
 
         all_changed = _paths_from_status(workspace.baseline_status())

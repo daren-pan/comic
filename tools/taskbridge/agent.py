@@ -88,7 +88,7 @@ def write_opencode_config(worktree: Path) -> None:
     )
 
 
-def run_task(worktree: Path, prompt: str, task_id: str) -> tuple[str, int]:
+def run_task(worktree: Path, prompt: str, task_id: str) -> tuple[str, int, str]:
     """执行一次任务，返回 (日志尾部, 退出码)。超时抛 AgentError。"""
     key = read_api_key()
     env = dict(os.environ)
@@ -98,7 +98,7 @@ def run_task(worktree: Path, prompt: str, task_id: str) -> tuple[str, int]:
     # 受限沙箱或只读 HOME 下（实测 Windows 沙箱会 PermissionError，Windows 报
     # `FileSystem.open` 直接退出）。把 XDG 目录重定向到仓库内，既绕开权限问题，
     # 也让产物可追踪。
-    oc_home = config.RUN_ROOT / "ocdata"
+    oc_home = config.XDG_ROOT
     env["XDG_DATA_HOME"] = str(oc_home / "share")
     env["XDG_CACHE_HOME"] = str(oc_home / "cache")
     env["XDG_CONFIG_HOME"] = str(oc_home / "config")
