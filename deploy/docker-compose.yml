@@ -1,3 +1,7 @@
+include:
+  # Dify（16 个服务）由 tools/gen_dify_compose.py 从上游 compose 生成，勿手改
+  - path: ./docker-compose.dify.yml
+
 # 漫画聚合平台 —— 生产编排（Linux）
 #
 # 目录结构（每个模块一个文件夹，产物与 Dockerfile 放在一起）：

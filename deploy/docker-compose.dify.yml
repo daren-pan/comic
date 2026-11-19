@@ -1,0 +1,665 @@
+# 由 tools/gen_dify_compose.py 生成，请勿手改。
+# 源：../dify/docker/docker-compose.yaml（Dify 1.19.0），仅保留实际在跑的 16 个服务。
+# 数据目录通过 DIFY_VOLUMES 覆盖（默认指向原 Dify 目录，零拷贝迁移）。
+services:
+  init_permissions:
+    image: busybox:latest
+    command:
+    - sh
+    - -c
+    - "for DIR in /app/api/storage /app/plugin_daemon/storage; do\n  FLAG_FILE=\"$${DIR}/.init_permissions\"\n  if [ -f \"$${FLAG_FILE}\" ]; then\n    echo \"Permissions already initialized for $${DIR}.\"\n    continue\n  fi\n  echo \"Initializing permissions for $${DIR}\"\n  chown -R 1001:1001 \"$${DIR}\" && touch \"$${FLAG_FILE}\" || exit 1\ndone\necho \"Permissions initialized. Exiting.\"\n"
+    volumes:
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/app/storage:/app/api/storage
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/plugin_daemon:/app/plugin_daemon/storage
+    restart: 'no'
+    container_name: docker-init_permissions-1
+  api:
+    env_file:
+    - path: ./dify/envs/core-services/shared.env
+      required: false
+    - path: ./dify/envs/core-services/api-worker.env
+      required: false
+    - path: ./dify/envs/security.env
+      required: false
+    - path: ./dify/envs/databases/db-postgres.env
+      required: false
+    - path: ./dify/envs/databases/db-mysql.env
+      required: false
+    - path: ./dify/envs/databases/redis.env
+      required: false
+    - path: ./dify/envs/vectorstores/weaviate.env
+      required: false
+    - path: ./dify/envs/vectorstores/qdrant.env
+      required: false
+    - path: ./dify/envs/vectorstores/oceanbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/seekdb.env
+      required: false
+    - path: ./dify/envs/vectorstores/couchbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/pgvector.env
+      required: false
+    - path: ./dify/envs/vectorstores/vastbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/pgvecto-rs.env
+      required: false
+    - path: ./dify/envs/vectorstores/chroma.env
+      required: false
+    - path: ./dify/envs/vectorstores/iris.env
+      required: false
+    - path: ./dify/envs/vectorstores/oracle.env
+      required: false
+    - path: ./dify/envs/vectorstores/opengauss.env
+      required: false
+    - path: ./dify/envs/vectorstores/myscale.env
+      required: false
+    - path: ./dify/envs/vectorstores/matrixone.env
+      required: false
+    - path: ./dify/envs/vectorstores/elasticsearch.env
+      required: false
+    - path: ./dify/envs/vectorstores/opensearch.env
+      required: false
+    - path: ./dify/envs/vectorstores/milvus.env
+      required: false
+    - path: ./dify/envs/infrastructure/nginx.env
+      required: false
+    - path: ./dify/envs/infrastructure/certbot.env
+      required: false
+    - path: ./dify/envs/infrastructure/ssrf-proxy.env
+      required: false
+    - path: ./dify/envs/infrastructure/etcd.env
+      required: false
+    - path: ./dify/envs/infrastructure/minio.env
+      required: false
+    - path: ./dify/envs/infrastructure/milvus-standalone.env
+      required: false
+    - path: ./dify/envs/core-services/api.env
+      required: false
+    - ./dify/.env
+    - path: ./dify/envs/vectorstores/${VECTOR_STORE:-weaviate}.defaults
+      required: false
+    - ./dify/envs/core-services/api-worker.defaults
+    - ./dify/envs/core-services/api.defaults
+    networks:
+    - ssrf_proxy_network
+    - default
+    restart: always
+    image: langgenius/dify-api:1.19.0
+    environment:
+      MODE: api
+    depends_on:
+      init_permissions:
+        condition: service_completed_successfully
+      db_postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_started
+      agent_backend:
+        condition: service_started
+    volumes:
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/app/storage:/app/api/storage
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:5001/health
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    container_name: docker-api-1
+  api_websocket:
+    env_file:
+    - path: ./dify/envs/core-services/shared.env
+      required: false
+    - path: ./dify/envs/core-services/api-worker.env
+      required: false
+    - path: ./dify/envs/security.env
+      required: false
+    - path: ./dify/envs/databases/db-postgres.env
+      required: false
+    - path: ./dify/envs/databases/db-mysql.env
+      required: false
+    - path: ./dify/envs/databases/redis.env
+      required: false
+    - path: ./dify/envs/vectorstores/weaviate.env
+      required: false
+    - path: ./dify/envs/vectorstores/qdrant.env
+      required: false
+    - path: ./dify/envs/vectorstores/oceanbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/seekdb.env
+      required: false
+    - path: ./dify/envs/vectorstores/couchbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/pgvector.env
+      required: false
+    - path: ./dify/envs/vectorstores/vastbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/pgvecto-rs.env
+      required: false
+    - path: ./dify/envs/vectorstores/chroma.env
+      required: false
+    - path: ./dify/envs/vectorstores/iris.env
+      required: false
+    - path: ./dify/envs/vectorstores/oracle.env
+      required: false
+    - path: ./dify/envs/vectorstores/opengauss.env
+      required: false
+    - path: ./dify/envs/vectorstores/myscale.env
+      required: false
+    - path: ./dify/envs/vectorstores/matrixone.env
+      required: false
+    - path: ./dify/envs/vectorstores/elasticsearch.env
+      required: false
+    - path: ./dify/envs/vectorstores/opensearch.env
+      required: false
+    - path: ./dify/envs/vectorstores/milvus.env
+      required: false
+    - path: ./dify/envs/infrastructure/nginx.env
+      required: false
+    - path: ./dify/envs/infrastructure/certbot.env
+      required: false
+    - path: ./dify/envs/infrastructure/ssrf-proxy.env
+      required: false
+    - path: ./dify/envs/infrastructure/etcd.env
+      required: false
+    - path: ./dify/envs/infrastructure/minio.env
+      required: false
+    - path: ./dify/envs/infrastructure/milvus-standalone.env
+      required: false
+    - path: ./dify/envs/core-services/api.env
+      required: false
+    - ./dify/.env
+    - path: ./dify/envs/vectorstores/${VECTOR_STORE:-weaviate}.defaults
+      required: false
+    - ./dify/envs/core-services/api-worker.defaults
+    - ./dify/envs/core-services/api.defaults
+    networks:
+    - ssrf_proxy_network
+    - default
+    restart: always
+    image: langgenius/dify-api:1.19.0
+    profiles:
+    - collaboration
+    environment:
+      MODE: api
+    entrypoint:
+    - /bin/bash
+    - -c
+    - 'export SERVER_WORKER_AMOUNT="$${API_WEBSOCKET_WORKER_AMOUNT:-1}"
+
+      export SERVER_WORKER_CLASS="$${API_WEBSOCKET_WORKER_CLASS:-geventwebsocket.gunicorn.workers.GeventWebSocketWorker}"
+
+      export SERVER_WORKER_CONNECTIONS="$${API_WEBSOCKET_WORKER_CONNECTIONS:-1000}"
+
+      export GUNICORN_TIMEOUT="$${API_WEBSOCKET_GUNICORN_TIMEOUT:-360}"
+
+      exec /bin/bash /entrypoint.sh
+
+      '
+    depends_on:
+      init_permissions:
+        condition: service_completed_successfully
+      db_postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_started
+    volumes:
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/app/storage:/app/api/storage
+    container_name: docker-api_websocket-1
+  worker:
+    env_file:
+    - path: ./dify/envs/core-services/shared.env
+      required: false
+    - path: ./dify/envs/core-services/api-worker.env
+      required: false
+    - path: ./dify/envs/security.env
+      required: false
+    - path: ./dify/envs/databases/db-postgres.env
+      required: false
+    - path: ./dify/envs/databases/db-mysql.env
+      required: false
+    - path: ./dify/envs/databases/redis.env
+      required: false
+    - path: ./dify/envs/vectorstores/weaviate.env
+      required: false
+    - path: ./dify/envs/vectorstores/qdrant.env
+      required: false
+    - path: ./dify/envs/vectorstores/oceanbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/seekdb.env
+      required: false
+    - path: ./dify/envs/vectorstores/couchbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/pgvector.env
+      required: false
+    - path: ./dify/envs/vectorstores/vastbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/pgvecto-rs.env
+      required: false
+    - path: ./dify/envs/vectorstores/chroma.env
+      required: false
+    - path: ./dify/envs/vectorstores/iris.env
+      required: false
+    - path: ./dify/envs/vectorstores/oracle.env
+      required: false
+    - path: ./dify/envs/vectorstores/opengauss.env
+      required: false
+    - path: ./dify/envs/vectorstores/myscale.env
+      required: false
+    - path: ./dify/envs/vectorstores/matrixone.env
+      required: false
+    - path: ./dify/envs/vectorstores/elasticsearch.env
+      required: false
+    - path: ./dify/envs/vectorstores/opensearch.env
+      required: false
+    - path: ./dify/envs/vectorstores/milvus.env
+      required: false
+    - path: ./dify/envs/infrastructure/nginx.env
+      required: false
+    - path: ./dify/envs/infrastructure/certbot.env
+      required: false
+    - path: ./dify/envs/infrastructure/ssrf-proxy.env
+      required: false
+    - path: ./dify/envs/infrastructure/etcd.env
+      required: false
+    - path: ./dify/envs/infrastructure/minio.env
+      required: false
+    - path: ./dify/envs/infrastructure/milvus-standalone.env
+      required: false
+    - path: ./dify/envs/core-services/worker.env
+      required: false
+    - ./dify/.env
+    - path: ./dify/envs/vectorstores/${VECTOR_STORE:-weaviate}.defaults
+      required: false
+    - ./dify/envs/core-services/api-worker.defaults
+    - ./dify/envs/core-services/worker.defaults
+    networks:
+    - ssrf_proxy_network
+    - default
+    restart: always
+    image: langgenius/dify-api:1.19.0
+    environment:
+      MODE: worker
+    depends_on:
+      init_permissions:
+        condition: service_completed_successfully
+      db_postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_started
+      agent_backend:
+        condition: service_started
+    volumes:
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/app/storage:/app/api/storage
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - celery -A celery_healthcheck.celery inspect ping
+      interval: ${COMPOSE_WORKER_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${COMPOSE_WORKER_HEALTHCHECK_TIMEOUT:-30s}
+      retries: 3
+      start_period: 60s
+      disable: ${COMPOSE_WORKER_HEALTHCHECK_DISABLED:-true}
+    container_name: docker-worker-1
+  worker_beat:
+    env_file:
+    - path: ./dify/envs/core-services/shared.env
+      required: false
+    - path: ./dify/envs/core-services/api-worker.env
+      required: false
+    - path: ./dify/envs/security.env
+      required: false
+    - path: ./dify/envs/databases/db-postgres.env
+      required: false
+    - path: ./dify/envs/databases/db-mysql.env
+      required: false
+    - path: ./dify/envs/databases/redis.env
+      required: false
+    - path: ./dify/envs/vectorstores/weaviate.env
+      required: false
+    - path: ./dify/envs/vectorstores/qdrant.env
+      required: false
+    - path: ./dify/envs/vectorstores/oceanbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/seekdb.env
+      required: false
+    - path: ./dify/envs/vectorstores/couchbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/pgvector.env
+      required: false
+    - path: ./dify/envs/vectorstores/vastbase.env
+      required: false
+    - path: ./dify/envs/vectorstores/pgvecto-rs.env
+      required: false
+    - path: ./dify/envs/vectorstores/chroma.env
+      required: false
+    - path: ./dify/envs/vectorstores/iris.env
+      required: false
+    - path: ./dify/envs/vectorstores/oracle.env
+      required: false
+    - path: ./dify/envs/vectorstores/opengauss.env
+      required: false
+    - path: ./dify/envs/vectorstores/myscale.env
+      required: false
+    - path: ./dify/envs/vectorstores/matrixone.env
+      required: false
+    - path: ./dify/envs/vectorstores/elasticsearch.env
+      required: false
+    - path: ./dify/envs/vectorstores/opensearch.env
+      required: false
+    - path: ./dify/envs/vectorstores/milvus.env
+      required: false
+    - path: ./dify/envs/infrastructure/nginx.env
+      required: false
+    - path: ./dify/envs/infrastructure/certbot.env
+      required: false
+    - path: ./dify/envs/infrastructure/ssrf-proxy.env
+      required: false
+    - path: ./dify/envs/infrastructure/etcd.env
+      required: false
+    - path: ./dify/envs/infrastructure/minio.env
+      required: false
+    - path: ./dify/envs/infrastructure/milvus-standalone.env
+      required: false
+    - path: ./dify/envs/core-services/worker-beat.env
+      required: false
+    - ./dify/.env
+    - path: ./dify/envs/vectorstores/${VECTOR_STORE:-weaviate}.defaults
+      required: false
+    - ./dify/envs/core-services/api-worker.defaults
+    - ./dify/envs/core-services/worker-beat.defaults
+    networks:
+    - ssrf_proxy_network
+    - default
+    restart: always
+    image: langgenius/dify-api:1.19.0
+    environment:
+      MODE: beat
+    depends_on:
+      init_permissions:
+        condition: service_completed_successfully
+      db_postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_started
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - celery -A celery_healthcheck.celery inspect ping
+      interval: ${COMPOSE_WORKER_HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${COMPOSE_WORKER_HEALTHCHECK_TIMEOUT:-30s}
+      retries: 3
+      start_period: 60s
+      disable: ${COMPOSE_WORKER_HEALTHCHECK_DISABLED:-true}
+    container_name: docker-worker_beat-1
+  web:
+    image: langgenius/dify-web:1.19.0
+    restart: always
+    env_file:
+    - path: ./dify/envs/core-services/web.env
+      required: false
+    - path: ./dify/envs/security.env
+      required: false
+    - ./dify/.env
+    - ./dify/envs/core-services/web.defaults
+    container_name: docker-web-1
+  db_postgres:
+    env_file:
+    - path: ./dify/envs/databases/db-postgres.env
+      required: false
+    - ./dify/envs/databases/db-postgres.defaults
+    image: postgres:15-alpine
+    profiles:
+    - postgresql
+    restart: always
+    command:
+    - sh
+    - -c
+    - exec docker-entrypoint.sh postgres -c "max_connections=$$POSTGRES_MAX_CONNECTIONS" -c "shared_buffers=$$POSTGRES_SHARED_BUFFERS" -c "work_mem=$$POSTGRES_WORK_MEM" -c "maintenance_work_mem=$$POSTGRES_MAINTENANCE_WORK_MEM" -c "effective_cache_size=$$POSTGRES_EFFECTIVE_CACHE_SIZE" -c "statement_timeout=$$POSTGRES_STATEMENT_TIMEOUT" -c "idle_in_transaction_session_timeout=$$POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT"
+    volumes:
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/db/data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -h db_postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 1s
+      timeout: 3s
+      retries: 60
+    container_name: docker-db_postgres-1
+  redis:
+    env_file:
+    - path: ./dify/envs/databases/redis.env
+      required: false
+    - ./dify/envs/databases/redis.defaults
+    image: redis:6-alpine
+    restart: always
+    volumes:
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/redis/data:/data
+    command:
+    - sh
+    - -c
+    - exec docker-entrypoint.sh redis-server --requirepass "$$REDIS_PASSWORD"
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - redis-cli ping | grep -q PONG
+    container_name: docker-redis-1
+  weaviate:
+    env_file:
+    - path: ./dify/envs/vectorstores/weaviate.env
+      required: false
+    - ./dify/envs/vectorstores/weaviate.defaults
+    image: cr.weaviate.io/semitechnologies/weaviate:1.39.13
+    profiles:
+    - weaviate
+    restart: always
+    volumes:
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/weaviate:/var/lib/weaviate
+    container_name: docker-weaviate-1
+  sandbox:
+    image: langgenius/dify-sandbox:0.2.15
+    restart: always
+    env_file:
+    - path: ./dify/envs/core-services/sandbox.env
+      required: false
+    - path: ./dify/envs/security.env
+      required: false
+    - ./dify/.env
+    - ./dify/envs/core-services/sandbox.defaults
+    volumes:
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/sandbox/dependencies:/dependencies
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/sandbox/conf:/conf
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -f "http://localhost:$$SANDBOX_PORT/health"
+    networks:
+    - ssrf_proxy_network
+    container_name: docker-sandbox-1
+  local_sandbox:
+    image: langgenius/dify-agent-local-sandbox:1.19.0
+    command:
+    - shellctl
+    - serve
+    - --listen
+    - 0.0.0.0:5004
+    - --require-auth-token
+    restart: always
+    env_file:
+    - path: ./dify/envs/core-services/local-sandbox.env
+      required: false
+    environment:
+    - SHELLCTL_AUTH_TOKEN=${DIFY_AGENT_LOCAL_SANDBOX_AUTH_TOKEN:-${DIFY_AGENT_SHELLCTL_AUTH_TOKEN:-}}
+    - HTTP_PROXY=http://agent_ssrf_proxy:3128
+    - HTTPS_PROXY=http://agent_ssrf_proxy:3128
+    - NO_PROXY=localhost,127.0.0.1
+    volumes:
+    - dify_agent_local_sandbox_home:/home/dify
+    - dify_agent_local_sandbox_workspace:/workspace
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:5004/healthz
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+    - agent_sandbox_network
+    - local_sandbox_proxy_network
+    container_name: docker-local_sandbox-1
+  plugin_daemon:
+    image: langgenius/dify-plugin-daemon:0.6.14-local
+    restart: always
+    env_file:
+    - path: ./dify/envs/core-services/shared.env
+      required: false
+    - path: ./dify/envs/core-services/api-worker.env
+      required: false
+    - path: ./dify/envs/core-services/plugin-daemon.env
+      required: false
+    - path: ./dify/envs/security.env
+      required: false
+    - path: ./dify/envs/databases/db-postgres.env
+      required: false
+    - path: ./dify/envs/databases/db-mysql.env
+      required: false
+    - path: ./dify/envs/databases/redis.env
+      required: false
+    - ./dify/.env
+    - ./dify/envs/core-services/api-worker.defaults
+    - ./dify/envs/core-services/plugin-daemon.defaults
+    networks:
+    - ssrf_proxy_network
+    - default
+    environment:
+      PLUGIN_REMOTE_INSTALLING_PORT: ${PLUGIN_DEBUGGING_PORT:-5003}
+    ports:
+    - ${EXPOSE_PLUGIN_DEBUGGING_PORT:-5003}:${PLUGIN_DEBUGGING_PORT:-5003}
+    volumes:
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/plugin_daemon:/app/storage
+    depends_on:
+      init_permissions:
+        condition: service_completed_successfully
+      db_postgres:
+        condition: service_healthy
+        required: false
+    container_name: docker-plugin_daemon-1
+  ssrf_proxy:
+    env_file:
+    - path: ./dify/envs/infrastructure/ssrf-proxy.env
+      required: false
+    - ./dify/envs/infrastructure/ssrf-proxy.defaults
+    image: ubuntu/squid:latest
+    restart: always
+    volumes:
+    - ./dify/ssrf_proxy/squid.conf.template:/etc/squid/squid.conf.template
+    - ./dify/ssrf_proxy/squid-common.conf.template:/etc/squid/dify_common.conf.template
+    - ./dify/ssrf_proxy/docker-entrypoint.sh:/docker-entrypoint-mount.sh
+    entrypoint:
+    - sh
+    - -c
+    - "cp /docker-entrypoint-mount.sh /docker-entrypoint.sh && sed -i 's/\r$$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh && /docker-entrypoint.sh"
+    networks:
+    - ssrf_proxy_network
+    - default
+    container_name: docker-ssrf_proxy-1
+  agent_ssrf_proxy:
+    image: ubuntu/squid:latest
+    restart: always
+    volumes:
+    - ./dify/ssrf_proxy/squid-agent.conf.template:/etc/squid/squid.conf.template
+    - ./dify/ssrf_proxy/squid-common.conf.template:/etc/squid/dify_common.conf.template
+    - ./dify/ssrf_proxy/docker-agent-entrypoint.sh:/docker-entrypoint-mount.sh
+    entrypoint:
+    - sh
+    - -c
+    - "cp /docker-entrypoint-mount.sh /docker-entrypoint.sh && sed -i 's/\r$$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh && /docker-entrypoint.sh"
+    env_file:
+    - path: ./dify/envs/infrastructure/ssrf-proxy.env
+      required: false
+    - ./dify/envs/infrastructure/ssrf-proxy.defaults
+    networks:
+    - default
+    - local_sandbox_proxy_network
+    container_name: docker-agent_ssrf_proxy-1
+  agent_backend:
+    image: langgenius/dify-agent-backend:1.19.0
+    restart: always
+    env_file:
+    - path: ./dify/envs/security.env
+      required: false
+    - path: ./dify/envs/databases/redis.env
+      required: false
+    - path: ./dify/envs/core-services/dify-agent.env
+      required: false
+    - ./dify/.env
+    - ./dify/envs/core-services/dify-agent.defaults
+    environment:
+      DIFY_AGENT_LOCAL_SANDBOX_AUTH_TOKEN: ${DIFY_AGENT_LOCAL_SANDBOX_AUTH_TOKEN:-${DIFY_AGENT_SHELLCTL_AUTH_TOKEN:-}}
+    depends_on:
+      redis:
+        condition: service_started
+      plugin_daemon:
+        condition: service_started
+    networks:
+    - default
+    - agent_sandbox_network
+    container_name: docker-agent_backend-1
+  nginx:
+    env_file:
+    - path: ./dify/envs/infrastructure/nginx.env
+      required: false
+    - ./dify/envs/infrastructure/nginx.defaults
+    image: nginx:latest
+    restart: always
+    volumes:
+    - ./dify/nginx/nginx.conf.template:/etc/nginx/nginx.conf.template
+    - ./dify/nginx/proxy.conf.template:/etc/nginx/proxy.conf.template
+    - ./dify/nginx/https.conf.template:/etc/nginx/https.conf.template
+    - ./dify/nginx/conf.d:/etc/nginx/conf.d
+    - ./dify/nginx/docker-entrypoint.sh:/docker-entrypoint-mount.sh
+    - ./dify/nginx/ssl:/etc/ssl
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/certbot/conf/live:/etc/letsencrypt/live
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/certbot/conf:/etc/letsencrypt
+    - ${DIFY_VOLUMES:-../../dify/docker/volumes}/certbot/www:/var/www/html
+    entrypoint:
+    - sh
+    - -c
+    - "cp /docker-entrypoint-mount.sh /docker-entrypoint.sh && sed -i 's/\r$$//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh && /docker-entrypoint.sh"
+    environment:
+      NGINX_SSL_PORT: ${NGINX_SSL_PORT:-443}
+      NGINX_PORT: ${NGINX_PORT:-80}
+    depends_on:
+    - api
+    - web
+    ports:
+    - ${EXPOSE_NGINX_PORT:-80}:${NGINX_PORT:-80}
+    - ${EXPOSE_NGINX_SSL_PORT:-443}:${NGINX_SSL_PORT:-443}
+    container_name: docker-nginx-1
+networks:
+  ssrf_proxy_network:
+    driver: bridge
+    internal: true
+  local_sandbox_proxy_network:
+    driver: bridge
+    internal: true
+  agent_sandbox_network:
+    driver: bridge
+    internal: true
+volumes:
+  dify_agent_local_sandbox_home:
+    external: true
+    name: docker_dify_agent_local_sandbox_home
+  dify_agent_local_sandbox_workspace:
+    external: true
+    name: docker_dify_agent_local_sandbox_workspace
