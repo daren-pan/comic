@@ -337,6 +337,11 @@ services:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
       # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
       - ACCOUNT=1096682643
+      # 插件依赖在容器里用 pip/uv 现装；默认 PyPI 在国内很慢，会让首次握手超过
+      # LangBot 的 180 秒就绪超时（表现为「did not become ready」+ 反复重连）
+      - PIP_INDEX_URL=${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
+      - UV_INDEX_URL=${UV_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
+      - PIP_DISABLE_PIP_VERSION_CHECK=1
       - BOX__ENABLED=false          # 本机不跑沙箱，关掉可减少无谓重连
     ports:
       - "5300:5300"                 # Web 管理面板 + 机器人的反向 WS 入口
@@ -364,6 +369,11 @@ services:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
       # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
       - ACCOUNT=1096682643
+      # 插件依赖在容器里用 pip/uv 现装；默认 PyPI 在国内很慢，会让首次握手超过
+      # LangBot 的 180 秒就绪超时（表现为「did not become ready」+ 反复重连）
+      - PIP_INDEX_URL=${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
+      - UV_INDEX_URL=${UV_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
+      - PIP_DISABLE_PIP_VERSION_CHECK=1
     volumes:
       - ./qq-bot/langbot/data/plugins:/app/data/plugins
       - ./qq-bot/langbot/data/plugin-runtime:/app/data/plugin-runtime
