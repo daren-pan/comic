@@ -1,0 +1,105 @@
+# 项目长期备忘（comic 聚合平台）
+
+> **AI 协作助手自动加载的副本。**
+> 内容与仓库根 [`AGENTS.md`](../../AGENTS.md) **保持同步**（那份给读代码的 AI / 新人看；**改任一份都要改另一份**）。
+> 本文件只放 **整体架构 / 各模块简介 / 基础命令 / 硬性约定**。
+> ⚠️ **实现细节、参数、踩坑复盘一律不下沉在本文件** —— 各模块文档**按职责拆分**（`README.md` 只当**导读**：定位 / 能力边界 / 文档地图 / 上手命令），这里只留一行指针。
+> 每日工作日志写 `.workbuddy/memory/YYYY-MM-DD.md`。
+
+## 整体架构
+
+三层服务 + 单一 MySQL（本项目**独占**的 MySQL 8.0 实例，容器 `comic-mysql`：宿主 `127.0.0.1:3309`）。
+
+```
+comic/
+├── comic-core/        # 共用内核：领域模型 · 路径 · 存储契约+MySQL 实现 · 图库（被下面两层共同依赖）
+├── crawler-service/   # 采集 · 存储 · 图床（Python；L0 内核 / L1 契约 / L2 实现）
+├── comic-scheduler/   # 定时任务执行器（**独立进程**：读管理台 cron → 跑采集 → 写运行态）
+├── chat-service/      # RAG 客服（**独立进程** :8001，LangChain + Chroma；api 只做鉴权 + 转发）
+├── knowledge-mcp/     # 项目知识库 RAG（MCP stdio；只读检索，不对外）
+├── api-service/       # 对外 REST API（FastAPI :8000）—— Docker 里是**纯 API**（同源托管仅本地直跑时生效）
+├── comic-web/         # 前端 · 纯 Vue3 + Vite（H5 :5173，移动 / 网页双形态）—— 与 comic-front 功能等价
+├── comic-front/       # 前端 · uni-app（H5 :5174，移动 / 网页双形态）—— 与 comic-web 功能等价
+├── deploy/            # 生产编排（Docker Compose + 两个前端镜像各自带 nginx + 自带 MySQL 镜像）
+├── taskbridge-service/  # 任务网关（Dify「改代码」入口；分支隔离 + 人工确认后提交）
+├── docs/ · scripts/ · tools/                # 文档 · 启动自检 · 一次性迁移
+└── logs/ · build/ · backup/ · .workbuddy/   # 运行时产物与 AI 配置（非架构）
+```
+
+## 模块简介
+
+| 模块 | 职责 | 详情 |
+|---|---|---|
+| `comic-core/` | **共用内核**：领域模型 · 路径常量 · 标签归一 · 日志上下文 · 存储契约+MySQL 实现 · 图库读写 | `comic-core/README.md` |
+| `crawler-service/` | 采集源站 → 判重入库 → 图片懒转存 / 巡检；提供 CLI，并被 api-service **在进程内**调用 | `crawler-service/README.md` ｜ 各源见 `sources/<源名>/README.md` |
+| `comic-scheduler/` | **定时任务执行器**（独立进程）：读管理台配的 cron，到点对选中的数据源跑采集，运行态写回文件供页面展示 | `comic-scheduler/README.md` |
+| `chat-service/` | **RAG 客服**（独立进程 :8001）：FAQ + 作品简介向量检索 → 拼 prompt → 模型回答；不认人，只认问题 | `chat-service/README.md` ｜ 内核见 `src/comic_chat/rag/README.md` |
+| `knowledge-mcp/` | 项目知识库 RAG（MCP stdio）：README / NOTES / docs / schema / OpenAPI 向量检索 + `message` 表独立索引；只读，供 Agent 调 | `knowledge-mcp/README.md` |
+| `api-service/` | 对外 REST API + 管理台后台任务；图片读取与占位图 | `api-service/README.md` |
+| `comic-web/` | 纯 Vue3 + Vite 版（与 comic-front 功能等价，2026-10-14 由后者迁移） | `comic-web/README.md` |
+| `comic-front/` | uni-app 版（与 comic-web 功能等价）；靠 `src/utils/*` 兼容层保持平台无关 | `comic-front/README.md` |
+| `docs/` | 总体架构 / 认证 / 部署 | `docs/README.md` |
+| `taskbridge-service/` | **任务网关**（FastAPI :8020）：收 Dify 的「改代码」指令 → 建 `tb/<任务号>` 分支 → 跑 opencode → 出 diff → 人工确认后提交；只读问答走 ask 模式 | `taskbridge-service/README.md` |
+| `deploy/` · `scripts/` · `tools/` | 生产编排 · 启动自检 · 一次性迁移 | 各自 README |
+
+**跨模块边界**（细节见各模块 `README.md`；踩坑见其 `docs/NOTES.md`）
+- **模块间依赖（红线）**：`api-service` 只允许 `from comic_crawler.facade import ...` —— 采集侧内部随便重构，只要契约面符号名 / 签名不变，api 零改动；**不得穿透到任何子模块**（由 `api-service/tests/test_crawler_boundary.py` 断言守卫）。改契约面签名 = 破坏性变更。
+- **共用内核（单向依赖）**：`comic-core` 是采集端与接口端共同依赖的底层（模型 / 路径 / 存储 / 图库），**它不依赖 `comic_crawler`，也不依赖任何 HTTP 框架**。存储层无法走 HTTP（接口侧 28 处调用、且要保留批量语义），所以做成共享包而非接口 —— 见 `comic-core/README.md`。改 `comic-core` 等于同时改两端。
+- **存储**：唯一 MySQL，本项目独占实例（宿主 `127.0.0.1:3309`）。连接参数：环境变量 → `deploy/.env` → 默认值。
+- **运行时数据**：唯一真源 `comic_core.paths.DATA_ROOT`（图库 + 源开关状态）；容器把整个 `/data` bind 到同一宿主目录，本地直跑与 Docker 读写同一批文件。⚠️ 数据根**不随包位置走**：开发态固定为 `crawler-service/data`（`paths.py` 里显式判定，别改成「上溯两级」）。
+- **判重**：只看 `(source, source_comic_id)`，同源幂等；**跨源不合并** —— 一行 = 一个收录源。
+- **源站接入**：`sources/{name}/` 自包含；新增源见 `新增爬虫源` 技能。已接入 zaimanhua（主源）/ mangadex / weebcentral / copymanga。
+- **管理台 / 按需导入**：逻辑在 `api-service/services/ondemand.py`；接口 `/api/admin/*`，前端 `/#/admin`（角色三档 + 两道门 `require_admin` / `require_superadmin`）。
+- **定时任务的进程边界**：管理台「定时任务」的配置与展示在 `api-service/services/scheduler.py`，**采集由独立进程 `comic-scheduler` 执行**（不随 api 生死）。两者只通过运行时数据目录里三个文件交换：`schedule.json`（api 写 / 执行器读）、`schedule_state.json`（执行器写 / api 读）、`schedule_run_now.json`（api 写 / 执行器**读到即删**）—— **一文件一写者**是硬约束。依赖方向 `scheduler → crawler → core`（**不依赖 api-service**）。见 `comic-scheduler/README.md`。任务的**记录**不在那三个文件里：手动触发与定时轮次都落 MySQL 的 `admin_task` 表（**重启不丢、与触发账号绑定**，定时轮次记「系统（定时）」；api 启动时把上一进程残留的 `running` 标成中断）。
+- **RAG 客服的进程边界**：`chat-service` 是**独立容器**（LangChain + Chroma，80+ 传递依赖、bge 模型常驻 300~500MB）。`api-service` 的 `/api/chat/*` 只做**鉴权 + 限流 + HTTP 转发**（`COMIC_CHAT_SERVICE_URL`），本层不装 langchain —— 塞进去会让主站镜像涨 400MB 并与主站抢内存。**鉴权留在 api**（`core/security.py` 搬不过去），chat 不认人；**不映射宿主端口**（它没有鉴权）。依赖方向 `chat → core`，不依赖 api-service / crawler。索引靠 `COMIC_CHAT_INDEX_DIR` 显式指到 `/data/rag_lab`（`DATA_ROOT` 在 wheel 态算不对）。见 `chat-service/README.md`。
+- **消息中心（面向所有登录用户的平台级通知）**：`message` 表 + 已读记账 `message_read` + `/api/messages` —— 顶栏铃铛与消息页读的都是它。**内容以库为准**（前端不保存消息，换机器看到同一份）；**可见范围由数据决定**（`to_user_id` 定向某人 + `min_role` 最低角色要求，任务消息是 `admin`），**已读按账号各一份**。任务收尾、独立进程 `comic-scheduler`、外部系统都往里发；**写入只有一个入口** `POST /api/messages`（api 自己进程内直调 `services.messages.publish_task()`，别的进程走 HTTP 带 `X-Service-Token`：HMAC，密钥复用 `COMIC_JWT_SECRET`，见 `comic_core/notify.py`）。见 `api-service/README.md`。
+- **前端上线形态**：Docker 下**两个前端镜像**（功能等价、各自带 nginx 反代 `/api/*` 到 `comic-app:8000`）—— `comic-web:1.0.0`（网页端，宿主 85）与 `comic-front:1.0.0`（移动端，宿主 86）；移动 / 网页两套布局由产物按 UA 自动切换。`comic-api` 是纯 API。见 `deploy/README.md`。
+
+## 基础命令
+
+- **分工**：本地开发 = **宿主直跑**（uvicorn + Vite）；上线 = **Docker Compose**（`deploy/`，见 `docs/deploy.md`）。
+- **启动前**：Docker Desktop 在跑、`comic-mysql` Up（`docker ps`）—— 本地直连宿主 `127.0.0.1:3309`，无需手工导出环境变量。
+- **python 环境（两层，都在项目内、都进 .gitignore）**：
+  - `.python/` —— **基础解释器**，官方 CPython 3.13.17（版本号是 `dev.sh` 里的 `PY_VERSION`）。缺了自动从 nuget 官方包（约 15MB）下载解压，**不需要机器上先装 python**。
+  - `crawler-service/.venv` —— **运行环境**，由 `.python` 创建并装齐 comic-core / crawler-service / api-service 三份 requirements；其 `pyvenv.cfg` 的 `home` 指向 `.python`（可用 `sys.base_prefix` 核对）。
+  两者缺失或依赖不全时 `up api` / `check.sh` 会自动建齐（也可手动 `bash scripts/dev.sh bootstrap`，幂等）；venv 底座与 `.python` 不一致会自动重建。**不碰系统 python**；非 Windows 平台无便携构建，改用系统 `python3.13` 作底座。版本锁 3.13（对齐线上镜像 `python:3.13-slim`），**不降级**。
+- **后端**：`cd api-service && ../crawler-service/.venv/Scripts/python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 >> ../logs/api.log 2>&1`
+- **前端 · comic-web**：`cd comic-web && npm run dev`（:5173）；构建 `build`（详见其 README）
+- **前端 · comic-front**：`cd comic-front && npm run dev:h5`（:5174）；构建 `build:h5`（详见其 README）
+- **定时任务执行器**：`cd comic-scheduler && ../crawler-service/.venv/Scripts/python.exe -m comic_scheduler`（即上面那个统一环境；依赖两个本地包，需 `PYTHONPATH=../crawler-service/src;../comic-core/src`；容器里是 `comic-scheduler` 服务，配置页 `/#/admin/schedule`）
+- **RAG 客服**：`bash scripts/dev.sh up chat`（:8001，**独立进程**；容器里是 `comic-chat` 服务，**不映射宿主端口**）。命令行：`cd chat-service && PYTHONPATH="src;../comic-core/src" ../crawler-service/.venv/Scripts/python.exe -m comic_chat.cli {doctor,index,search,ask}`。⚠️ 本地开发要**同时起 api 和 chat**，否则客服接口 503
+- **项目知识库 MCP**：`bash scripts/dev.sh bootstrap knowledge` 补 MCP SDK；`bash scripts/dev.sh knowledge-index` 重建文档 `project_rag`，`bash scripts/dev.sh message-index` 增量建 message 索引（`--full` 全量）；DSH 通过 `knowledge-mcp/run_mcp.py` 拉起 stdio，工具 `search_knowledge` / `read_knowledge` / `knowledge_stats` / `search_messages` / `read_message` / `message_stats`（**只读、不对外**，文档与 message 集合分开，均与 chat 的 `comic_kb_*` 分开）
+- **上线一键**：`bash deploy/up.sh`（**不带参数 = 两个入口都起**，网页端 85 + 移动端 86）/ `--web`（只起网页端）/ `--front`（只起移动端）。只重建某一层：`bash deploy/build.sh --web|--front`。
+- **停止**：**按 PID 停**（起停细节见 `docs/deploy.md` §6）；**禁用 `taskkill /IM python.exe`**（会误伤同机其它 Python 服务）。
+
+## 硬性约定
+
+- **改完代码自动重启**：AI 协作**不必等用户提醒** —— 动过 `comic-core` / `crawler-service` / `api-service` 就重启 uvicorn，动过 `comic-scheduler` 就重启**执行器进程**（`python -m comic_scheduler`，容器里是 `comic-scheduler` 服务），动过 `comic-web` / `comic-front` 就重启对应 Vite。⚠️ **`comic-core` / `crawler-service` 改完必须重启后端**：管理台任务在 api 进程内直接调 `comic_crawler`，而存储 / 图库 / 模型都在 `comic_core`，不重启就一直跑旧代码（**定时采集那一路在 `comic-scheduler` 进程里，也得一并重启**）。
+- **架构单职责 / 分层**：新增接口进 `api-service/routers/*`、业务逻辑进 `services/`（勿让 `main.py` 变胖）；`crawler-service` 保持 L0/L1/L2（通用外层 → 契约 → 可扩展内层），**L0 里的存储 / 模型 / 路径已上移到 `comic-core`**（外部依赖，不在采集侧分层守卫的断言范围内）。**新模块未归层会被分层守卫拦下**（`tests/test_layering.py`）。
+- **文档归属（按职责拆分，强制）**：本文件只放骨架与规矩。模块文档**一份只承担一个职责**，改内容时**只允许写进对应职责的文档，不得越界**：
+
+  | 职责 | 文档 | 只允许写 |
+  |---|---|---|
+  | 导读 | `README.md`（模块根） | 定位 / 能力边界 / 文档地图 / ≤3 条上手命令 |
+  | 设计 | `docs/ARCHITECTURE.md` | 数据流、契约、切分与检索设计、取舍理由 |
+  | 运维 | `docs/OPERATIONS.md` | 安装、建索引、接入、故障排查、日常检查 |
+  | 配置 | `docs/CONFIG.md` | 环境变量总表、默认值、调参影响 |
+  | 踩坑 | `docs/NOTES.md` | 踩坑 / 实测 / 复盘（**踩坑即写**） |
+  | 评测 | `docs/EVAL.md` / `docs/BENCH.md` | 题集与指标 / 性能基准 |
+
+  **`README.md` 留在模块根**（GitHub 落地页 / 唯一入口），**其余职责文档一律放 `<模块>/docs/`**，不要散在模块根。`README.md` + `docs/NOTES.md` 是**必备最小集**；某职责暂时没内容可以不建文件，但**一旦有内容就必须建对应文件，禁止塞进别的文档**（典型违规：命令清单写进 README、设计论述写进 NOTES、参数表写进 OPERATIONS）。判断不了归属时**先建对应文档再写**，不要往 README 里堆。新增职责文档必须在 `README.md` 的文档地图登记一行。范例见 `knowledge-mcp/`（`README.md` + `docs/` 下 6 份）。具体逻辑写进代码注释；跨模块文档在 `docs/`。
+- **文档结构（知识库友好，强制）**：所有 Markdown 文档按 `##` 分节，**一节 = 一个主题 = 一个知识块**，以便被 Dify 知识库按 `## ` 切分后整节召回（实测同结构答对率 96%，段落式写法约六成）。
+  - **一篇只有一个 H1**（`# 模块名`），紧跟一段导语说明这份文档讲什么；H1 不单独成块；
+  - **用 `##` 分节，一节只讲一件事**；确有三级层次才用 `###`，禁止拿 H1 / H3 混做分节；
+  - **标题与正文之间不留空行**，节内段落用换行连接、**不用空行** —— 空行只用来分隔「块」；
+  - **代码块与表格单独成块**（前后留空行，否则渲染会坏）；表格前留一句自然语言引子（如「下表列出三个交换文件」），保证表格能被语义召回；
+  - **一节控制在 1000 字以内**，超了就拆成两个 `##`；不要写「目录 / 导航」这类整节（会被切成无信息量的碎片）；
+  - 存量文档**不单独为格式返工**，下次改动时顺手调整即可。
+- **性能**：面向**大数据量**设计 —— 禁止逐条访问（「先拿一批 id 再取对象」用 `get_comic_tags_bulk` / `get_comics_by_ids` 这类一次性批量方法）、禁止代价随数据量线性增长的写法（N+1、无索引全表扫、每次调用新建连接）。改 SQL / 存储层时按此自查。
+- **前端（comic-web）**：模板用原生标签、CSS 只写类选择器、`<form>` 必写 `@submit.prevent`（写法约定，详见其 README 约定段）。
+- **前端（comic-front）**：模板只用 uni 组件、CSS 只写类选择器、自定义组件不用 `v-model`（写法约定，详见其 README 开发约定）。
+- **前端问题先实跑取证**：页面出现**请求报错 / 样式错位 / 交互失效**时，**不必等用户要求**，先用 playwright MCP 在真浏览器里跑一遍再下结论 —— 报错看 `browser_console_messages`、请求看 `browser_network_requests`（单条详情 `browser_network_request`）、DOM 看 `browser_snapshot`。**禁止只读代码就断言"应该是 XX 问题"**。**MCP 不可用时先自检再补**：**先检测 playwright MCP 是否存在**（查工具索引 `mcp__playwright__*` / 连接器列表，**不要只看某个固定配置文件** —— 同一 MCP 可能由用户级、项目级或其他 agent 的配置提供）；确认**不存在**才写入标准配置并安装，再**显式提示用户去连接器管理页 Trust**；**已存在**（只是工具不在索引）→ 配置没坏，直接提示重新 Trust。**不得静默降级成"读代码猜"**。排查规程与配置见 `comic-front/docs/NOTES.md` §4。
+- **提交信息**：一律 Conventional Commits —— `<type>(<scope>): <中文主题>`。type 取 `feat` / `fix` / `refactor` / `perf` / `docs` / `chore` / `test` / `ci`；scope 取模块名（`crawler` / `api` / `web` / `db` / `deploy` / `tools`），跨模块或不限模块时可省。正文只写 2~3 行「改了什么、为什么」，不罗列文件 / 函数 / 实测数字。示例：`feat(crawler): 新增拷贝漫画源，失败日志带上漫画名`。
+- **提交时机与粒度：原子拆分** **不在一轮改动做完就提交**；先攒着，等**多个需求都完成后**再**按主题拆成多个原子提交**（一个提交只做一件事，能单独看懂、单独回退）。提交前仍要查：无意外删除、无硬编码密钥。
+- **同一文件里的多主题不拆 hunk**：按主题拆提交**只拆到「文件」这一层** —— 同一个文件里混了多个主题时，直接把它们**合并成一条提交**；跨文件的主题才拆开。
+  ⚠️ 行级拆 hunk（剔掉别的主题的增删行、把 `-` 行转成上下文、重算 hunk 计数）既脆又难复核，收益不值 —— 2026-10-07 实测踩过：漏转上下文会让 `git apply` 直接报 patch does not apply。
