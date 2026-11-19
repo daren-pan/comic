@@ -114,3 +114,111 @@
   4. 正常 `up.sh` 构建（自动从 ACR 拉新版）。
 - **实测**（2026-10-15）：三镜像推送 `PUSH-ALL-OK`；**6 个镜像全部重建成功**、日志 `m.daocloud`
   引用数 **0**；匿名拉取复核：token 为空权限、manifest 被 401 拒（→ 私有，服务器需登录）。
+
+---
+
+## 三、跨机迁移（Dify + QQ 机器人，2026-11-19 实测）
+
+把本地一套（Dify 15 容器 + NapCat + LangBot + comic 全栈）搬到一台干净的 Ubuntu 服务器，踩了下面九个坑。
+**顺序即排查顺序**：前一个没解决，后一个根本不会暴露。
+判断"哪一环断了"的经验：`docker logs <容器> | grep -E 'error|Error|失败'` 先看**最靠近数据源**的那个容器。
+
+### 3.1 Dify 的租户私钥不在数据库里，`pg_dump` 搬不走
+
+- **现象**：库、插件、向量数据都搬完了，页面能打开、应用都在，但任何对话都 500：
+  `Exception: Private key not found, tenant_id: <uuid>`。
+- **根因**：租户 RSA 私钥是**文件** `volumes/app/storage/privkeys/<tenant>/private.pem`，
+  Dify 用它解密 provider 凭据；单独的 `pg_dump` 只有表数据。
+- **结论**：迁移清单必须包含 `volumes/app/storage`（很小，实测 56KB，含 `privkeys/` 与
+  上传的原始文档 `upload_files/`）。
+- **实测**：补上 `storage.tgz` 后解压到 `volumes/app/storage`，重启 api，对话恢复。
+
+### 3.2 插件状态在**另一个数据库** `dify_plugin`
+
+- **现象**：对话报 `Provider langgenius/xxx/xxx does not exist`，但 `dify` 库里 `providers` 表明明有记录。
+- **根因**：Dify 1.x 把插件守护进程的状态单独放在 `dify_plugin` 库（`plugins` /
+  `plugin_installations` / `plugin_declarations`），只导 `dify` 会丢。
+- **结论**：`pg_dump -d dify` 与 `pg_dump -d dify_plugin` **两份都要**；
+  目标机先 `create database dify_plugin;` 再 `pg_restore`。
+- **实测**：`dify` 8.3MB、`dify_plugin` 51KB；导入后 `plugins` 4 行、`plugin_installations` 4 行。
+
+### 3.3 `host.docker.internal` 在 Linux 上不存在，而且**代理容器也要加**
+
+- **现象**：工作流里的 HTTP 节点全部失败，返回"服务没有响应"。
+- **根因**：① 这个域名是 Docker Desktop 特供，Linux 无；② 节点的请求**经 `ssrf_proxy`（squid）出网**，
+  只给 `api` / `worker` 加映射不够，squid 自己解析不到就直接回 503。
+- **结论**：`api` / `worker` / `api_websocket` / `ssrf_proxy` / `agent_ssrf_proxy` **五个服务**都要
+  `extra_hosts: ["host.docker.internal:host-gateway"]`；用 `docker-compose.override.yaml` 覆盖，
+  不要改上游 `docker-compose.yaml`。
+- **实测**：缺 squid 时 `access.log` 里是 `TCP_MISS/503 ... HIER_NONE/-`；补上后 200。
+
+### 3.4 squid 会缓存 DNS，容器重建后把请求发到旧 IP
+
+- **现象**：改成服务名直连后，工作流报"暂时不可用"，但容器间 `curl` 是通的。
+- **根因**：`comic-app` / `comic-taskbridge` 重建后 IP 互换，squid 缓存了旧解析，
+  `access.log` 显示 `HIER_DIRECT/<旧IP>`。
+- **结论**：`ssrf_proxy/squid.conf.template` 末尾加 `positive_dns_ttl 30 seconds` +
+  `negative_dns_ttl 0 seconds`，最多 30 秒自愈；改完必须重建 `ssrf_proxy` 容器。
+- **实测**：改前 503 且指向旧 IP，改后 200。
+
+### 3.5 私网白名单要按目标机改写，不能照抄本地
+
+- **现象**：SSRF 层拒绝内网地址，HTTP 节点全挂。
+- **根因**：`.env` 里 `SSRF_PROXY_ALLOW_PRIVATE_IPS` 默认是 Docker Desktop 的
+  `192.168.65.254/32`，与 Linux 宿主网关 `172.17.0.1` 不匹配。
+- **结论**：服务器上改成 `172.17.0.1/32,172.18.0.0/16`（前者是宿主网关，后者是编排网段）；
+  想让 squid 认**服务名**再加 `SSRF_PROXY_ALLOW_PRIVATE_DOMAINS=comic-app,comic-taskbridge`。
+- **实测**：容器内 `grep 172.17 /etc/squid/dify_allow_private.conf` 能看到生效行。
+
+### 3.6 LangBot 主服务与插件运行时的版本必须一致，且**数据库要配套**
+
+- **现象**：消息能收到、也回了，但内容永远是 `Agent runner execution failed.`；
+  主服务日志刷 `Plugin runtime did not become ready within 180 seconds`。
+- **根因**：本地镜像 `v4.11.8`、服务器拉的是 `v4.11.9`。新版把库升到
+  `0053_knowledge_artifact_sources` 之后，旧版代码直接 `ResolutionError: No such revision`；
+  新版配旧库又会插件握手超时。
+- **结论**：`rockchin/langbot` **不要用 `latest`**，固定成 `v4.11.8`（`LANGBOT_IMAGE_TAG` 可覆盖），
+  且数据库与镜像**同一版本**；从旧机器搬库时连同 `langbot.db-wal` 一起搬。
+- **实测**：`latest`（11-18 构建）→ 握手超时；`v4.11.8`（镜像 ID 与本地一致）→ 秒连。
+
+### 3.7 插件依赖在容器里现装，默认 PyPI 会让握手超时
+
+- **现象**：运行时日志停在 `Ensuring all installed plugins dependencies are installed...`，
+  之后没有下文，主服务判定超时。
+- **根因**：插件环境用 `pip`/`uv` 现装依赖，国内直连 PyPI 只有几十 KB/s，
+  装不完 180 秒就绪窗口。
+- **结论**：给 `comic-langbot` 与 `comic-langbot-runtime` 都加
+  `PIP_INDEX_URL` / `UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/`。
+- **实测**：同样两个插件，改源前卡十几分钟、改源后 1 分钟内装完。
+
+### 3.8 `DifyAgent` 插件跑在**运行时容器**里，宿主映射漏在它身上
+
+- **现象**：`Dify runner error: [Errno -2] Name or service not known`；
+  补上宿主映射后又变成 `All connection attempts failed`（能解析但连不上 80）。
+- **根因**：① 插件不在 `comic-langbot` 里执行，而在 `comic-langbot-runtime` 里，
+  后者没加 `host.docker.internal`；② 改端口后插件里存的 `base-url` 仍是旧的 80。
+- **结论**：`comic-langbot-runtime` 也要 `extra_hosts`；Dify 换端口时，
+  **LangBot 数据库里 `legacy_pipelines.config` 的 `base-url` 要同步改**（它不读环境变量）。
+- **实测**：`curl http://host.docker.internal:8088/v1/parameters` 带 key 返回 200 才算通。
+
+### 3.9 推送 token 少一个 `=`，NapCat 一律 403
+
+- **现象**：任务改完但用户收不到通知，TaskBridge 日志 `[notify] private:xxx 推送失败：HTTP Error 403`。
+- **根因**：NapCat 的 OneBot HTTP token 是 33 位 base64（**结尾带 `=`**），
+  抄进 `.env` 时少了填充符，只剩 32 位。
+- **结论**：`TB_PUSH_TOKEN` 必须与 `napcat/config/onebot11_<QQ>.json` 里
+  `network.httpServers[0].token` **逐字符一致**；改完重建 `comic-taskbridge` 才生效。
+- **实测**：33 位 → 200；32 位 → 403。核对方式：
+  `docker exec comic-taskbridge python3 -c "import os;print(len(os.environ['TB_PUSH_TOKEN']))"`。
+
+### 3.10 容器 `core.autocrlf=true` 会让"丢弃"后整份文件显示被改写
+
+- **现象**：任务改 3 行、执行「丢弃」后，`git status` 仍有改动，
+  `git diff --stat` 是 `638 insertions(+), 638 deletions(-)`。
+- **根因**：仓库索引是 LF，容器全局 `core.autocrlf=true`，checkout 任务分支时把文件写成 CRLF；
+  丢弃还原后工作区仍是 CRLF，于是整份文件都"变了"。此时若误用 `git add -A` 会把整仓重写。
+- **结论**：容器里设 `core.autocrlf false`（`deploy/taskbridge/Dockerfile` 已改）。
+  已污染的工作区修法：容器/宿主仓库级设 `core.autocrlf false` 后 `git checkout -- <文件>`。
+- **实测**：修复前后同一文件的 `diff_stat` 从 `638 insertions(+)` 变成 `1 insertion(+)`。
+
+---

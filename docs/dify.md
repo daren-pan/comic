@@ -117,3 +117,5 @@ docker compose -p docker up -d     # 让 api/worker 重连
 **③ profile 与向量库不匹配**：`.env` 里 `COMPOSE_PROFILES` 要含 `postgresql,weaviate,collaboration`，且与 `VECTOR_STORE` 一致，否则对应服务不启动。
 **④ squid 缓存掩盖故障**：`ssrf_proxy` 会缓存 GET 响应，后端挂了仍返回旧数据。本项目已在 `squid.conf.template` 里加 `cache deny all`，迁移时别漏。
 **⑤ 用 `restart` 重启**：见上文「不要用 restart」，这会让 plugin_daemon 抢跑并导致整站 503。
+
+**⑥ 跨机迁移的坑另有一份清单**：租户私钥文件、`dify_plugin` 库、squid 的宿主映射与 DNS 缓存、私网白名单等 10 条，见 [`deploy/docs/NOTES.md`](../deploy/docs/NOTES.md) 第三章「跨机迁移」。
