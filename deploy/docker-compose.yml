@@ -154,7 +154,8 @@ services:
     # 默认只在编排网络内暴露（经前端 nginx 访问）。
     # 但 Dify 的 HTTP 节点要经 host.docker.internal:8000 访问漫画接口 —— 必须发布到宿主；
     # 服务器上请用防火墙把 8000 限制在内网（本服务自身不做 IP 白名单）。
-    ports: ["${API_HOST_PORT:-8000}:8000"]
+    # 绑定地址可配：服务器上 Dify 走编排内网（comic_backend）直连服务名，不必对外发布；`API_BIND=127.0.0.1` 只留本机调试
+    ports: ["${API_BIND:-0.0.0.0}:${API_HOST_PORT:-8000}:8000"]
 
   # ---------------- TaskBridge（Dify 3 号线的执行器）----------------
   # 收到「改代码」指令 → 建分支 → 跑 opencode → 出 diff → 等人工确认 → 提交。
@@ -178,7 +179,8 @@ services:
     volumes:
       - ../:/repo
       - taskbridge_oc:/root/ocdata
-    ports: ["8020:8020"]
+    # 同上：Dify 走内网服务名，服务器上绑 127.0.0.1 即可
+    ports: ["${TB_BIND:-0.0.0.0}:${TB_HOST_PORT:-8020}:8020"]
     networks: [backend]
     extra_hosts:
       - "host.docker.internal:host-gateway"
