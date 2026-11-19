@@ -92,6 +92,20 @@
   ⚠️ 仓库为**私有**（个人版推送自动创建的仓库默认私有）——**服务器需先 `docker login` 一次**
   （凭证持久保存，之后构建自动带上）；或把三个仓库改为公开可免登录。
   > ⚠️ 2026-10-15 复核更正：此前"公开可拉"是误判（当时只查"有没有 token"、未解码权限）。
+### 2.4 新机器首次构建 comic-app 会因 ACR 未登录而失败
+- **日期**：2026-11-19
+- **现象**：`docker compose -f deploy/docker-compose.yml build comic-app` 报
+  `pull access denied ... crpi-zu4tna9y8drenzc4.cn-hangzhou.personal.cr.aliyuncs.com/comic-website/python:3.13-slim`；
+  ACR 主机本身是通的（匿名请求 `/v2/` 返回 401，说明网络没问题、只是缺认证）。
+- **原因**：ACR 仓库为私有，本机 `~/.docker/config.json` 里没有任何 `auths` 记录。
+- **处理**：`docker login crpi-zu4tna9y8drenzc4.cn-hangzhou.personal.cr.aliyuncs.com`
+  （用户名=阿里云账号或 RAM 子账号；密码=ACR 控制台「访问凭证」里的**固定密码**，不是阿里云登录密码）。
+  登录后凭据持久保存，之后构建自动带上。
+- **临时替代**：`deploy/api/Dockerfile` 的 `FROM` 已参数化为 `ARG BASE_IMAGE`（默认 ACR）。
+  没有凭据时可临时 `--build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.13-slim`，
+  或在 `deploy/.env` 里设 `COMIC_BASE_IMAGE` 覆盖 —— 但那样底座与线上不同源，只适合联调。
+- **核对方式**：`docker image inspect comic-api:1.0.0 --format '{{json .RootFS.Layers}}'` 的前 4 层
+  应与 ACR 基础镜像完全一致（2026-11-19 实测一致）。
   > 纯匿名实测：token 为空权限（`access: []`）、匿名拉 manifest 被 401 拒。
 - **基础镜像升级流程**（以后要动版本时）：
   1. 本机拉新版本（如 `docker pull python:3.14-slim`），同步改 `push-base-images.sh` 里的标签；
