@@ -378,6 +378,9 @@ services:
       - ./qq-bot/langbot/data/plugins:/app/data/plugins
       - ./qq-bot/langbot/data/plugin-runtime:/app/data/plugin-runtime
     ports: ["5401:5401"]
+    # DifyAgent 插件跑在这个容器里，要回连宿主上的 Dify(8088)；Linux 无此域名，需显式映射
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       backend:
         # LangBot 默认按这个主机名找插件运行时（其官方 compose 的容器名），用别名兼容
