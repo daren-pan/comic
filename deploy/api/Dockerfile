@@ -23,7 +23,10 @@
 
 # 基础镜像来自**本项目 ACR**（deploy/push-base-images.sh 推送）—— 不再依赖 m.daocloud.io
 # 等公共代理（间歇性 502 会让构建"时好时坏"，见 deploy/NOTES.md §2.2/§2.3）。
-FROM crpi-zu4tna9y8drenzc4.cn-hangzhou.personal.cr.aliyuncs.com/comic-website/python:3.13-slim
+# 基础镜像默认用本项目 ACR（服务器上已登录，见 deploy/push-base-images.sh）。
+# 本地/CI 没有 ACR 凭据时，用 --build-arg BASE_IMAGE=docker.m.daocloud.io/library/python:3.13-slim 覆盖。
+ARG BASE_IMAGE=crpi-zu4tna9y8drenzc4.cn-hangzhou.personal.cr.aliyuncs.com/comic-website/python:3.13-slim
+FROM ${BASE_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

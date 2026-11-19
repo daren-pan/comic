@@ -123,6 +123,9 @@ services:
       # api-service/pyproject.toml 里 dependencies 的 `comic-core>=1.0.0` 与 `comic-crawler>=1.0.0`。
       # ⚠️ 两个都不能漏：少了 core，pip 装 comic-crawler 时解析 Requires-Dist 会去 PyPI 找
       #    comic-core 并直接报错。路径按本 compose 文件所在目录解析。
+      args:
+        # 默认 ACR；本地没有凭据时在 deploy/.env 里覆盖成公共 mirror
+        BASE_IMAGE: ${COMIC_BASE_IMAGE:-crpi-zu4tna9y8drenzc4.cn-hangzhou.personal.cr.aliyuncs.com/comic-website/python:3.13-slim}
       additional_contexts:
         core: ./core
         crawler: ./crawler
@@ -148,8 +151,10 @@ services:
     # frontend 网络给前端入口的 nginx 反代用（upstream comic-app:8000 在构建期不解析、
     # 运行期才需要，所以这里必须在同一网络上）。
     networks: [backend, frontend]
-    # 默认只在编排网络内暴露（经前端 nginx 访问）。想在本机直连调试再打开这行：
-    # ports: ["127.0.0.1:8000:8000"]
+    # 默认只在编排网络内暴露（经前端 nginx 访问）。
+    # 但 Dify 的 HTTP 节点要经 host.docker.internal:8000 访问漫画接口 —— 必须发布到宿主；
+    # 服务器上请用防火墙把 8000 限制在内网（本服务自身不做 IP 白名单）。
+    ports: ["${API_HOST_PORT:-8000}:8000"]
 
   # ---------------- TaskBridge（Dify 3 号线的执行器）----------------
   # 收到「改代码」指令 → 建分支 → 跑 opencode → 出 diff → 等人工确认 → 提交。
@@ -174,34 +179,6 @@ services:
       - ../:/repo
       - taskbridge_oc:/root/ocdata
     ports: ["8020:8020"]
-    networks: [backend]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-
-  # ---------------- 开发用 API 容器（源码挂载，映射宿主 8000）----------------
-  # 用途：Dify 的 HTTP 节点经 host.docker.internal:8000 访问漫画接口。comic-app 不映射宿主
-  # 端口、且镜像依赖 wheel 构建；本服务只装依赖、代码挂载，改完重启即可。
-  # 启动：docker compose -f deploy/docker-compose.yml --profile local up -d comic-app-dev
-  comic-app-dev:
-    profiles: ["local"]
-    image: comic-api-src:1.0.0
-    container_name: comic-app-dev
-    build:
-      context: ..
-      dockerfile: deploy/api-src/Dockerfile
-    restart: unless-stopped
-    environment:
-      <<: *app-env
-    volumes:
-      - ../api-service:/repo/api-service
-      - ../comic-core:/repo/comic-core
-      - ../crawler-service:/repo/crawler-service
-      - ${COMIC_DATA_HOST:-../crawler-service/data}:/data
-    ports: ["8000:8000"]
-    depends_on:
-      comic-mysql:
-        condition: service_healthy
     networks: [backend]
     extra_hosts:
       - "host.docker.internal:host-gateway"
