@@ -27,13 +27,13 @@ RUN apt-get update \
 RUN pip3 install --no-cache-dir --break-system-packages fastapi uvicorn pydantic \
  && npm install -g opencode-ai
 
-# 容器内以 root 操作挂进来的仓库：git 会因「目录属主不符」拒绝，提前放行
-# 仓库从 Windows 宿主挂进来（工作区是 CRLF）：容器里的 git 若不按同样的换行策略解释，
-# 会把**整仓 400+ 个文件**都当成已修改 —— 基线被污染后，真实改动反而被过滤成「无改动」。
-# fileMode 同理：WSL 挂载的可执行位与宿主不一致，也会产生假改动。
+# 容器内以 root 操作挂进来的仓库：git 会因「目录属主不符」拒绝，提前放行。
+# 换行策略必须与索引一致（索引是 LF）：容器里若开 autocrlf，checkout 任务分支会把
+# 文件写成 CRLF，丢弃后 `git status` 会显示整份文件被改写（实测 638 行假改动）。
+# fileMode 同理：挂载的可执行位与索引不一致，也会产生假改动。
 RUN git config --global --add safe.directory /repo \
  && git config --global --add safe.directory '*' \
- && git config --global core.autocrlf true \
+ && git config --global core.autocrlf false \
  && git config --global core.fileMode false \
  && git config --global user.name 'taskbridge' \
  && git config --global user.email 'taskbridge@local'
