@@ -318,7 +318,8 @@ services:
     environment:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
       # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
-      - ACCOUNT=1096682643
+      # 快速登录用哪个账号（宿主 qq-bot/napcat/config/onebot11_<QQ>.json 同名）
+      - ACCOUNT=${NAPCAT_ACCOUNT:-1502759312}
     ports:
       - "6099:6099"     # WebUI：扫码登录 + 网络配置
       - "3001:3001"     # OneBot 正向 WS（本项目走反向 WS，用不到）
@@ -339,7 +340,6 @@ services:
     environment:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
       # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
-      - ACCOUNT=1096682643
       # 插件依赖在容器里用 pip/uv 现装；默认 PyPI 在国内很慢，会让首次握手超过
       # LangBot 的 180 秒就绪超时（表现为「did not become ready」+ 反复重连）
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
@@ -371,7 +371,6 @@ services:
     environment:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
       # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
-      - ACCOUNT=1096682643
       # 插件依赖在容器里用 pip/uv 现装；默认 PyPI 在国内很慢，会让首次握手超过
       # LangBot 的 180 秒就绪超时（表现为「did not become ready」+ 反复重连）
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
