@@ -221,4 +221,23 @@
   已污染的工作区修法：容器/宿主仓库级设 `core.autocrlf false` 后 `git checkout -- <文件>`。
 - **实测**：修复前后同一文件的 `diff_stat` 从 `638 insertions(+)` 变成 `1 insertion(+)`。
 
+### 3.11 换官方机器人后必须同步换掉推送通道，否则结果永远收不到（2026-11-23）
+
+- **现象**：QQ 里发「3 改个东西」，只回「已受理，稍后把答案发给你」，之后**没有任何消息**；
+  再发「进度」才拿到结果。TaskBridge 日志刷
+  `[notify] private:1919136018 推送失败：ConnectionResetError: [Errno 104] Connection reset by peer`。
+- **根因**：接入方式在 11-20 换成了 QQ **官方**机器人（LangBot 里 `qqofficial-omni` 适配器），
+  但 TaskBridge 的主动推送还指着 NapCat 的 OneBot HTTP（`host.docker.internal:3000`）。
+  NapCat 停用后 3000 只剩 docker-proxy，连上就被 RST；而且 `private:<QQ号>` 这种目标官方
+  API 也不认——官方用的是 `openid`（LangBot 会话 id 里 `person_` 后面那段）。
+- **结论**：推送改成官方 API（`notify.py` 的 `qqofficial` 通道）：
+  `POST /app/getAppAccessToken` 换 token（2 小时，提前 60 秒刷新）→
+  `POST /v2/users/{openid}/messages`，**不带 `msg_id` 就是主动消息**，不需要用户先说话。
+  同时把 NapCat 从 compose 里整体删除（连带 3000/3001/6099 端口）。
+- **注意**：① 取 token 失败也返回 HTTP 200，只能看 body 有没有 `access_token`；
+  ② 主动消息受用户客户端「允许主动发送」开关控制，关了会 `40034105`/`40054013`；
+  ③ 文本超长 `40054007`，推送前按 `TB_PUSH_MAX_CHARS` 截断。
+- **实测**：同一套 appid/secret 发一条测试消息，`HTTP 200` 且返回 message id；容器到
+  `api.bot.qq.com` 出网正常（connect 0.015s）。
+
 ---

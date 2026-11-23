@@ -3,7 +3,7 @@
 ## 定位
 把「QQ 群里一句话」变成「仓库里一次可审阅的改动」。它是 Dify 与 coding agent 之间的任务网关，**不参与对话理解**。
 
-链路：`QQ → NapCat → LangBot（OneBot v11 流水线）→ Dify Chatflow → TaskBridge → opencode CLI + 模型`
+链路：`QQ（官方机器人 API）→ LangBot（qqofficial-omni 适配器）→ Dify Chatflow → TaskBridge → opencode CLI + 模型`
 
 ## 模块结构
 本模块是独立目录（不再挂在 `tools/` 下）：`run.py` 是入口，`taskbridge/` 是包本体。`run.py` 把自己的上级目录塞进 `sys.path`，所以 `python taskbridge-service/run.py` 就能直接跑，不需要安装成包。
@@ -96,7 +96,9 @@ curl http://127.0.0.1:8020/healthz
 | `TB_HOST` / `TB_PORT` | `0.0.0.0` / `8020` | 监听地址 |
 | `TB_OPENCODE_BIN` | `opencode` | opencode 可执行文件（容器里是 `/usr/local/bin/opencode`） |
 | `TB_XDG_ROOT` | `logs/taskbridge/ocdata` | opencode 的数据目录（**跨平台不通用**，容器里指到独立卷） |
-| `TB_PUSH_BASE` / `TB_PUSH_TOKEN` / `TB_PUSH_TARGETS` | 空 | 主动推送通道（NapCat 的 OneBot HTTP） |
+| `TB_PUSH_CHANNEL` | `qqofficial` | 主动推送通道：`qqofficial`（官方 API）或 `onebot`（NapCat 遗留，已停用） |
+| `TB_QQ_APPID` / `TB_QQ_SECRET` / `TB_QQ_OPENIDS` | 空 | 官方机器人凭据与推送目标 **openid**（不是 QQ 号） |
+| `TB_PUSH_MAX_CHARS` | `800` | 单条推送文本上限，超出截断（官方超长会 40054007） |
 | `TB_GIT_PUSH` | `true` | apply 后是否自动把 `main` 推到远端 |
 | `TB_GIT_REMOTE` / `TB_GIT_BRANCH` | `origin` / `main` | 推哪个远端、哪个分支 |
 | `TB_GIT_PUSH_TIMEOUT` | `120` | 推送超时（秒），避免队列卡死 |

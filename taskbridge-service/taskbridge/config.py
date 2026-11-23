@@ -98,11 +98,22 @@ HOST = os.environ.get("TB_HOST", "0.0.0.0")
 PORT = int(os.environ.get("TB_PORT", "8020"))
 
 # ---- 主动推送（任务收尾时直接发 QQ，不再靠轮询）----
-#: NapCat 的 OneBot HTTP 服务地址（容器内互访用服务名）
-PUSH_BASE = os.environ.get("TB_PUSH_BASE", "http://comic-napcat:3000")
-#: 与 NapCat `httpServers[].token` 一致
+#: 通道：`qqofficial`（QQ 官方机器人 API，唯一在用的）| `onebot`（NapCat 遗留，2026-11-23 已停用）
+PUSH_CHANNEL = os.environ.get("TB_PUSH_CHANNEL", "qqofficial").strip().lower()
+#: 官方机器人的 appid / secret（开放平台拿；与 LangBot 里配的是同一套）
+QQ_APPID = os.environ.get("TB_QQ_APPID", "").strip()
+QQ_SECRET = os.environ.get("TB_QQ_SECRET", "").strip()
+#: 推送目标 openid（官方适配器下的用户标识，**不是 QQ 号**），逗号分隔
+QQ_OPENIDS = tuple(t.strip() for t in os.environ.get("TB_QQ_OPENIDS", "").split(",") if t.strip())
+#: 官方 API：取 token 与发消息的地址（2026-11 文档）
+QQ_TOKEN_URL = os.environ.get("TB_QQ_TOKEN_URL", "https://api.bot.qq.com/app/getAppAccessToken")
+QQ_API_BASE = os.environ.get("TB_QQ_API_BASE", "https://api.bot.qq.com")
+#: 单条文本上限：超长会被官方以 40054007 拒收，超出部分截断并提示发「进度」
+PUSH_MAX_CHARS = int(os.environ.get("TB_PUSH_MAX_CHARS", "800"))
+
+# ---- 遗留：NapCat 的 OneBot HTTP 通道（默认不用，留着只为回滚）----
+PUSH_BASE = os.environ.get("TB_PUSH_BASE", "")
 PUSH_TOKEN = os.environ.get("TB_PUSH_TOKEN", "")
-#: 推送目标，逗号分隔；`private:<QQ号>` 或 `group:<群号>`
 PUSH_TARGETS = tuple(
     t.strip() for t in os.environ.get("TB_PUSH_TARGETS", "").split(",") if t.strip()
 )

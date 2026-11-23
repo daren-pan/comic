@@ -170,10 +170,12 @@ services:
     restart: unless-stopped
     environment:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
-      # 推送通道：NapCat 的 OneBot HTTP（容器内走宿主网关）
-      - TB_PUSH_BASE=${TB_PUSH_BASE:-http://host.docker.internal:3000}
-      - TB_PUSH_TOKEN=${TB_PUSH_TOKEN:-}
-      - TB_PUSH_TARGETS=${TB_PUSH_TARGETS:-}
+      # 结果推送：QQ 官方机器人 API（主动消息）。openid 是官方适配器下的用户标识，
+      # 与旧 NapCat 的 QQ 号不通用；token 由 TaskBridge 自己换（缓存 2 小时）。
+      - TB_PUSH_CHANNEL=${TB_PUSH_CHANNEL:-qqofficial}
+      - TB_QQ_APPID=${TB_QQ_APPID:-}
+      - TB_QQ_SECRET=${TB_QQ_SECRET:-}
+      - TB_QQ_OPENIDS=${TB_QQ_OPENIDS:-}
       # opencode 的库不跨平台：容器用独立目录（下面挂命名卷），别和宿主的 ocdata 混用
       - TB_XDG_ROOT=/root/ocdata
     volumes:
@@ -185,8 +187,6 @@ services:
     # 同上：Dify 走内网服务名，服务器上绑 127.0.0.1 即可
     ports: ["${TB_BIND:-0.0.0.0}:${TB_HOST_PORT:-8020}:8020"]
     networks: [backend]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
 
   # ---------------- 网页端入口（comic-web 产物 + 自带 nginx）----------------
@@ -301,37 +301,14 @@ services:
       retries: 3
       start_period: 40s
 
-  # ---------------- QQ 机器人（NapCat 协议端 + LangBot 应用层）----------------
-  # 用途：在 QQ 群里 @机器人 问项目问题（走 Dify 的知识库），后续可加"确认后执行发布"。
-  # 起：  docker compose -f deploy/docker-compose.yml up -d comic-napcat comic-langbot comic-langbot-runtime
-  # 首次：① docker logs comic-napcat 拿 WebUI token → http://localhost:6099/webui 扫码登录（**小号**）
-  #       ② LangBot 建机器人：适配器 OneBot v11、连接模式「反向 WS」、访问令牌与 NapCat 一致
-  #       ③ 把页面生成的「协议端连接地址」填进 NapCat 的 WebSocket 客户端，
-  #          注意把 127.0.0.1 换成服务名 comic-langbot（容器间不能用回环地址）
-  #       ④ LangBot 流水线 → AI 能力 → 选 Dify：base-url = http://host.docker.internal/v1
-  # 数据：deploy/qq-bot/（已 gitignore）；QQ 登录态在 napcat/QQ，LangBot 配置在 langbot/data。
-  # ⚠️ 第三方 QQ 协议端，仅个人试验；有封号风险，务必用小号、限定群与频率。
-  comic-napcat:
-    image: mlikiowa/napcat-docker:latest
-    container_name: comic-napcat
-    restart: unless-stopped
-    environment:
-      - TZ=${COMIC_TZ:-Asia/Shanghai}
-      # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
-      # 快速登录用哪个账号（宿主 qq-bot/napcat/config/onebot11_<QQ>.json 同名）
-      - ACCOUNT=${NAPCAT_ACCOUNT:-1502759312}
-    ports:
-      - "6099:6099"     # WebUI：扫码登录 + 网络配置
-      - "3001:3001"     # OneBot 正向 WS（本项目走反向 WS，用不到）
-      - "3000:3000"     # OneBot HTTP API（TaskBridge 主动推消息用）
-    volumes:
-      - ./qq-bot/napcat/config:/app/napcat/config
-      - ./qq-bot/napcat/QQ:/app/.config/QQ
-      - ./qq-bot/napcat/cache:/app/napcat/cache     # 会话/二维码缓存，重启免重扫
-      - ./qq-bot/napcat/plugins:/app/napcat/plugins
-    networks: [backend]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+  # ---------------- QQ 机器人（官方 API + LangBot 应用层）----------------
+  # 链路：QQ →（官方机器人 API，LangBot 用 qqofficial-omni 适配器）→ LangBot → Dify Chatflow
+  # 起：  docker compose -f deploy/docker-compose.yml up -d comic-langbot comic-langbot-runtime
+  # 首次：① 开放平台拿 appid/secret，LangBot 建机器人选「QQ 官方 API」适配器填进去；
+  #       ② LangBot 流水线 → AI 能力 → 选 Dify：base-url = http://host.docker.internal:8088/v1
+  # 数据：deploy/qq-bot/langbot/data（已 gitignore）。
+  # 结果推送：TaskBridge 直接调官方 API（TB_PUSH_CHANNEL=qqofficial），不再经过任何协议端。
+  # ⚠️ 2026-11-23 起 NapCat（第三方协议端，占 3000/3001/6099）已整体移除。
 
   comic-langbot:
     image: rockchin/langbot:${LANGBOT_IMAGE_TAG:-v4.11.8}
@@ -339,7 +316,6 @@ services:
     restart: unless-stopped
     environment:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
-      # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
       # 插件依赖在容器里用 pip/uv 现装；默认 PyPI 在国内很慢，会让首次握手超过
       # LangBot 的 180 秒就绪超时（表现为「did not become ready」+ 反复重连）
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
@@ -370,7 +346,6 @@ services:
     command: ["uv", "run", "--no-sync", "-m", "langbot_plugin.cli.__init__", "rt"]
     environment:
       - TZ=${COMIC_TZ:-Asia/Shanghai}
-      # NapCat entrypoint 认这个变量（不是命令行 -q）：有值即走快速登录
       # 插件依赖在容器里用 pip/uv 现装；默认 PyPI 在国内很慢，会让首次握手超过
       # LangBot 的 180 秒就绪超时（表现为「did not become ready」+ 反复重连）
       - PIP_INDEX_URL=${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
